@@ -34,27 +34,37 @@ func TestAgent_CollectMetrics(t *testing.T) {
 	agent.collectMetrics()
 
 	// Проверяем, что метрики собраны
-	assert.NotEmpty(t, agent.metrics, "Metrics should be collected")
+	totalMetrics := len(agent.metrics.Gauges) + len(agent.metrics.Counters)
+	assert.Greater(t, totalMetrics, 0, "Metrics should be collected")
 
 	// Проверяем наличие обязательных метрик
-	requiredMetrics := []string{
+	requiredGaugeMetrics := []string{
 		MetricAlloc, MetricBuckHashSys, MetricFrees, MetricGCCPUFraction, MetricGCSys,
 		MetricHeapAlloc, MetricHeapIdle, MetricHeapInuse, MetricHeapObjects, MetricHeapReleased,
 		MetricHeapSys, MetricLastGC, MetricLookups, MetricMCacheInuse, MetricMCacheSys,
 		MetricMSpanInuse, MetricMSpanSys, MetricMallocs, MetricNextGC, MetricNumForcedGC,
 		MetricNumGC, MetricOtherSys, MetricPauseTotalNs, MetricStackInuse, MetricStackSys,
-		MetricSys, MetricTotalAlloc, MetricRandomValue, MetricPollCount,
+		MetricSys, MetricTotalAlloc, MetricRandomValue,
 	}
 
-	for _, metricName := range requiredMetrics {
-		_, exists := agent.metrics[metricName]
-		assert.True(t, exists, "Required metric %s should exist", metricName)
+	requiredCounterMetrics := []string{
+		MetricPollCount,
+	}
+
+	for _, metricName := range requiredGaugeMetrics {
+		_, exists := agent.metrics.Gauges[metricName]
+		assert.True(t, exists, "Required gauge metric %s should exist", metricName)
+	}
+
+	for _, metricName := range requiredCounterMetrics {
+		_, exists := agent.metrics.Counters[metricName]
+		assert.True(t, exists, "Required counter metric %s should exist", metricName)
 	}
 
 	// Проверяем, что PollCount увеличивается
-	initialPollCount := agent.metrics[MetricPollCount].(int64)
+	initialPollCount := agent.metrics.Counters[MetricPollCount]
 	agent.collectMetrics()
-	newPollCount := agent.metrics[MetricPollCount].(int64)
+	newPollCount := agent.metrics.Counters[MetricPollCount]
 
 	assert.Equal(t, initialPollCount+1, newPollCount, "PollCount should increment")
 }
@@ -83,7 +93,8 @@ func TestAgent_CollectMetrics_ThreadSafety(t *testing.T) {
 	}
 
 	// Проверяем, что метрики собраны без ошибок
-	assert.NotEmpty(t, agent.metrics, "Metrics should be collected in thread-safe manner")
+	totalMetrics := len(agent.metrics.Gauges) + len(agent.metrics.Counters)
+	assert.Greater(t, totalMetrics, 0, "Metrics should be collected in thread-safe manner")
 }
 
 func TestAgent_Config_Validation(t *testing.T) {

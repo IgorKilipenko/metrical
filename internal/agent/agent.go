@@ -27,7 +27,7 @@ type MetricValue struct {
 // Agent агент для сбора и отправки метрик
 type Agent struct {
 	config     *Config
-	metrics    map[string]any
+	metrics    *Metrics
 	mu         sync.RWMutex
 	httpClient *http.Client
 }
@@ -36,7 +36,7 @@ type Agent struct {
 func NewAgent(config *Config) *Agent {
 	return &Agent{
 		config:  config,
-		metrics: make(map[string]any),
+		metrics: NewMetrics(),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -83,7 +83,8 @@ func (a *Agent) collectMetrics() {
 	// Обновляем counter метрики
 	UpdateCounterMetrics(a.metrics)
 
-	log.Printf("Collected %d metrics", len(a.metrics))
+	totalMetrics := len(a.metrics.Gauges) + len(a.metrics.Counters)
+	log.Printf("Collected %d metrics", totalMetrics)
 }
 
 // reportMetrics отправляет метрики на сервер
@@ -99,10 +100,7 @@ func (a *Agent) reportMetrics() {
 // sendMetrics отправляет все метрики на сервер
 func (a *Agent) sendMetrics() {
 	a.mu.RLock()
-	metrics := make(map[string]interface{}, len(a.metrics))
-	for k, v := range a.metrics {
-		metrics[k] = v
-	}
+	metrics := a.metrics.GetAllMetrics()
 	a.mu.RUnlock()
 
 	for name, value := range metrics {
