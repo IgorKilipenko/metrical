@@ -5,13 +5,21 @@ import (
 	"runtime"
 )
 
-// Metrics структура для хранения метрик
+// Metrics структура для хранения метрик.
+// Содержит отдельные map'ы для gauge и counter метрик.
 type Metrics struct {
-	Gauges   map[string]float64
+	// Gauges содержит gauge метрики (заменяют предыдущие значения)
+	Gauges map[string]float64
+
+	// Counters содержит counter метрики (накапливают значения)
 	Counters map[string]int64
 }
 
-// NewMetrics создает новый экземпляр Metrics
+// NewMetrics создает новый экземпляр Metrics.
+// Инициализирует пустые map'ы для gauge и counter метрик.
+//
+// Возвращает:
+//   - *Metrics: указатель на новую структуру Metrics
 func NewMetrics() *Metrics {
 	return &Metrics{
 		Gauges:   make(map[string]float64),
@@ -22,46 +30,113 @@ func NewMetrics() *Metrics {
 // Константы для имен метрик runtime
 const (
 	// Gauge метрики из runtime.MemStats
-	MetricAlloc         = "Alloc"
-	MetricBuckHashSys   = "BuckHashSys"
-	MetricFrees         = "Frees"
+
+	// MetricAlloc - текущее количество байт, выделенных и еще не освобожденных
+	MetricAlloc = "Alloc"
+
+	// MetricBuckHashSys - количество байт, используемых хеш-таблицами профилирования
+	MetricBuckHashSys = "BuckHashSys"
+
+	// MetricFrees - общее количество освобождений памяти
+	MetricFrees = "Frees"
+
+	// MetricGCCPUFraction - доля времени CPU, затраченного на сборку мусора
 	MetricGCCPUFraction = "GCCPUFraction"
-	MetricGCSys         = "GCSys"
-	MetricHeapAlloc     = "HeapAlloc"
-	MetricHeapIdle      = "HeapIdle"
-	MetricHeapInuse     = "HeapInuse"
-	MetricHeapObjects   = "HeapObjects"
-	MetricHeapReleased  = "HeapReleased"
-	MetricHeapSys       = "HeapSys"
-	MetricLastGC        = "LastGC"
-	MetricLookups       = "Lookups"
-	MetricMCacheInuse   = "MCacheInuse"
-	MetricMCacheSys     = "MCacheSys"
-	MetricMSpanInuse    = "MSpanInuse"
-	MetricMSpanSys      = "MSpanSys"
-	MetricMallocs       = "Mallocs"
-	MetricNextGC        = "NextGC"
-	MetricNumForcedGC   = "NumForcedGC"
-	MetricNumGC         = "NumGC"
-	MetricOtherSys      = "OtherSys"
-	MetricPauseTotalNs  = "PauseTotalNs"
-	MetricStackInuse    = "StackInuse"
-	MetricStackSys      = "StackSys"
-	MetricSys           = "Sys"
-	MetricTotalAlloc    = "TotalAlloc"
+
+	// MetricGCSys - количество байт, используемых системой сборки мусора
+	MetricGCSys = "GCSys"
+
+	// MetricHeapAlloc - количество байт в использовании heap
+	MetricHeapAlloc = "HeapAlloc"
+
+	// MetricHeapIdle - количество байт в неиспользуемых span'ах
+	MetricHeapIdle = "HeapIdle"
+
+	// MetricHeapInuse - количество байт в используемых span'ах
+	MetricHeapInuse = "HeapInuse"
+
+	// MetricHeapObjects - количество выделенных объектов
+	MetricHeapObjects = "HeapObjects"
+
+	// MetricHeapReleased - количество байт, возвращенных операционной системе
+	MetricHeapReleased = "HeapReleased"
+
+	// MetricHeapSys - общее количество байт, полученных от операционной системы
+	MetricHeapSys = "HeapSys"
+
+	// MetricLastGC - время последней сборки мусора в наносекундах
+	MetricLastGC = "LastGC"
+
+	// MetricLookups - количество указателей, просмотренных runtime
+	MetricLookups = "Lookups"
+
+	// MetricMCacheInuse - количество байт в используемых mcache структурах
+	MetricMCacheInuse = "MCacheInuse"
+
+	// MetricMCacheSys - количество байт, используемых mcache структурами
+	MetricMCacheSys = "MCacheSys"
+
+	// MetricMSpanInuse - количество байт в используемых mspan структурах
+	MetricMSpanInuse = "MSpanInuse"
+
+	// MetricMSpanSys - количество байт, используемых mspan структурами
+	MetricMSpanSys = "MSpanSys"
+
+	// MetricMallocs - общее количество аллокаций памяти
+	MetricMallocs = "Mallocs"
+
+	// MetricNextGC - целевое значение heap size для следующей сборки мусора
+	MetricNextGC = "NextGC"
+
+	// MetricNumForcedGC - количество принудительных сборок мусора
+	MetricNumForcedGC = "NumForcedGC"
+
+	// MetricNumGC - количество завершенных сборок мусора
+	MetricNumGC = "NumGC"
+
+	// MetricOtherSys - количество байт, используемых другими системными аллокациями
+	MetricOtherSys = "OtherSys"
+
+	// MetricPauseTotalNs - общее время пауз сборки мусора в наносекундах
+	MetricPauseTotalNs = "PauseTotalNs"
+
+	// MetricStackInuse - количество байт в использовании stack
+	MetricStackInuse = "StackInuse"
+
+	// MetricStackSys - количество байт, полученных от ОС для stack
+	MetricStackSys = "StackSys"
+
+	// MetricSys - общее количество байт, полученных от операционной системы
+	MetricSys = "Sys"
+
+	// MetricTotalAlloc - общее количество аллокаций памяти
+	MetricTotalAlloc = "TotalAlloc"
 
 	// Дополнительные метрики
+
+	// MetricRandomValue - случайное значение от 0 до 1 для тестирования
 	MetricRandomValue = "RandomValue"
-	MetricPollCount   = "PollCount"
+
+	// MetricPollCount - счетчик обновлений метрик (накапливается)
+	MetricPollCount = "PollCount"
 )
 
 // Типы метрик
 const (
-	MetricTypeGauge   = "gauge"
+	// MetricTypeGauge - тип метрики gauge (заменяет предыдущее значение)
+	MetricTypeGauge = "gauge"
+
+	// MetricTypeCounter - тип метрики counter (накапливает значения)
 	MetricTypeCounter = "counter"
 )
 
-// FillRuntimeMetrics заполняет структуру метриками из runtime.MemStats
+// FillRuntimeMetrics заполняет структуру метриками из runtime.MemStats.
+// Принимает указатель на Metrics и структуру runtime.MemStats.
+// Заполняет все 27 gauge метрик из runtime пакета.
+//
+// Параметры:
+//   - metrics: указатель на структуру Metrics для заполнения
+//   - memStats: структура runtime.MemStats с данными о памяти
 func FillRuntimeMetrics(metrics *Metrics, memStats runtime.MemStats) {
 	// Gauge метрики из runtime
 	metrics.Gauges[MetricAlloc] = float64(memStats.Alloc)
@@ -93,17 +168,32 @@ func FillRuntimeMetrics(metrics *Metrics, memStats runtime.MemStats) {
 	metrics.Gauges[MetricTotalAlloc] = float64(memStats.TotalAlloc)
 }
 
-// FillAdditionalMetrics заполняет структуру дополнительными метриками
+// FillAdditionalMetrics заполняет структуру дополнительными метриками.
+// Добавляет RandomValue - случайное значение от 0 до 1.
+// Используется для тестирования и демонстрации.
+//
+// Параметры:
+//   - metrics: указатель на структуру Metrics для заполнения
 func FillAdditionalMetrics(metrics *Metrics) {
 	metrics.Gauges[MetricRandomValue] = rand.Float64()
 }
 
-// UpdateCounterMetrics обновляет counter метрики (накапливает значения)
+// UpdateCounterMetrics обновляет counter метрики (накапливает значения).
+// Увеличивает PollCount на 1 при каждом вызове.
+// PollCount используется для отслеживания количества обновлений метрик.
+//
+// Параметры:
+//   - metrics: указатель на структуру Metrics для обновления
 func UpdateCounterMetrics(metrics *Metrics) {
 	metrics.Counters[MetricPollCount]++
 }
 
-// GetAllMetrics возвращает все метрики в виде map[string]any для совместимости
+// GetAllMetrics возвращает все метрики в виде map[string]any для совместимости.
+// Объединяет gauge и counter метрики в один map.
+// Используется для отправки метрик на сервер.
+//
+// Возвращает:
+//   - map[string]any: объединенный map всех метрик
 func (m *Metrics) GetAllMetrics() map[string]any {
 	result := make(map[string]any)
 
