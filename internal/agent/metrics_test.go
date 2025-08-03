@@ -17,111 +17,254 @@ func TestNewMetrics(t *testing.T) {
 }
 
 func TestMetrics_GetAllMetrics(t *testing.T) {
-	metrics := NewMetrics()
+	tests := []struct {
+		name            string
+		gaugeMetrics    map[string]float64
+		counterMetrics  map[string]int64
+		expectedCount   int
+		expectedGauge   float64
+		expectedCounter int64
+	}{
+		{
+			name: "Single gauge and counter",
+			gaugeMetrics: map[string]float64{
+				"test_gauge": 123.45,
+			},
+			counterMetrics: map[string]int64{
+				"test_counter": 678,
+			},
+			expectedCount:   2,
+			expectedGauge:   123.45,
+			expectedCounter: 678,
+		},
+		{
+			name: "Multiple metrics",
+			gaugeMetrics: map[string]float64{
+				"gauge1": 1.1,
+				"gauge2": 2.2,
+			},
+			counterMetrics: map[string]int64{
+				"counter1": 100,
+				"counter2": 200,
+			},
+			expectedCount:   4,
+			expectedGauge:   1.1,
+			expectedCounter: 100,
+		},
+		{
+			name:           "Empty metrics",
+			gaugeMetrics:   map[string]float64{},
+			counterMetrics: map[string]int64{},
+			expectedCount:  0,
+		},
+	}
 
-	// Добавляем тестовые метрики
-	metrics.Gauges["test_gauge"] = 123.45
-	metrics.Counters["test_counter"] = 678
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			metrics := NewMetrics()
 
-	// Получаем все метрики
-	allMetrics := metrics.GetAllMetrics()
+			// Добавляем тестовые метрики
+			for name, value := range tt.gaugeMetrics {
+				metrics.Gauges[name] = value
+			}
+			for name, value := range tt.counterMetrics {
+				metrics.Counters[name] = value
+			}
 
-	// Проверяем, что все метрики присутствуют
-	assert.Equal(t, 123.45, allMetrics["test_gauge"])
-	assert.Equal(t, int64(678), allMetrics["test_counter"])
-	assert.Len(t, allMetrics, 2, "Should have 2 metrics total")
+			// Получаем все метрики
+			allMetrics := metrics.GetAllMetrics()
+
+			// Проверяем количество метрик
+			assert.Len(t, allMetrics, tt.expectedCount, "Should have correct number of metrics")
+
+			// Проверяем конкретные значения для непустых тестов
+			if tt.expectedCount > 0 {
+				if len(tt.gaugeMetrics) > 0 {
+					for name, expectedValue := range tt.gaugeMetrics {
+						assert.Equal(t, expectedValue, allMetrics[name], "Gauge metric %s should match", name)
+					}
+				}
+				if len(tt.counterMetrics) > 0 {
+					for name, expectedValue := range tt.counterMetrics {
+						assert.Equal(t, expectedValue, allMetrics[name], "Counter metric %s should match", name)
+					}
+				}
+			}
+		})
+	}
 }
 
 func TestFillRuntimeMetrics(t *testing.T) {
-	// Создаем тестовую структуру метрик
-	metrics := NewMetrics()
-
-	// Создаем тестовые MemStats
-	var memStats runtime.MemStats
-	memStats.Alloc = 1024
-	memStats.HeapAlloc = 2048
-	memStats.NumGC = 5
-	memStats.GCCPUFraction = 0.1
-
-	// Заполняем метрики
-	FillRuntimeMetrics(metrics, memStats)
-
-	// Проверяем, что метрики заполнены
-	assert.Equal(t, float64(1024), metrics.Gauges[MetricAlloc])
-	assert.Equal(t, float64(2048), metrics.Gauges[MetricHeapAlloc])
-	assert.Equal(t, float64(5), metrics.Gauges[MetricNumGC])
-	assert.Equal(t, 0.1, metrics.Gauges[MetricGCCPUFraction])
-
-	// Проверяем количество метрик
-	expectedCount := 27 // 27 runtime метрик из FillRuntimeMetrics
-	assert.Len(t, metrics.Gauges, expectedCount)
-
-	// Проверяем, что все обязательные метрики присутствуют
-	requiredMetrics := []string{
-		MetricAlloc, MetricBuckHashSys, MetricFrees, MetricGCCPUFraction, MetricGCSys,
-		MetricHeapAlloc, MetricHeapIdle, MetricHeapInuse, MetricHeapObjects, MetricHeapReleased,
-		MetricHeapSys, MetricLastGC, MetricLookups, MetricMCacheInuse, MetricMCacheSys,
-		MetricMSpanInuse, MetricMSpanSys, MetricMallocs, MetricNextGC, MetricNumForcedGC,
-		MetricNumGC, MetricOtherSys, MetricPauseTotalNs, MetricStackInuse, MetricStackSys,
-		MetricSys, MetricTotalAlloc,
+	tests := []struct {
+		name     string
+		memStats runtime.MemStats
+		expected map[string]float64
+	}{
+		{
+			name: "Basic metrics",
+			memStats: runtime.MemStats{
+				Alloc:         1024,
+				HeapAlloc:     2048,
+				NumGC:         5,
+				GCCPUFraction: 0.1,
+			},
+			expected: map[string]float64{
+				MetricAlloc:         1024,
+				MetricHeapAlloc:     2048,
+				MetricNumGC:         5,
+				MetricGCCPUFraction: 0.1,
+			},
+		},
+		{
+			name:     "Zero values",
+			memStats: runtime.MemStats{},
+			expected: map[string]float64{
+				MetricAlloc:         0,
+				MetricHeapAlloc:     0,
+				MetricNumGC:         0,
+				MetricGCCPUFraction: 0,
+			},
+		},
+		{
+			name: "Large values",
+			memStats: runtime.MemStats{
+				Alloc:         999999999,
+				HeapAlloc:     888888888,
+				NumGC:         1000,
+				GCCPUFraction: 0.99,
+			},
+			expected: map[string]float64{
+				MetricAlloc:         999999999,
+				MetricHeapAlloc:     888888888,
+				MetricNumGC:         1000,
+				MetricGCCPUFraction: 0.99,
+			},
+		},
 	}
 
-	for _, metricName := range requiredMetrics {
-		_, exists := metrics.Gauges[metricName]
-		assert.True(t, exists, "Required metric %s should exist", metricName)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			metrics := NewMetrics()
+
+			// Заполняем метрики
+			FillRuntimeMetrics(metrics, tt.memStats)
+
+			// Проверяем количество метрик
+			expectedCount := 27 // 27 runtime метрик из FillRuntimeMetrics
+			assert.Len(t, metrics.Gauges, expectedCount, "Should have correct number of runtime metrics")
+
+			// Проверяем конкретные значения
+			for metricName, expectedValue := range tt.expected {
+				assert.Equal(t, expectedValue, metrics.Gauges[metricName],
+					"Metric %s should match expected value", metricName)
+			}
+
+			// Проверяем, что все обязательные метрики присутствуют
+			requiredMetrics := []string{
+				MetricAlloc, MetricBuckHashSys, MetricFrees, MetricGCCPUFraction, MetricGCSys,
+				MetricHeapAlloc, MetricHeapIdle, MetricHeapInuse, MetricHeapObjects, MetricHeapReleased,
+				MetricHeapSys, MetricLastGC, MetricLookups, MetricMCacheInuse, MetricMCacheSys,
+				MetricMSpanInuse, MetricMSpanSys, MetricMallocs, MetricNextGC, MetricNumForcedGC,
+				MetricNumGC, MetricOtherSys, MetricPauseTotalNs, MetricStackInuse, MetricStackSys,
+				MetricSys, MetricTotalAlloc,
+			}
+
+			for _, metricName := range requiredMetrics {
+				_, exists := metrics.Gauges[metricName]
+				assert.True(t, exists, "Required metric %s should exist", metricName)
+			}
+		})
 	}
 }
 
 func TestFillAdditionalMetrics(t *testing.T) {
-	// Создаем тестовую структуру метрик
-	metrics := NewMetrics()
+	tests := []struct {
+		name          string
+		iterations    int
+		expectedCount int
+	}{
+		{
+			name:          "Single iteration",
+			iterations:    1,
+			expectedCount: 1,
+		},
+		{
+			name:          "Multiple iterations",
+			iterations:    5,
+			expectedCount: 1, // RandomValue перезаписывается каждый раз
+		},
+	}
 
-	// Заполняем дополнительные метрики
-	FillAdditionalMetrics(metrics)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			metrics := NewMetrics()
 
-	// Проверяем, что метрика добавлена
-	_, exists := metrics.Gauges[MetricRandomValue]
-	assert.True(t, exists, "RandomValue metric should exist")
+			// Заполняем дополнительные метрики несколько раз
+			for i := 0; i < tt.iterations; i++ {
+				FillAdditionalMetrics(metrics)
+			}
 
-	// Проверяем тип значения
-	value := metrics.Gauges[MetricRandomValue]
-	assert.GreaterOrEqual(t, value, 0.0, "RandomValue should be >= 0")
-	assert.Less(t, value, 1.0, "RandomValue should be < 1")
+			// Проверяем, что метрика добавлена
+			_, exists := metrics.Gauges[MetricRandomValue]
+			assert.True(t, exists, "RandomValue metric should exist")
 
-	// Проверяем количество метрик
-	assert.Len(t, metrics.Gauges, 1, "Should have exactly 1 additional metric")
+			// Проверяем тип значения
+			value := metrics.Gauges[MetricRandomValue]
+			assert.GreaterOrEqual(t, value, 0.0, "RandomValue should be >= 0")
+			assert.Less(t, value, 1.0, "RandomValue should be < 1")
+
+			// Проверяем количество метрик
+			assert.Len(t, metrics.Gauges, tt.expectedCount, "Should have correct number of additional metrics")
+		})
+	}
 }
 
 func TestUpdateCounterMetrics(t *testing.T) {
-	// Создаем тестовую структуру метрик
-	metrics := NewMetrics()
+	tests := []struct {
+		name           string
+		initialValue   int64
+		iterations     int
+		expectedValues []int64
+	}{
+		{
+			name:           "Start from zero",
+			initialValue:   0,
+			iterations:     3,
+			expectedValues: []int64{1, 2, 3},
+		},
+		{
+			name:           "Start from existing value",
+			initialValue:   100,
+			iterations:     2,
+			expectedValues: []int64{101, 102},
+		},
+		{
+			name:           "Single iteration",
+			initialValue:   0,
+			iterations:     1,
+			expectedValues: []int64{1},
+		},
+	}
 
-	// Первое обновление - должно установить значение 1
-	UpdateCounterMetrics(metrics)
-	assert.Equal(t, int64(1), metrics.Counters[MetricPollCount])
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			metrics := NewMetrics()
 
-	// Второе обновление - должно увеличить до 2
-	UpdateCounterMetrics(metrics)
-	assert.Equal(t, int64(2), metrics.Counters[MetricPollCount])
+			// Устанавливаем начальное значение
+			if tt.initialValue > 0 {
+				metrics.Counters[MetricPollCount] = tt.initialValue
+			}
 
-	// Третье обновление - должно увеличить до 3
-	UpdateCounterMetrics(metrics)
-	assert.Equal(t, int64(3), metrics.Counters[MetricPollCount])
+			// Выполняем обновления
+			for i := 0; i < tt.iterations; i++ {
+				UpdateCounterMetrics(metrics)
+				expectedValue := tt.expectedValues[i]
+				assert.Equal(t, expectedValue, metrics.Counters[MetricPollCount],
+					"PollCount should be %d after %d iterations", expectedValue, i+1)
+			}
 
-	// Проверяем количество метрик
-	assert.Len(t, metrics.Counters, 1, "Should have exactly 1 counter metric")
-}
-
-func TestUpdateCounterMetrics_WithExistingValue(t *testing.T) {
-	// Создаем тестовую структуру метрик с существующим значением
-	metrics := NewMetrics()
-	metrics.Counters[MetricPollCount] = 100
-
-	// Обновляем counter метрики
-	UpdateCounterMetrics(metrics)
-	assert.Equal(t, int64(101), metrics.Counters[MetricPollCount])
-
-	// Еще раз обновляем
-	UpdateCounterMetrics(metrics)
-	assert.Equal(t, int64(102), metrics.Counters[MetricPollCount])
+			// Проверяем количество метрик
+			assert.Len(t, metrics.Counters, 1, "Should have exactly 1 counter metric")
+		})
+	}
 }
