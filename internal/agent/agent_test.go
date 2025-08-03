@@ -153,3 +153,38 @@ func TestAgent_Config_Validation(t *testing.T) {
 		})
 	}
 }
+
+func TestAgent_GracefulShutdown(t *testing.T) {
+	config := &Config{
+		ServerURL:      "http://localhost:8080",
+		PollInterval:   100 * time.Millisecond,
+		ReportInterval: 200 * time.Millisecond,
+	}
+
+	agent := NewAgent(config)
+
+	// Запускаем агент в горутине
+	go agent.Run()
+
+	// Даем время на запуск и сбор метрик
+	time.Sleep(150 * time.Millisecond)
+
+	// Проверяем, что метрики собираются
+	initialMetrics := len(agent.metrics.Gauges) + len(agent.metrics.Counters)
+	assert.Greater(t, initialMetrics, 0, "Metrics should be collected")
+
+	// Останавливаем агента
+	agent.Stop()
+
+	// Даем время на завершение
+	time.Sleep(100 * time.Millisecond)
+
+	// Проверяем, что агент остановился корректно
+	// (канал done должен быть закрыт)
+	select {
+	case <-agent.done:
+		// Ожидаемо - канал закрыт
+	default:
+		t.Error("Agent should be stopped")
+	}
+}

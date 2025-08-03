@@ -30,6 +30,7 @@ type Agent struct {
 	metrics    *Metrics
 	mu         sync.RWMutex
 	httpClient *http.Client
+	done       chan struct{} // Канал для graceful shutdown
 }
 
 // NewAgent создает новый экземпляр агента
@@ -40,10 +41,17 @@ func NewAgent(config *Config) *Agent {
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		done: make(chan struct{}),
 	}
 }
 
-// Run запускает агент
+// Stop останавливает агента gracefully
+func (a *Agent) Stop() {
+	log.Println("Stopping agent...")
+	close(a.done)
+}
+
+// Run запускает агента
 func (a *Agent) Run() {
 	// Запускаем сбор метрик в отдельной горутине
 	go a.pollMetrics()
@@ -51,8 +59,9 @@ func (a *Agent) Run() {
 	// Запускаем отправку метрик в отдельной горутине
 	go a.reportMetrics()
 
-	// Ждем бесконечно
-	select {}
+	// Ждем сигнала завершения
+	<-a.done
+	log.Println("Agent stopped gracefully")
 }
 
 // pollMetrics собирает метрики из runtime
@@ -60,8 +69,14 @@ func (a *Agent) pollMetrics() {
 	ticker := time.NewTicker(a.config.PollInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		a.collectMetrics()
+	for {
+		select {
+		case <-ticker.C:
+			a.collectMetrics()
+		case <-a.done:
+			log.Println("Polling stopped")
+			return
+		}
 	}
 }
 
@@ -92,8 +107,14 @@ func (a *Agent) reportMetrics() {
 	ticker := time.NewTicker(a.config.ReportInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		a.sendMetrics()
+	for {
+		select {
+		case <-ticker.C:
+			a.sendMetrics()
+		case <-a.done:
+			log.Println("Reporting stopped")
+			return
+		}
 	}
 }
 
