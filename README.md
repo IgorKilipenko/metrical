@@ -11,6 +11,7 @@
   - **`model/`** - модели данных и интерфейсы
   - **`service/`** - бизнес-логика
   - **`handler/`** - HTTP обработчики
+  - **`agent/`** - агент для сбора метрик
   - **`config/`** - конфигурация
   - **`repository/`** - работа с данными
 
@@ -50,6 +51,30 @@ curl -X POST "http://localhost:8080/update/counter/requests/100" \
 - `404 Not Found` - отсутствует имя метрики
 - `405 Method Not Allowed` - неподдерживаемый HTTP метод
 
+### Агент для сбора метрик
+
+Агент автоматически собирает метрики из пакета `runtime` и отправляет их на сервер:
+
+#### Собираемые метрики
+
+**Gauge метрики из runtime:**
+- Alloc, BuckHashSys, Frees, GCCPUFraction, GCSys
+- HeapAlloc, HeapIdle, HeapInuse, HeapObjects, HeapReleased
+- HeapSys, LastGC, Lookups, MCacheInuse, MCacheSys
+- MSpanInuse, MSpanSys, Mallocs, NextGC, NumForcedGC
+- NumGC, OtherSys, PauseTotalNs, StackInuse, StackSys
+- Sys, TotalAlloc
+
+**Дополнительные метрики:**
+- RandomValue (gauge) - случайное значение
+- PollCount (counter) - счетчик обновлений
+
+#### Конфигурация агента
+
+- **PollInterval**: 2 секунды - частота сбора метрик
+- **ReportInterval**: 10 секунд - частота отправки метрик
+- **ServerURL**: http://localhost:8080
+
 ## Запуск
 
 ### Сервер
@@ -60,13 +85,44 @@ go run cmd/server/main.go
 
 Сервер запустится на порту 8080.
 
-### Агент (для тестирования)
+### Агент
 
 ```bash
 go run cmd/agent/main.go
 ```
 
-Агент отправит тестовые метрики на сервер.
+Агент начнет собирать и отправлять метрики автоматически.
+
+## Тестирование
+
+### Запуск всех тестов
+
+```bash
+go test ./...
+```
+
+### Запуск тестов по пакетам
+
+```bash
+# Тесты хендлеров
+go test ./internal/handler/... -v
+
+# Тесты сервиса
+go test ./internal/service/... -v
+
+# Тесты агента
+go test ./internal/agent/... -v
+```
+
+### Покрытие тестами
+
+Проект покрыт юнит-тестами для всех основных компонентов:
+
+- ✅ **HTTP хендлеры** - тестирование API endpoints
+- ✅ **Сервисный слой** - тестирование бизнес-логики
+- ✅ **Агент** - тестирование сбора метрик
+- ✅ **Валидация** - тестирование обработки ошибок
+- ✅ **Потокобезопасность** - тестирование конкурентного доступа
 
 ## Структура данных
 
@@ -107,12 +163,13 @@ type Metrics struct {
 - **Debug Agent** - отладка агента
 - **Debug Tests** - отладка тестов
 
-## Тестирование
+## Пример работы
 
-Проект включает тестовый агент, который демонстрирует работу с API:
-
-1. Отправляет gauge метрики (temperature, humidity, pressure)
-2. Отправляет counter метрики (requests, errors, connections)
-3. Демонстрирует накопление counter метрик
+1. Запустите сервер: `go run cmd/server/main.go`
+2. Запустите агент: `go run cmd/agent/main.go`
+3. Агент будет автоматически:
+   - Собирать 29 метрик из runtime каждые 2 секунды
+   - Отправлять их на сервер каждые 10 секунд
+   - Логировать все операции
 
 Все запросы возвращают статус 200 OK при успешном выполнении.

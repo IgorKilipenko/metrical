@@ -1,59 +1,24 @@
 package main
 
 import (
-	"fmt"
 	"log"
-	"net/http"
+	"time"
+
+	"github.com/IgorKilipenko/metrical/internal/agent"
 )
 
 func main() {
-	serverURL := "http://localhost:8080"
-
-	// Тестируем gauge метрики
-	gaugeMetrics := map[string]float64{
-		"temperature": 23.5,
-		"humidity":    65.2,
-		"pressure":    1013.25,
+	// Конфигурация агента
+	config := &agent.Config{
+		ServerURL:      "http://localhost:8080",
+		PollInterval:   2 * time.Second,
+		ReportInterval: 10 * time.Second,
 	}
 
-	for name, value := range gaugeMetrics {
-		url := fmt.Sprintf("%s/update/gauge/%s/%f", serverURL, name, value)
-		resp, err := http.Post(url, "text/plain", nil)
-		if err != nil {
-			log.Printf("Error sending gauge metric %s: %v", name, err)
-			continue
-		}
-		resp.Body.Close()
-		log.Printf("Sent gauge metric %s = %f, status: %d", name, value, resp.StatusCode)
-	}
+	// Создаем агент
+	metricsAgent := agent.NewAgent(config)
 
-	// Тестируем counter метрики
-	counterMetrics := map[string]int64{
-		"requests":    100,
-		"errors":      5,
-		"connections": 25,
-	}
-
-	for name, value := range counterMetrics {
-		url := fmt.Sprintf("%s/update/counter/%s/%d", serverURL, name, value)
-		resp, err := http.Post(url, "text/plain", nil)
-		if err != nil {
-			log.Printf("Error sending counter metric %s: %v", name, err)
-			continue
-		}
-		resp.Body.Close()
-		log.Printf("Sent counter metric %s = %d, status: %d", name, value, resp.StatusCode)
-	}
-
-	// Тестируем добавление к counter метрике
-	url := fmt.Sprintf("%s/update/counter/requests/50", serverURL)
-	resp, err := http.Post(url, "text/plain", nil)
-	if err != nil {
-		log.Printf("Error sending additional counter metric: %v", err)
-	} else {
-		resp.Body.Close()
-		log.Printf("Sent additional counter metric requests = 50, status: %d", resp.StatusCode)
-	}
-
-	log.Println("Agent finished sending metrics")
+	// Запускаем агент
+	log.Println("Starting metrics agent...")
+	metricsAgent.Run()
 }
