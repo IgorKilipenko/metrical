@@ -12,12 +12,8 @@ import (
 )
 
 func main() {
-	// Конфигурация агента
-	config := &agent.Config{
-		ServerURL:      "http://localhost:8080",
-		PollInterval:   2 * time.Second,
-		ReportInterval: 10 * time.Second,
-	}
+	// Конфигурация агента с значениями по умолчанию
+	config := agent.NewConfig()
 
 	// Создаем агент
 	metricsAgent := agent.NewAgent(config)

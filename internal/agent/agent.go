@@ -10,13 +10,6 @@ import (
 	"time"
 )
 
-// Config конфигурация агента
-type Config struct {
-	ServerURL      string
-	PollInterval   time.Duration
-	ReportInterval time.Duration
-}
-
 // MetricValue структура для хранения метрики
 type MetricValue struct {
 	Value     float64
@@ -39,7 +32,7 @@ func NewAgent(config *Config) *Agent {
 		config:  config,
 		metrics: NewMetrics(),
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: DefaultHTTPTimeout,
 		},
 		done: make(chan struct{}),
 	}

@@ -13,20 +13,12 @@ func TestNewAgent(t *testing.T) {
 		config *Config
 	}{
 		{
-			name: "Valid config",
-			config: &Config{
-				ServerURL:      "http://localhost:8080",
-				PollInterval:   2 * time.Second,
-				ReportInterval: 10 * time.Second,
-			},
+			name:   "Default config",
+			config: NewConfig(),
 		},
 		{
-			name: "Different intervals",
-			config: &Config{
-				ServerURL:      "http://example.com:9090",
-				PollInterval:   1 * time.Second,
-				ReportInterval: 5 * time.Second,
-			},
+			name:   "Custom URL config",
+			config: NewConfigWithURL("http://example.com:9090"),
 		},
 	}
 
@@ -53,12 +45,8 @@ func TestAgent_CollectMetrics(t *testing.T) {
 		expectedCounterMetrics  []string
 	}{
 		{
-			name: "Standard configuration",
-			config: &Config{
-				ServerURL:      "http://localhost:8080",
-				PollInterval:   2 * time.Second,
-				ReportInterval: 10 * time.Second,
-			},
+			name:                    "Default configuration",
+			config:                  NewConfig(),
 			expectedMinTotalMetrics: 28, // 27 runtime + 1 additional
 			expectedGaugeMetrics: []string{
 				MetricAlloc, MetricBuckHashSys, MetricFrees, MetricGCCPUFraction, MetricGCSys,
@@ -115,22 +103,14 @@ func TestAgent_CollectMetrics_ThreadSafety(t *testing.T) {
 		expectedMinMetrics int
 	}{
 		{
-			name: "10 goroutines",
-			config: &Config{
-				ServerURL:      "http://localhost:8080",
-				PollInterval:   2 * time.Second,
-				ReportInterval: 10 * time.Second,
-			},
+			name:               "10 goroutines with default config",
+			config:             NewConfig(),
 			goroutines:         10,
 			expectedMinMetrics: 28, // 27 runtime + 1 additional
 		},
 		{
-			name: "5 goroutines",
-			config: &Config{
-				ServerURL:      "http://example.com:9090",
-				PollInterval:   1 * time.Second,
-				ReportInterval: 5 * time.Second,
-			},
+			name:               "5 goroutines with custom config",
+			config:             NewConfigWithURL("http://example.com:9090"),
 			goroutines:         5,
 			expectedMinMetrics: 28,
 		},
@@ -162,69 +142,11 @@ func TestAgent_CollectMetrics_ThreadSafety(t *testing.T) {
 	}
 }
 
-func TestAgent_Config_Validation(t *testing.T) {
-	tests := []struct {
-		name        string
-		config      *Config
-		expectValid bool
-	}{
-		{
-			name: "Valid config",
-			config: &Config{
-				ServerURL:      "http://localhost:8080",
-				PollInterval:   2 * time.Second,
-				ReportInterval: 10 * time.Second,
-			},
-			expectValid: true,
-		},
-		{
-			name: "Empty server URL",
-			config: &Config{
-				ServerURL:      "",
-				PollInterval:   2 * time.Second,
-				ReportInterval: 10 * time.Second,
-			},
-			expectValid: false,
-		},
-		{
-			name: "Zero poll interval",
-			config: &Config{
-				ServerURL:      "http://localhost:8080",
-				PollInterval:   0,
-				ReportInterval: 10 * time.Second,
-			},
-			expectValid: false,
-		},
-		{
-			name: "Zero report interval",
-			config: &Config{
-				ServerURL:      "http://localhost:8080",
-				PollInterval:   2 * time.Second,
-				ReportInterval: 0,
-			},
-			expectValid: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			agent := NewAgent(tt.config)
-
-			if tt.expectValid {
-				assert.NotEmpty(t, agent.config.ServerURL, "Server URL should not be empty")
-				assert.Greater(t, agent.config.PollInterval, time.Duration(0), "Poll interval should be positive")
-				assert.Greater(t, agent.config.ReportInterval, time.Duration(0), "Report interval should be positive")
-			}
-		})
-	}
-}
-
 func TestAgent_GracefulShutdown(t *testing.T) {
-	config := &Config{
-		ServerURL:      "http://localhost:8080",
-		PollInterval:   100 * time.Millisecond,
-		ReportInterval: 200 * time.Millisecond,
-	}
+	config := NewConfig()
+	// Переопределяем интервалы для быстрого тестирования
+	config.PollInterval = 100 * time.Millisecond
+	config.ReportInterval = 200 * time.Millisecond
 
 	agent := NewAgent(config)
 
