@@ -38,12 +38,12 @@ func TestAgent_CollectMetrics(t *testing.T) {
 
 	// Проверяем наличие обязательных метрик
 	requiredMetrics := []string{
-		"Alloc", "BuckHashSys", "Frees", "GCCPUFraction", "GCSys",
-		"HeapAlloc", "HeapIdle", "HeapInuse", "HeapObjects", "HeapReleased",
-		"HeapSys", "LastGC", "Lookups", "MCacheInuse", "MCacheSys",
-		"MSpanInuse", "MSpanSys", "Mallocs", "NextGC", "NumForcedGC",
-		"NumGC", "OtherSys", "PauseTotalNs", "StackInuse", "StackSys",
-		"Sys", "TotalAlloc", "RandomValue", "PollCount",
+		MetricAlloc, MetricBuckHashSys, MetricFrees, MetricGCCPUFraction, MetricGCSys,
+		MetricHeapAlloc, MetricHeapIdle, MetricHeapInuse, MetricHeapObjects, MetricHeapReleased,
+		MetricHeapSys, MetricLastGC, MetricLookups, MetricMCacheInuse, MetricMCacheSys,
+		MetricMSpanInuse, MetricMSpanSys, MetricMallocs, MetricNextGC, MetricNumForcedGC,
+		MetricNumGC, MetricOtherSys, MetricPauseTotalNs, MetricStackInuse, MetricStackSys,
+		MetricSys, MetricTotalAlloc, MetricRandomValue, MetricPollCount,
 	}
 
 	for _, metricName := range requiredMetrics {
@@ -52,9 +52,9 @@ func TestAgent_CollectMetrics(t *testing.T) {
 	}
 
 	// Проверяем, что PollCount увеличивается
-	initialPollCount := agent.metrics["PollCount"].(int64)
+	initialPollCount := agent.metrics[MetricPollCount].(int64)
 	agent.collectMetrics()
-	newPollCount := agent.metrics["PollCount"].(int64)
+	newPollCount := agent.metrics[MetricPollCount].(int64)
 
 	assert.Equal(t, initialPollCount+1, newPollCount, "PollCount should increment")
 }
