@@ -9,6 +9,8 @@ HTTP сервер для приема метрик от агента.
 POST /update/<ТИП_МЕТРИКИ>/<ИМЯ_МЕТРИКИ>/<ЗНАЧЕНИЕ_МЕТРИКИ>
 ```
 
+Сервер использует пакет `internal/server` для управления HTTP сервером и маршрутизацией.
+
 ### Поддерживаемые типы метрик:
 - `gauge` - метрики с плавающей точкой (заменяют предыдущее значение)
 - `counter` - счетчики (накапливают значения)
@@ -27,9 +29,13 @@ curl -X POST http://localhost:8080/update/counter/request_count/1
 ```
 cmd/server/
 ├── main.go          # Точка входа сервера
-└── main_test.go     # Интеграционные тесты сервера
+└── README.md        # Документация сервера
 
 internal/
+├── server/
+│   ├── server.go      # Логика HTTP сервера
+│   ├── server_test.go # Тесты сервера
+│   └── README.md      # Документация пакета server
 ├── handler/
 │   ├── metrics.go      # HTTP обработчики
 │   └── metrics_test.go # Тесты обработчиков
@@ -43,13 +49,15 @@ internal/
 
 ## Тесты
 
-### Интеграционные тесты сервера (`cmd/server/main_test.go`)
-- `TestServerFullIntegration` - полная интеграция всех компонентов сервера
-- `TestServerEndToEndFlow` - end-to-end тестирование полного цикла работы с метриками
-- `TestServerEdgeCases` - тестирование граничных случаев в полной интеграции
-- `TestServerConcurrentRequests` - тестирование конкурентных запросов в полной интеграции
+### Тесты сервера (`internal/server/server_test.go`)
+- `TestNewServer` - тестирование создания сервера
+- `TestServerGetMux` - тестирование получения ServeMux
+- `TestServerIntegration` - интеграционные тесты HTTP сервера
+- `TestServerEndToEnd` - end-to-end тестирование полного цикла работы с метриками
+- `TestServerBasicFunctionality` - тестирование базовой функциональности
+- `TestServerRedirects` - тестирование автоматических редиректов Go HTTP сервера
 
-**Назначение:** Проверяют работу всех компонентов вместе, имитируя реальное использование сервера.
+**Назначение:** Проверяют работу сервера, включая интеграцию всех компонентов и имитацию реального использования.
 
 ### Unit тесты обработчиков (`internal/handler/metrics_test.go`)
 - `TestMetricsHandler_UpdateMetric` - unit тестирование HTTP обработчика
@@ -83,10 +91,10 @@ internal/
 
 ```bash
 # Все тесты сервера
-go test ./cmd/server/... ./internal/handler/... ./internal/service/... ./internal/model/... -v
+go test ./internal/server/... ./internal/handler/... ./internal/service/... ./internal/model/... -v
 
-# Только интеграционные тесты сервера
-go test ./cmd/server/... -v
+# Только тесты сервера
+go test ./internal/server/... -v
 
 # Только unit тесты обработчиков
 go test ./internal/handler/... -v
@@ -106,8 +114,8 @@ go test ./internal/model/... -v
 - **Зависимости:** Минимальные (только handler + service + storage)
 - **Использование:** При разработке и рефакторинге handler
 
-### Интеграционные тесты (`cmd/server/main_test.go`)
-- **Цель:** Тестирование полной интеграции всех компонентов
+### Тесты сервера (`internal/server/server_test.go`)
+- **Цель:** Тестирование полной интеграции всех компонентов сервера
 - **Скорость:** Средние (несколько секунд)
 - **Зависимости:** Все компоненты сервера
 - **Использование:** При проверке end-to-end сценариев и регрессий
@@ -119,3 +127,11 @@ go run cmd/server/main.go
 ```
 
 Сервер запустится на порту 8080.
+
+### Архитектура
+
+Файл `main.go` содержит минимальную логику инициализации:
+- Создание экземпляра сервера через `server.NewServer(":8080")`
+- Запуск сервера через `srv.Start()`
+
+Вся остальная логика HTTP сервера инкапсулирована в пакете `internal/server`.

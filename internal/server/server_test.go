@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"io"
@@ -6,29 +6,29 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/IgorKilipenko/metrical/internal/handler"
-	models "github.com/IgorKilipenko/metrical/internal/model"
-	"github.com/IgorKilipenko/metrical/internal/service"
 	"github.com/stretchr/testify/assert"
 )
 
-// createTestServer создает тестовый HTTP сервер с настроенными обработчиками
+// createTestServer создает тестовый HTTP сервер
 func createTestServer() *httptest.Server {
-	// Создаем хранилище метрик
-	storage := models.NewMemStorage()
+	srv := NewServer(":8080")
+	return httptest.NewServer(srv)
+}
 
-	// Создаем сервис для работы с метриками
-	metricsService := service.NewMetricsService(storage)
+func TestNewServer(t *testing.T) {
+	addr := ":8080"
+	srv := NewServer(addr)
 
-	// Создаем HTTP обработчик
-	metricsHandler := handler.NewMetricsHandler(metricsService)
+	assert.NotNil(t, srv)
+	assert.Equal(t, addr, srv.addr)
+	assert.NotNil(t, srv.handler)
+}
 
-	// Настраиваем маршруты
-	mux := http.NewServeMux()
-	mux.HandleFunc("/update/", metricsHandler.UpdateMetric)
+func TestServerGetMux(t *testing.T) {
+	srv := NewServer(":8080")
+	mux := srv.GetMux()
 
-	// Создаем тестовый сервер
-	return httptest.NewServer(mux)
+	assert.NotNil(t, mux)
 }
 
 // TestServerIntegration тестирует интеграцию HTTP сервера
