@@ -6,6 +6,7 @@ import (
 
 	"github.com/IgorKilipenko/metrical/internal/handler"
 	models "github.com/IgorKilipenko/metrical/internal/model"
+	"github.com/IgorKilipenko/metrical/internal/router"
 	"github.com/IgorKilipenko/metrical/internal/service"
 )
 
@@ -35,23 +36,30 @@ func NewServer(addr string) *Server {
 // Start запускает HTTP сервер
 func (s *Server) Start() error {
 	// Настраиваем маршруты
-	mux := http.NewServeMux()
-	mux.HandleFunc("/update/", s.handler.UpdateMetric)
+	r := router.New()
+	r.HandleFunc("/update/", s.handler.UpdateMetric)
 
 	// Запускаем сервер
 	log.Printf("Starting server on %s", s.addr)
-	return http.ListenAndServe(s.addr, mux)
+	return http.ListenAndServe(s.addr, r)
 }
 
 // GetMux возвращает настроенный ServeMux для использования в тестах
 func (s *Server) GetMux() *http.ServeMux {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/update/", s.handler.UpdateMetric)
-	return mux
+	r := router.New()
+	r.HandleFunc("/update/", s.handler.UpdateMetric)
+	return r.GetMux()
 }
 
 // ServeHTTP реализует интерфейс http.Handler
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	mux := s.GetMux()
-	mux.ServeHTTP(w, r)
+	router := s.getRouter()
+	router.ServeHTTP(w, r)
+}
+
+// getRouter возвращает настроенный роутер
+func (s *Server) getRouter() *router.Router {
+	r := router.New()
+	r.HandleFunc("/update/", s.handler.UpdateMetric)
+	return r
 }
