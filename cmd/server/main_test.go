@@ -140,3 +140,62 @@ func TestServerBasicFunctionality(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
+
+// TestServerRedirects тестирует автоматические редиректы Go HTTP сервера
+// Go HTTP сервер автоматически выполняет редиректы для путей с двойными слешами
+func TestServerRedirects(t *testing.T) {
+	server := createTestServer()
+	defer server.Close()
+
+	// Создаем клиент, который НЕ следует редиректам
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	tests := []struct {
+		name             string
+		path             string
+		expectedStatus   int
+		expectedRedirect bool
+	}{
+		{
+			name:             "Path with double slash",
+			path:             "/update/gauge//123.45",
+			expectedStatus:   http.StatusMovedPermanently, // Go HTTP server automatically redirects double slashes
+			expectedRedirect: true,
+		},
+		{
+			name:             "Path with trailing slash",
+			path:             "/update/gauge/test/123.45/",
+			expectedStatus:   http.StatusOK, // Обрабатывается напрямую
+			expectedRedirect: false,
+		},
+		{
+			name:             "Normal path",
+			path:             "/update/gauge/test/123.45",
+			expectedStatus:   http.StatusOK,
+			expectedRedirect: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, err := http.NewRequest("POST", server.URL+tt.path, nil)
+			assert.NoError(t, err)
+
+			resp, err := client.Do(req)
+			assert.NoError(t, err)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.expectedStatus, resp.StatusCode, "Status code mismatch for %s", tt.path)
+
+			if tt.expectedRedirect {
+				location := resp.Header.Get("Location")
+				assert.NotEmpty(t, location, "Redirect should have Location header")
+				t.Logf("Redirect from %s to %s", tt.path, location)
+			}
+		})
+	}
+}
