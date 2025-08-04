@@ -1,6 +1,6 @@
-# Server Package
+# HTTPServer Package
 
-Пакет `server` содержит логику HTTP сервера для работы с метриками.
+Пакет `httpserver` содержит логику HTTP сервера для работы с метриками.
 
 ## Описание
 
@@ -14,7 +14,7 @@
 
 ```go
 // Создание сервера
-srv := server.NewServer(":8080")
+srv := httpserver.NewServer(":8080")
 
 // Запуск сервера
 err := srv.Start()

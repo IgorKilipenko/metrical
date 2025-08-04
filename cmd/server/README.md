@@ -9,7 +9,7 @@ HTTP сервер для приема метрик от агента.
 POST /update/<ТИП_МЕТРИКИ>/<ИМЯ_МЕТРИКИ>/<ЗНАЧЕНИЕ_МЕТРИКИ>
 ```
 
-Сервер использует пакет `internal/server` для управления HTTP сервером и маршрутизацией.
+Сервер использует пакет `internal/httpserver` для управления HTTP сервером и маршрутизацией.
 
 ### Поддерживаемые типы метрик:
 - `gauge` - метрики с плавающей точкой (заменяют предыдущее значение)
@@ -32,10 +32,10 @@ cmd/server/
 └── README.md        # Документация сервера
 
 internal/
-├── server/
+├── httpserver/
 │   ├── server.go      # Логика HTTP сервера
 │   ├── server_test.go # Тесты сервера
-│   └── README.md      # Документация пакета server
+│   └── README.md      # Документация пакета httpserver
 ├── handler/
 │   ├── metrics.go      # HTTP обработчики
 │   └── metrics_test.go # Тесты обработчиков
@@ -49,7 +49,7 @@ internal/
 
 ## Тесты
 
-### Тесты сервера (`internal/server/server_test.go`)
+### Тесты сервера (`internal/httpserver/server_test.go`)
 - `TestNewServer` - тестирование создания сервера
 - `TestServerGetMux` - тестирование получения ServeMux
 - `TestServerIntegration` - интеграционные тесты HTTP сервера
@@ -91,10 +91,10 @@ internal/
 
 ```bash
 # Все тесты сервера
-go test ./internal/server/... ./internal/handler/... ./internal/service/... ./internal/model/... -v
+go test ./internal/httpserver/... ./internal/handler/... ./internal/service/... ./internal/model/... -v
 
 # Только тесты сервера
-go test ./internal/server/... -v
+go test ./internal/httpserver/... -v
 
 # Только unit тесты обработчиков
 go test ./internal/handler/... -v
@@ -114,7 +114,7 @@ go test ./internal/model/... -v
 - **Зависимости:** Минимальные (только handler + service + storage)
 - **Использование:** При разработке и рефакторинге handler
 
-### Тесты сервера (`internal/server/server_test.go`)
+### Тесты сервера (`internal/httpserver/server_test.go`)
 - **Цель:** Тестирование полной интеграции всех компонентов сервера
 - **Скорость:** Средние (несколько секунд)
 - **Зависимости:** Все компоненты сервера
@@ -131,7 +131,7 @@ go run cmd/server/main.go
 ### Архитектура
 
 Файл `main.go` содержит минимальную логику инициализации:
-- Создание экземпляра сервера через `server.NewServer(":8080")`
+- Создание экземпляра сервера через `httpserver.NewServer(":8080")`
 - Запуск сервера через `srv.Start()`
 
-Вся остальная логика HTTP сервера инкапсулирована в пакете `internal/server`.
+Вся остальная логика HTTP сервера инкапсулирована в пакете `internal/httpserver`.
