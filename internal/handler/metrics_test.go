@@ -59,6 +59,13 @@ func TestMetricsHandler_UpdateMetric(t *testing.T) {
 			expectedBody:   "Invalid URL format\n",
 		},
 		{
+			name:           "Empty metric name",
+			method:         "POST",
+			path:           "/update/gauge//123.45",
+			expectedStatus: http.StatusNotFound,
+			expectedBody:   "Metric name is required\n",
+		},
+		{
 			name:           "Invalid metric type",
 			method:         "POST",
 			path:           "/update/invalid/name/100",
@@ -142,4 +149,94 @@ func TestMetricsHandler_UpdateMetric_GaugeReplacement(t *testing.T) {
 	value, exists := storage.GetGauge("temperature")
 	assert.True(t, exists, "Gauge 'temperature' should exist")
 	assert.Equal(t, 25.0, value, "Gauge value should be replaced")
+}
+
+func TestSplitPath(t *testing.T) {
+	tests := []struct {
+		name        string
+		path        string
+		expected    []string
+		expectError bool
+	}{
+		{
+			name:        "Normal path with 4 parts",
+			path:        "/update/gauge/temperature/23.5",
+			expected:    []string{"update", "gauge", "temperature", "23.5"},
+			expectError: false,
+		},
+		{
+			name:        "Path with empty segment",
+			path:        "/update/gauge//123.45",
+			expected:    []string{"update", "gauge", "", "123.45"},
+			expectError: false,
+		},
+		{
+			name:        "Path without leading slash",
+			path:        "update/gauge/test/123",
+			expected:    []string{"update", "gauge", "test", "123"},
+			expectError: false,
+		},
+		{
+			name:        "Path with trailing slash",
+			path:        "/update/gauge/test/123/",
+			expected:    []string{"update", "gauge", "test", "123"},
+			expectError: false,
+		},
+		{
+			name:        "Path with special characters",
+			path:        "/update/gauge/test-metric_123/42.0",
+			expected:    []string{"update", "gauge", "test-metric_123", "42.0"},
+			expectError: false,
+		},
+		{
+			name:        "Path with numbers and dots",
+			path:        "/update/counter/requests/100",
+			expected:    []string{"update", "counter", "requests", "100"},
+			expectError: false,
+		},
+		{
+			name:        "Empty path",
+			path:        "",
+			expected:    []string{""},
+			expectError: false,
+		},
+		{
+			name:        "Single slash",
+			path:        "/",
+			expected:    []string{""},
+			expectError: false,
+		},
+		{
+			name:        "Double slash",
+			path:        "//",
+			expected:    []string{""},
+			expectError: false,
+		},
+		{
+			name:        "Path with consecutive slashes",
+			path:        "/update///test/123",
+			expected:    []string{"update", "", "", "test", "123"},
+			expectError: false,
+		},
+		{
+			name:        "Path with unicode characters",
+			path:        "/update/gauge/тест/123",
+			expected:    []string{"update", "gauge", "тест", "123"},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := splitPath(tt.path)
+
+			if tt.expectError {
+				assert.Error(t, err, "Expected error for unsupported characters")
+				assert.Nil(t, result, "Result should be nil on error")
+			} else {
+				assert.NoError(t, err, "Expected no error")
+				assert.Equal(t, tt.expected, result, "Path splitting should match expected result")
+			}
+		})
+	}
 }
