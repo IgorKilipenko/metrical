@@ -85,13 +85,22 @@ stateDiagram-v2
 ## Использование
 
 ```go
-// Создание сервера
-srv := httpserver.NewServer(":8080")
+// Создание сервера с обработкой ошибок
+server, err := httpserver.NewServer(":8080")
+if err != nil {
+    log.Fatalf("Failed to create server: %v", err)
+}
 
 // Запуск сервера
-err := srv.Start()
-if err != nil {
-    log.Fatal(err)
+if err := server.Start(); err != nil {
+    log.Printf("Server error: %v", err)
+}
+
+// Graceful shutdown
+ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+defer cancel()
+if err := server.Shutdown(ctx); err != nil {
+    log.Printf("Shutdown error: %v", err)
 }
 ```
 
@@ -103,21 +112,29 @@ if err != nil {
 type Server struct {
     addr    string
     handler *handler.MetricsHandler
+    router  *router.Router
+    server  *http.Server
 }
 ```
 
 - `addr` - адрес для запуска сервера
 - `handler` - HTTP обработчик для метрик
+- `router` - кэшированный роутер
+- `server` - ссылка на HTTP сервер для graceful shutdown
 
 ## Методы
 
-### NewServer(addr string) *Server
+### NewServer(addr string) (*Server, error)
 
-Создает новый экземпляр сервера с указанным адресом.
+Создает новый экземпляр сервера с указанным адресом. Возвращает ошибку при пустом адресе.
 
 ### Start() error
 
-Запускает HTTP сервер и блокирует выполнение до завершения работы сервера.
+Запускает HTTP сервер и блокирует выполнение до завершения работы сервера. Корректно обрабатывает ошибки и логирует их.
+
+### Shutdown(ctx context.Context) error
+
+Gracefully останавливает сервер с использованием переданного контекста. Корректно завершает все текущие запросы.
 
 
 
