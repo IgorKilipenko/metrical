@@ -1,5 +1,9 @@
 package models
 
+import (
+	"sync"
+)
+
 const (
 	Counter = "counter"
 	Gauge   = "gauge"
@@ -36,6 +40,7 @@ type Storage interface {
 type MemStorage struct {
 	Gauges   GaugeMetrics
 	Counters CounterMetrics
+	mu       sync.RWMutex // Мьютекс для потокобезопасности
 }
 
 // NewMemStorage создает новый экземпляр MemStorage
@@ -48,32 +53,56 @@ func NewMemStorage() *MemStorage {
 
 // UpdateGauge обновляет значение gauge метрики
 func (m *MemStorage) UpdateGauge(name string, value float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.Gauges[name] = value
 }
 
 // UpdateCounter добавляет значение к counter метрике
 func (m *MemStorage) UpdateCounter(name string, value int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.Counters[name] += value
 }
 
 // GetGauge возвращает значение gauge метрики
 func (m *MemStorage) GetGauge(name string) (float64, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	value, exists := m.Gauges[name]
 	return value, exists
 }
 
 // GetCounter возвращает значение counter метрики
 func (m *MemStorage) GetCounter(name string) (int64, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	value, exists := m.Counters[name]
 	return value, exists
 }
 
 // GetAllGauges возвращает все gauge метрики
 func (m *MemStorage) GetAllGauges() GaugeMetrics {
-	return m.Gauges
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Создаем копию для безопасного возврата
+	result := make(GaugeMetrics, len(m.Gauges))
+	for k, v := range m.Gauges {
+		result[k] = v
+	}
+	return result
 }
 
 // GetAllCounters возвращает все counter метрики
 func (m *MemStorage) GetAllCounters() CounterMetrics {
-	return m.Counters
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Создаем копию для безопасного возврата
+	result := make(CounterMetrics, len(m.Counters))
+	for k, v := range m.Counters {
+		result[k] = v
+	}
+	return result
 }

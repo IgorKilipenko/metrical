@@ -4,6 +4,27 @@
 
 Эти структуры используются в сервисах и хэндлерах. Данный пакет не должен содержать бизнес-логику приложения.
 
+## Использование
+
+```go
+// Создание хранилища
+storage := models.NewMemStorage()
+
+// Обновление метрик
+storage.UpdateGauge("temperature", 23.5)
+storage.UpdateCounter("requests", 100)
+
+// Получение метрик
+value, exists := storage.GetGauge("temperature")
+if exists {
+    fmt.Printf("Temperature: %.2f\n", value)
+}
+
+// Получение всех метрик
+allGauges := storage.GetAllGauges()
+allCounters := storage.GetAllCounters()
+```
+
 ## Структуры данных
 
 ### Типы-алиасы
@@ -38,8 +59,14 @@ type Storage interface {
 type MemStorage struct {
     Gauges   GaugeMetrics
     Counters CounterMetrics
+    mu       sync.RWMutex // Мьютекс для потокобезопасности
 }
 ```
+
+**Особенности:**
+- **Потокобезопасность** - все операции защищены RWMutex
+- **Копирование данных** - GetAllGauges/GetAllCounters возвращают копии для безопасности
+- **Производительность** - используется RWMutex для оптимизации чтения
 
 ### Metrics
 

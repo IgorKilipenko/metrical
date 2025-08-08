@@ -1,6 +1,7 @@
 package models
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -226,4 +227,130 @@ func TestMemStorage_EdgeCases(t *testing.T) {
 	counterValue, exists = storage.GetCounter("zero")
 	assert.True(t, exists)
 	assert.Equal(t, int64(0), counterValue)
+}
+
+func TestMemStorage_Concurrency(t *testing.T) {
+	storage := NewMemStorage()
+	var wg sync.WaitGroup
+
+	// Тестируем конкурентное обновление gauge метрик
+	t.Run("Concurrent gauge updates", func(t *testing.T) {
+		const numGoroutines = 100
+		const numUpdates = 10
+
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				for j := 0; j < numUpdates; j++ {
+					storage.UpdateGauge("concurrent_gauge", float64(id+j))
+				}
+			}(i)
+		}
+
+		wg.Wait()
+
+		// Проверяем, что метрика существует
+		value, exists := storage.GetGauge("concurrent_gauge")
+		assert.True(t, exists, "Concurrent gauge should exist")
+		assert.GreaterOrEqual(t, value, 0.0, "Gauge value should be non-negative")
+	})
+
+	// Тестируем конкурентное обновление counter метрик
+	t.Run("Concurrent counter updates", func(t *testing.T) {
+		const numGoroutines = 100
+		const numUpdates = 10
+
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				for j := 0; j < numUpdates; j++ {
+					storage.UpdateCounter("concurrent_counter", int64(id+j))
+				}
+			}(i)
+		}
+
+		wg.Wait()
+
+		// Проверяем, что метрика существует и накопилась
+		value, exists := storage.GetCounter("concurrent_counter")
+		assert.True(t, exists, "Concurrent counter should exist")
+		assert.Greater(t, value, int64(0), "Counter value should be accumulated")
+	})
+
+	// Тестируем конкурентное чтение и запись
+	t.Run("Concurrent read and write", func(t *testing.T) {
+		const numReaders = 50
+		const numWriters = 10
+
+		// Запускаем писателей
+		for i := 0; i < numWriters; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				for j := 0; j < 100; j++ {
+					storage.UpdateGauge("read_write_gauge", float64(id+j))
+					storage.UpdateCounter("read_write_counter", int64(id+j))
+				}
+			}(i)
+		}
+
+		// Запускаем читателей
+		for i := 0; i < numReaders; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for j := 0; j < 100; j++ {
+					storage.GetGauge("read_write_gauge")
+					storage.GetCounter("read_write_counter")
+					storage.GetAllGauges()
+					storage.GetAllCounters()
+				}
+			}()
+		}
+
+		wg.Wait()
+
+		// Проверяем, что метрики существуют
+		_, exists := storage.GetGauge("read_write_gauge")
+		assert.True(t, exists, "Read-write gauge should exist")
+
+		_, exists = storage.GetCounter("read_write_counter")
+		assert.True(t, exists, "Read-write counter should exist")
+	})
+}
+
+func TestMemStorage_Validation(t *testing.T) {
+	storage := NewMemStorage()
+
+	t.Run("Empty metric name", func(t *testing.T) {
+		// Тестируем с пустым именем метрики
+		storage.UpdateGauge("", 123.45)
+		storage.UpdateCounter("", 100)
+
+		// Проверяем, что метрики сохранились (текущее поведение)
+		value, exists := storage.GetGauge("")
+		assert.True(t, exists, "Empty name gauge should exist")
+		assert.Equal(t, 123.45, value)
+
+		counterValue, exists := storage.GetCounter("")
+		assert.True(t, exists, "Empty name counter should exist")
+		assert.Equal(t, int64(100), counterValue)
+	})
+
+	t.Run("Special characters in name", func(t *testing.T) {
+		// Тестируем с специальными символами в имени
+		specialName := "metric-with-special-chars_123"
+		storage.UpdateGauge(specialName, 456.78)
+		storage.UpdateCounter(specialName, 200)
+
+		value, exists := storage.GetGauge(specialName)
+		assert.True(t, exists, "Special name gauge should exist")
+		assert.Equal(t, 456.78, value)
+
+		counterValue, exists := storage.GetCounter(specialName)
+		assert.True(t, exists, "Special name counter should exist")
+		assert.Equal(t, int64(200), counterValue)
+	})
 }
