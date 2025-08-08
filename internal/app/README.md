@@ -22,6 +22,74 @@ type App struct {
 }
 ```
 
+### Архитектура приложения
+
+```mermaid
+graph TB
+    subgraph "Application Layer"
+        APP[App]
+        CONFIG[Config]
+        GRACEFUL[Graceful Shutdown]
+    end
+    
+    subgraph "Server Layer"
+        HTTPSERVER[HTTPServer]
+        HANDLER[Handler]
+        ROUTER[Router]
+    end
+    
+    subgraph "External"
+        ENV[Environment Variables]
+        SIGNALS[OS Signals]
+    end
+    
+    APP --> CONFIG
+    APP --> HTTPSERVER
+    APP --> GRACEFUL
+    CONFIG --> ENV
+    GRACEFUL --> SIGNALS
+    HTTPSERVER --> HANDLER
+    HTTPSERVER --> ROUTER
+    
+    style APP fill:#f3e5f5
+    style CONFIG fill:#e8f5e8
+    style GRACEFUL fill:#fff3e0
+    style HTTPSERVER fill:#e3f2fd
+    style HANDLER fill:#e1f5fe
+    style ROUTER fill:#e1f5fe
+    style ENV fill:#fff3e0
+    style SIGNALS fill:#fff3e0
+```
+
+### Жизненный цикл приложения
+
+```mermaid
+stateDiagram-v2
+    [*] --> LoadConfig
+    LoadConfig --> CreateApp
+    CreateApp --> StartServer
+    StartServer --> Running
+    
+    Running --> GracefulShutdown : SIGINT/SIGTERM
+    GracefulShutdown --> StopServer
+    StopServer --> WaitForRequests
+    WaitForRequests --> ShutdownComplete
+    ShutdownComplete --> [*]
+    
+    Running --> Running : Handle Requests
+    
+    note right of LoadConfig
+        • SERVER_PORT env var
+        • Default: 8080
+    end note
+    
+    note right of GracefulShutdown
+        • Stop accepting new requests
+        • Wait for current requests
+        • Timeout: 30 seconds
+    end note
+```
+
 ### `Config`
 Конфигурация приложения.
 

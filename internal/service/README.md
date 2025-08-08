@@ -21,6 +21,70 @@ type MetricsService struct {
 }
 ```
 
+### Архитектура сервисного слоя
+
+```mermaid
+graph TB
+    subgraph "Service Layer"
+        MS[MetricsService]
+        VAL[Validation Logic]
+        BL[Business Rules]
+    end
+    
+    subgraph "Dependencies"
+        REPO[Repository Interface]
+        MODEL[Data Models]
+    end
+    
+    subgraph "External"
+        HANDLER[HTTP Handler]
+        TEMPLATE[Template Engine]
+    end
+    
+    HANDLER --> MS
+    MS --> VAL
+    MS --> BL
+    MS --> REPO
+    REPO --> MODEL
+    MS --> TEMPLATE
+    
+    style MS fill:#f3e5f5
+    style VAL fill:#e8f5e8
+    style BL fill:#e8f5e8
+    style REPO fill:#fff3e0
+    style MODEL fill:#fff3e0
+    style HANDLER fill:#e3f2fd
+    style TEMPLATE fill:#e3f2fd
+```
+
+### Поток бизнес-логики
+
+```mermaid
+sequenceDiagram
+    participant Handler
+    participant Service
+    participant Validation
+    participant BusinessLogic
+    participant Repository
+    
+    Handler->>Service: UpdateMetric(type, name, value)
+    Service->>Validation: Validate Input
+    Validation-->>Service: Valid/Invalid
+    
+    alt Valid Input
+        Service->>BusinessLogic: Process Metric
+        BusinessLogic->>Repository: Update Data
+        Repository-->>BusinessLogic: Success
+        BusinessLogic-->>Service: Success
+        Service-->>Handler: Success
+    else Invalid Input
+        Service-->>Handler: Error
+    end
+    
+    Note over Service,BusinessLogic: Бизнес-правила
+    Note over Validation: Валидация типов и значений
+```
+
 ## Основные методы
 
 ### UpdateMetric

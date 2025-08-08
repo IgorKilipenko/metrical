@@ -5,15 +5,147 @@
 ## Архитектура
 
 Проект следует принципам чистой архитектуры с разделением на слои:
+
+### Общая архитектура системы
+
+```mermaid
+graph TB
+    subgraph "Agent"
+        A[Agent Process]
+        A --> A1[Сбор runtime метрик]
+        A --> A2[Отправка HTTP POST]
+    end
+    
+    subgraph "Server"
+        B[HTTP Server]
+        B --> B1[Прием метрик]
+        B --> B2[Хранение в памяти]
+        B --> B3[API endpoints]
+    end
+    
+    A2 -->|HTTP POST| B1
+    
+    style A fill:#e1f5fe
+    style B fill:#f3e5f5
+    style A1 fill:#fff3e0
+    style A2 fill:#fff3e0
+    style B1 fill:#e8f5e8
+    style B2 fill:#e8f5e8
+    style B3 fill:#e8f5e8
 ```
-┌─────────────┐    HTTP POST    ┌─────────────┐
-│    Agent    │ ──────────────► │   Server    │
-│             │                 │             │
-│ • Сбор      │                 │ • Прием     │
-│   runtime   │                 │   метрик    │
-│   метрик    │                 │ • Хранение  │
-│ • Отправка  │                 │ • API       │
-└─────────────┘                 └─────────────┘
+
+### Архитектура сервера (Clean Architecture)
+
+```mermaid
+graph TB
+    subgraph "Transport Layer"
+        H[HTTP Handler]
+        R[Router]
+    end
+    
+    subgraph "Business Logic Layer"
+        S[Service]
+        T[Template]
+    end
+    
+    subgraph "Data Access Layer"
+        REPO[Repository]
+        M[Model/Storage]
+    end
+    
+    H --> S
+    R --> H
+    S --> REPO
+    REPO --> M
+    S --> T
+    
+    style H fill:#e3f2fd
+    style R fill:#e3f2fd
+    style S fill:#f3e5f5
+    style T fill:#f3e5f5
+    style REPO fill:#e8f5e8
+    style M fill:#e8f5e8
+```
+
+### Поток данных
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Handler
+    participant Service
+    participant Repository
+    participant Storage
+    
+    Client->>Handler: POST /update/{type}/{name}/{value}
+    Handler->>Service: UpdateMetric(type, name, value)
+    Service->>Repository: UpdateGauge/UpdateCounter
+    Repository->>Storage: UpdateGauge/UpdateCounter
+    Storage-->>Repository: Success
+    Repository-->>Service: Success
+    Service-->>Handler: Success
+    Handler-->>Client: 200 OK
+    
+    Note over Client,Storage: Получение метрики
+    Client->>Handler: GET /value/{type}/{name}
+    Handler->>Service: GetGauge/GetCounter
+    Service->>Repository: GetGauge/GetCounter
+    Repository->>Storage: GetGauge/GetCounter
+    Storage-->>Repository: Value
+    Repository-->>Service: Value
+    Service-->>Handler: Value
+    Handler-->>Client: 200 OK + Value
+```
+
+### Полная архитектура системы
+
+```mermaid
+graph TB
+    subgraph "Agent Process"
+        AGENT[Agent]
+        COLLECTOR[Metrics Collector]
+        SENDER[HTTP Sender]
+        AGENT_CONFIG[Agent Config]
+    end
+    
+    subgraph "Server Process"
+        APP[App]
+        SERVER[HTTPServer]
+        ROUTER[Router/Chi]
+        HANDLER[Handler]
+        SERVICE[Service]
+        REPO[Repository]
+        STORAGE[MemStorage]
+        TEMPLATE[Template]
+    end
+    
+    subgraph "External"
+        RUNTIME[runtime.MemStats]
+        ENV[Environment]
+        SIGNALS[OS Signals]
+    end
+    
+    AGENT --> COLLECTOR
+    AGENT --> SENDER
+    AGENT --> AGENT_CONFIG
+    COLLECTOR --> RUNTIME
+    SENDER --> SERVER
+    
+    APP --> SERVER
+    APP --> ENV
+    APP --> SIGNALS
+    SERVER --> ROUTER
+    ROUTER --> HANDLER
+    HANDLER --> SERVICE
+    SERVICE --> REPO
+    REPO --> STORAGE
+    SERVICE --> TEMPLATE
+    
+    style AGENT fill:#e1f5fe
+    style SERVER fill:#f3e5f5
+    style APP fill:#e8f5e8
+    style SERVICE fill:#fff3e0
+    style STORAGE fill:#e3f2fd
 ```
 
 - **`cmd/`** - точки входа в приложение (server, agent)

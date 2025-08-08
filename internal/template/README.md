@@ -21,6 +21,65 @@ type MetricsData struct {
 }
 ```
 
+### Архитектура шаблонов
+
+```mermaid
+graph TB
+    subgraph "Template Engine"
+        MT[MetricsTemplate]
+        HTML[HTML Template]
+        CSS[CSS Styles]
+    end
+    
+    subgraph "Data Flow"
+        MD[MetricsData]
+        GM[GaugeMetrics]
+        CM[CounterMetrics]
+    end
+    
+    subgraph "Output"
+        HTML_OUT[HTML Output]
+        HTTP_RESP[HTTP Response]
+    end
+    
+    MD --> GM
+    MD --> CM
+    MT --> HTML
+    MT --> CSS
+    MT --> MD
+    MT --> HTML_OUT
+    HTML_OUT --> HTTP_RESP
+    
+    style MT fill:#f3e5f5
+    style HTML fill:#e3f2fd
+    style CSS fill:#e3f2fd
+    style MD fill:#e8f5e8
+    style GM fill:#e1f5fe
+    style CM fill:#e1f5fe
+    style HTML_OUT fill:#fff3e0
+    style HTTP_RESP fill:#fff3e0
+```
+
+### Поток генерации HTML
+
+```mermaid
+sequenceDiagram
+    participant Handler
+    participant Template
+    participant Data
+    participant HTML
+    
+    Handler->>Template: Execute(data)
+    Template->>Data: Prepare MetricsData
+    Data-->>Template: Structured Data
+    Template->>HTML: Generate HTML
+    HTML-->>Template: HTML Bytes
+    Template-->>Handler: HTML Response
+    
+    Note over Template,HTML: Включает CSS стили
+    Note over Data: Gauge + Counter метрики
+```
+
 ### MetricsTemplate
 
 Основной класс для работы с HTML шаблонами:

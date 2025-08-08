@@ -10,6 +10,78 @@
 - Настройку маршрутов HTTP
 - Запуск сервера
 
+### Архитектура HTTP сервера
+
+```mermaid
+graph TB
+    subgraph "HTTPServer Package"
+        SERVER[Server]
+        HANDLER[MetricsHandler]
+        ROUTER[Router]
+    end
+    
+    subgraph "Dependencies"
+        SERVICE[Service]
+        REPO[Repository]
+        STORAGE[MemStorage]
+        TEMPLATE[Template]
+    end
+    
+    subgraph "HTTP Layer"
+        HTTP_SERVER[HTTP Server]
+        MUX[ServeMux]
+    end
+    
+    SERVER --> HANDLER
+    SERVER --> ROUTER
+    HANDLER --> SERVICE
+    SERVICE --> REPO
+    REPO --> STORAGE
+    SERVICE --> TEMPLATE
+    
+    HTTP_SERVER --> SERVER
+    MUX --> SERVER
+    
+    style SERVER fill:#f3e5f5
+    style HANDLER fill:#e3f2fd
+    style ROUTER fill:#e3f2fd
+    style SERVICE fill:#e8f5e8
+    style REPO fill:#fff3e0
+    style STORAGE fill:#e1f5fe
+    style TEMPLATE fill:#fff3e0
+```
+
+### Жизненный цикл сервера
+
+```mermaid
+stateDiagram-v2
+    [*] --> NewServer
+    NewServer --> Configure
+    Configure --> Start
+    Start --> Running
+    
+    Running --> HandleRequest : HTTP Request
+    HandleRequest --> Running
+    
+    Running --> Shutdown : SIGINT/SIGTERM
+    Shutdown --> GracefulShutdown
+    GracefulShutdown --> Stopped
+    Stopped --> [*]
+    
+    note right of Configure
+        • Create Handler
+        • Setup Router
+        • Initialize Dependencies
+    end note
+    
+    note right of HandleRequest
+        • Parse Request
+        • Route to Handler
+        • Process Business Logic
+        • Return Response
+    end note
+```
+
 ## Использование
 
 ```go

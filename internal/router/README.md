@@ -11,6 +11,66 @@ HTTP роутер-обертка над `github.com/go-chi/chi/v5`.
 - Сохраняет производительность и возможности `chi` роутера
 - Поддерживает параметризованные маршруты
 
+### Архитектура роутера
+
+```mermaid
+graph TB
+    subgraph "Router Package"
+        R[Router Wrapper]
+        C[Chi Router]
+        H[HTTP Handler Interface]
+    end
+    
+    subgraph "Application"
+        MH[Metrics Handler]
+        HH[Health Handler]
+        TH[Template Handler]
+    end
+    
+    subgraph "HTTP Server"
+        SERVER[HTTP Server]
+        MUX[ServeMux]
+    end
+    
+    R --> C
+    R --> H
+    C --> MH
+    C --> HH
+    C --> TH
+    SERVER --> R
+    MUX --> R
+    
+    style R fill:#e3f2fd
+    style C fill:#f3e5f5
+    style H fill:#e8f5e8
+    style MH fill:#fff3e0
+    style HH fill:#fff3e0
+    style TH fill:#fff3e0
+```
+
+### Поток маршрутизации
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Server
+    participant Router
+    participant Chi
+    participant Handler
+    
+    Client->>Server: HTTP Request
+    Server->>Router: ServeHTTP()
+    Router->>Chi: Route Request
+    Chi->>Handler: Call Handler
+    Handler-->>Chi: Response
+    Chi-->>Router: Response
+    Router-->>Server: Response
+    Server-->>Client: HTTP Response
+    
+    Note over Router,Chi: Параметризованные маршруты
+    Note over Chi,Handler: Динамическая маршрутизация
+```
+
 ## Использование
 
 ```go

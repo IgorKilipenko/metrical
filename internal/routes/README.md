@@ -21,6 +21,87 @@ func SetupMetricsRoutes(handler *handler.MetricsHandler) *chi.Mux
 - `POST /update/{type}/{name}/{value}` - обновление метрики
 - `GET /value/{type}/{name}` - получение значения метрики
 
+### Архитектура маршрутов
+
+```mermaid
+graph TB
+    subgraph "Routes Package"
+        MR[SetupMetricsRoutes]
+        HR[SetupHealthRoutes]
+        CHI[Chi Router]
+    end
+    
+    subgraph "HTTP Endpoints"
+        GET_ALL[GET /]
+        POST_UPDATE[POST /update/{type}/{name}/{value}]
+        GET_VALUE[GET /value/{type}/{name}]
+        GET_HEALTH[GET /health]
+    end
+    
+    subgraph "Handlers"
+        MH[MetricsHandler]
+        HH[HealthHandler]
+    end
+    
+    MR --> CHI
+    HR --> CHI
+    CHI --> GET_ALL
+    CHI --> POST_UPDATE
+    CHI --> GET_VALUE
+    CHI --> GET_HEALTH
+    
+    GET_ALL --> MH
+    POST_UPDATE --> MH
+    GET_VALUE --> MH
+    GET_HEALTH --> HH
+    
+    style MR fill:#f3e5f5
+    style HR fill:#f3e5f5
+    style CHI fill:#e8f5e8
+    style GET_ALL fill:#e3f2fd
+    style POST_UPDATE fill:#e3f2fd
+    style GET_VALUE fill:#e3f2fd
+    style GET_HEALTH fill:#e3f2fd
+    style MH fill:#fff3e0
+    style HH fill:#fff3e0
+```
+
+### Структура маршрутов
+
+```mermaid
+graph LR
+    subgraph "Metrics Routes"
+        R1[GET /]
+        R2[POST /update/{type}/{name}/{value}]
+        R3[GET /value/{type}/{name}]
+    end
+    
+    subgraph "Health Routes"
+        R4[GET /health]
+    end
+    
+    subgraph "Handler Mapping"
+        H1[MetricsHandler.GetAllMetrics]
+        H2[MetricsHandler.UpdateMetric]
+        H3[MetricsHandler.GetMetricValue]
+        H4[HealthHandler.Health]
+    end
+    
+    R1 --> H1
+    R2 --> H2
+    R3 --> H3
+    R4 --> H4
+    
+    style R1 fill:#e3f2fd
+    style R2 fill:#e3f2fd
+    style R3 fill:#e3f2fd
+    style R4 fill:#e8f5e8
+    style H1 fill:#fff3e0
+    style H2 fill:#fff3e0
+    style H3 fill:#fff3e0
+    style H4 fill:#fff3e0
+```
+
 ### SetupHealthRoutes
 
 Функция для настройки маршрутов health check:

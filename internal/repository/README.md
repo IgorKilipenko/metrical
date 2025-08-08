@@ -28,6 +28,84 @@ type MetricsRepository interface {
 }
 ```
 
+### Архитектура репозитория
+
+```mermaid
+graph TB
+    subgraph "Repository Layer"
+        REPO[MetricsRepository Interface]
+        IMPL[InMemoryRepository]
+        ERR[Error Handling]
+    end
+    
+    subgraph "Data Sources"
+        MEM[In-Memory Storage]
+        DB[(Database)]
+        FILE[File System]
+        CACHE[Cache]
+    end
+    
+    subgraph "Service Layer"
+        SERVICE[Service]
+    end
+    
+    SERVICE --> REPO
+    REPO --> IMPL
+    IMPL --> MEM
+    IMPL --> ERR
+    
+    REPO -.-> DB
+    REPO -.-> FILE
+    REPO -.-> CACHE
+    
+    style REPO fill:#e8f5e8
+    style IMPL fill:#f3e5f5
+    style ERR fill:#fff3e0
+    style MEM fill:#e3f2fd
+    style SERVICE fill:#e1f5fe
+    style DB fill:#fff3e0
+    style FILE fill:#fff3e0
+    style CACHE fill:#fff3e0
+```
+
+### Паттерн Repository
+
+```mermaid
+classDiagram
+    class MetricsRepository {
+        <<interface>>
+        +UpdateGauge(name, value) error
+        +UpdateCounter(name, value) error
+        +GetGauge(name) (float64, bool, error)
+        +GetCounter(name) (int64, bool, error)
+        +GetAllGauges() (GaugeMetrics, error)
+        +GetAllCounters() (CounterMetrics, error)
+    }
+    
+    class InMemoryRepository {
+        -storage Storage
+        +UpdateGauge(name, value) error
+        +UpdateCounter(name, value) error
+        +GetGauge(name) (float64, bool, error)
+        +GetCounter(name) (int64, bool, error)
+        +GetAllGauges() (GaugeMetrics, error)
+        +GetAllCounters() (CounterMetrics, error)
+    }
+    
+    class Storage {
+        <<interface>>
+        +UpdateGauge(name, value)
+        +UpdateCounter(name, value)
+        +GetGauge(name) (float64, bool)
+        +GetCounter(name) (int64, bool)
+        +GetAllGauges() GaugeMetrics
+        +GetAllCounters() CounterMetrics
+    }
+    
+    MetricsRepository <|.. InMemoryRepository
+    InMemoryRepository --> Storage
+```
+
 ### InMemoryMetricsRepository
 
 Реализация репозитория в памяти:

@@ -27,6 +27,93 @@ allCounters := storage.GetAllCounters()
 
 ## Структуры данных
 
+### Архитектура моделей данных
+
+```mermaid
+graph TB
+    subgraph "Data Models"
+        GM[GaugeMetrics]
+        CM[CounterMetrics]
+        M[Metrics Struct]
+    end
+    
+    subgraph "Storage Interface"
+        SI[Storage Interface]
+        MS[MemStorage]
+        MUTEX[sync.RWMutex]
+    end
+    
+    subgraph "Type Aliases"
+        GAUGE[map[string]float64]
+        COUNTER[map[string]int64]
+    end
+    
+    GM --> GAUGE
+    CM --> COUNTER
+    MS --> GM
+    MS --> CM
+    MS --> MUTEX
+    SI --> MS
+    
+    style GM fill:#e3f2fd
+    style CM fill:#e3f2fd
+    style M fill:#e3f2fd
+    style SI fill:#e8f5e8
+    style MS fill:#f3e5f5
+    style MUTEX fill:#fff3e0
+    style GAUGE fill:#e1f5fe
+    style COUNTER fill:#e1f5fe
+```
+
+### Диаграмма классов
+
+```mermaid
+classDiagram
+    class Storage {
+        <<interface>>
+        +UpdateGauge(name, value)
+        +UpdateCounter(name, value)
+        +GetGauge(name) (float64, bool)
+        +GetCounter(name) (int64, bool)
+        +GetAllGauges() GaugeMetrics
+        +GetAllCounters() CounterMetrics
+    }
+    
+    class MemStorage {
+        -Gauges GaugeMetrics
+        -Counters CounterMetrics
+        -mu sync.RWMutex
+        +UpdateGauge(name, value)
+        +UpdateCounter(name, value)
+        +GetGauge(name) (float64, bool)
+        +GetCounter(name) (int64, bool)
+        +GetAllGauges() GaugeMetrics
+        +GetAllCounters() CounterMetrics
+    }
+    
+    class Metrics {
+        +ID string
+        +MType string
+        +Delta *int64
+        +Value *float64
+        +Hash string
+    }
+    
+    class GaugeMetrics {
+        <<type alias>>
+        map[string]float64
+    }
+    
+    class CounterMetrics {
+        <<type alias>>
+        map[string]int64
+    }
+    
+    Storage <|.. MemStorage
+    MemStorage --> GaugeMetrics
+    MemStorage --> CounterMetrics
+```
+
 ### Типы-алиасы
 
 Для улучшения читаемости кода определены типы-алиасы:

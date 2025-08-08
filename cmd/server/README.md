@@ -210,17 +210,74 @@ SERVER_PORT=9090 go run cmd/server/main.go
 
 Проект построен по принципам Clean Architecture:
 
+```mermaid
+graph TB
+    subgraph "Transport Layer"
+        H[HTTP Handler]
+        R[Router/Chi]
+        T[Template Engine]
+    end
+    
+    subgraph "Business Logic Layer"
+        S[Service Layer]
+        VAL[Validation]
+    end
+    
+    subgraph "Data Access Layer"
+        REPO[Repository Interface]
+        IMPL[InMemory Implementation]
+    end
+    
+    subgraph "Data Layer"
+        STORAGE[MemStorage]
+        MODEL[Data Models]
+    end
+    
+    H --> S
+    R --> H
+    S --> REPO
+    REPO --> IMPL
+    IMPL --> STORAGE
+    S --> T
+    S --> VAL
+    STORAGE --> MODEL
+    
+    style H fill:#e3f2fd
+    style R fill:#e3f2fd
+    style T fill:#e3f2fd
+    style S fill:#f3e5f5
+    style VAL fill:#f3e5f5
+    style REPO fill:#e8f5e8
+    style IMPL fill:#e8f5e8
+    style STORAGE fill:#fff3e0
+    style MODEL fill:#fff3e0
 ```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   Handler   │───▶│   Service   │───▶│ Repository  │───▶│    Model    │
-│             │    │             │    │  Interface  │    │             │
-└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
-                                                              │
-                                                              ▼
-                                                    ┌─────────────┐
-                                                    │ MemStorage  │
-                                                    │             │
-                                                    └─────────────┘
+
+### Поток обработки запроса
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Router
+    participant Handler
+    participant Service
+    participant Repository
+    participant Storage
+    
+    Client->>Router: HTTP Request
+    Router->>Handler: Route to Handler
+    Handler->>Service: Call Business Logic
+    Service->>Repository: Data Operation
+    Repository->>Storage: Update/Get Data
+    Storage-->>Repository: Result
+    Repository-->>Service: Result
+    Service-->>Handler: Response
+    Handler-->>Router: HTTP Response
+    Router-->>Client: HTTP Response
+    
+    Note over Handler,Service: Валидация и обработка ошибок
+    Note over Service,Repository: Бизнес-логика
+    Note over Repository,Storage: Абстракция данных
 ```
 
 - **Handler** - HTTP обработчики
