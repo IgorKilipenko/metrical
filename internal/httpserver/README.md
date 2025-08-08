@@ -119,9 +119,7 @@ type Server struct {
 
 Запускает HTTP сервер и блокирует выполнение до завершения работы сервера.
 
-### GetMux() *http.ServeMux
 
-Возвращает настроенный ServeMux для использования в тестах.
 
 ### ServeHTTP(w http.ResponseWriter, r *http.Request)
 

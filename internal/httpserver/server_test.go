@@ -33,17 +33,6 @@ func TestNewServerWithEmptyAddr(t *testing.T) {
 	}
 }
 
-func TestServerGetMux(t *testing.T) {
-	srv, err := NewServer(":8080")
-	if err != nil {
-		t.Fatalf("NewServer() returned error: %v", err)
-	}
-	mux := srv.GetMux()
-	if mux != nil {
-		t.Error("GetMux() should return nil with chi router")
-	}
-}
-
 func TestServerIntegration(t *testing.T) {
 	srv, err := NewServer(":8080")
 	if err != nil {

@@ -69,12 +69,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// GetMux оставлен для обратной совместимости
-func (s *Server) GetMux() *http.ServeMux {
-	// Возвращаем nil, так как теперь используем chi
-	return nil
-}
-
 // ServeHTTP реализует интерфейс http.Handler
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.router.ServeHTTP(w, r)

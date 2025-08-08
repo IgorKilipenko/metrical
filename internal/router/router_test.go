@@ -91,11 +91,3 @@ func TestGetRouter(t *testing.T) {
 		t.Fatal("GetRouter() returned nil")
 	}
 }
-
-func TestGetMux(t *testing.T) {
-	r := New()
-	mux := r.GetMux()
-	if mux != nil {
-		t.Error("GetMux() should return nil with chi router")
-	}
-}

@@ -44,9 +44,3 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 func (r *Router) GetRouter() *chi.Mux {
 	return r.router
 }
-
-// GetMux оставлен для обратной совместимости
-func (r *Router) GetMux() *http.ServeMux {
-	// Возвращаем nil, так как теперь используем chi
-	return nil
-}
