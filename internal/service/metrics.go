@@ -4,18 +4,19 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/IgorKilipenko/metrical/internal/model"
+	models "github.com/IgorKilipenko/metrical/internal/model"
+	"github.com/IgorKilipenko/metrical/internal/repository"
 )
 
 // MetricsService сервис для работы с метриками
 type MetricsService struct {
-	storage models.Storage
+	repo repository.MetricsRepository
 }
 
 // NewMetricsService создает новый экземпляр MetricsService
-func NewMetricsService(storage models.Storage) *MetricsService {
+func NewMetricsService(repo repository.MetricsRepository) *MetricsService {
 	return &MetricsService{
-		storage: storage,
+		repo: repo,
 	}
 }
 
@@ -27,16 +28,14 @@ func (s *MetricsService) UpdateMetric(metricType, name, value string) error {
 		if err != nil {
 			return fmt.Errorf("invalid gauge value: %s", value)
 		}
-		s.storage.UpdateGauge(name, val)
-		return nil
+		return s.repo.UpdateGauge(name, val)
 
 	case models.Counter:
 		val, err := strconv.ParseInt(value, 10, 64)
 		if err != nil {
 			return fmt.Errorf("invalid counter value: %s", value)
 		}
-		s.storage.UpdateCounter(name, val)
-		return nil
+		return s.repo.UpdateCounter(name, val)
 
 	default:
 		return fmt.Errorf("unknown metric type: %s", metricType)
@@ -44,21 +43,21 @@ func (s *MetricsService) UpdateMetric(metricType, name, value string) error {
 }
 
 // GetGauge возвращает значение gauge метрики
-func (s *MetricsService) GetGauge(name string) (float64, bool) {
-	return s.storage.GetGauge(name)
+func (s *MetricsService) GetGauge(name string) (float64, bool, error) {
+	return s.repo.GetGauge(name)
 }
 
 // GetCounter возвращает значение counter метрики
-func (s *MetricsService) GetCounter(name string) (int64, bool) {
-	return s.storage.GetCounter(name)
+func (s *MetricsService) GetCounter(name string) (int64, bool, error) {
+	return s.repo.GetCounter(name)
 }
 
 // GetAllGauges возвращает все gauge метрики
-func (s *MetricsService) GetAllGauges() models.GaugeMetrics{
-	return s.storage.GetAllGauges()
+func (s *MetricsService) GetAllGauges() (models.GaugeMetrics, error) {
+	return s.repo.GetAllGauges()
 }
 
 // GetAllCounters возвращает все counter метрики
-func (s *MetricsService) GetAllCounters() models.CounterMetrics {
-	return s.storage.GetAllCounters()
+func (s *MetricsService) GetAllCounters() (models.CounterMetrics, error) {
+	return s.repo.GetAllCounters()
 }

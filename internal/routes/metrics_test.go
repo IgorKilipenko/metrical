@@ -7,13 +7,15 @@ import (
 
 	"github.com/IgorKilipenko/metrical/internal/handler"
 	models "github.com/IgorKilipenko/metrical/internal/model"
+	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/IgorKilipenko/metrical/internal/service"
 )
 
 func TestSetupMetricsRoutes(t *testing.T) {
 	// Создаем мок хендлер для тестирования
 	storage := models.NewMemStorage()
-	service := service.NewMetricsService(storage)
+	repo := repository.NewInMemoryMetricsRepository(storage)
+	service := service.NewMetricsService(repo)
 	handler := handler.NewMetricsHandler(service)
 
 	// Настраиваем маршруты
@@ -51,8 +53,11 @@ func TestSetupMetricsRoutes(t *testing.T) {
 
 	// Тестируем GET /value/{type}/{name}
 	t.Run("GET /value/gauge/test", func(t *testing.T) {
-		// Сначала добавляем метрику
-		storage.UpdateGauge("test", 123.45)
+		// Сначала добавляем метрику через репозиторий
+		err := repo.UpdateGauge("test", 123.45)
+		if err != nil {
+			t.Fatalf("Failed to update gauge: %v", err)
+		}
 
 		req := httptest.NewRequest("GET", "/value/gauge/test", nil)
 		w := httptest.NewRecorder()

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	models "github.com/IgorKilipenko/metrical/internal/model"
+	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/IgorKilipenko/metrical/internal/service"
 	"github.com/go-chi/chi/v5"
 )
@@ -15,7 +16,8 @@ import (
 // createTestHandler создает тестовый обработчик
 func createTestHandler() *MetricsHandler {
 	storage := models.NewMemStorage()
-	service := service.NewMetricsService(storage)
+	repo := repository.NewInMemoryMetricsRepository(storage)
+	service := service.NewMetricsService(repo)
 	return NewMetricsHandler(service)
 }
 

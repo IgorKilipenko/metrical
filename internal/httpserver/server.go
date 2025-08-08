@@ -7,6 +7,7 @@ import (
 
 	"github.com/IgorKilipenko/metrical/internal/handler"
 	models "github.com/IgorKilipenko/metrical/internal/model"
+	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/IgorKilipenko/metrical/internal/router"
 	"github.com/IgorKilipenko/metrical/internal/routes"
 	"github.com/IgorKilipenko/metrical/internal/service"
@@ -22,7 +23,8 @@ type Server struct {
 // NewServer создает новый HTTP сервер
 func NewServer(addr string) *Server {
 	storage := models.NewMemStorage()
-	service := service.NewMetricsService(storage)
+	repo := repository.NewInMemoryMetricsRepository(storage)
+	service := service.NewMetricsService(repo)
 	handler := handler.NewMetricsHandler(service)
 
 	srv := &Server{

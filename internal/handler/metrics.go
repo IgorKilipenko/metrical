@@ -70,13 +70,23 @@ func (h *MetricsHandler) GetMetricValue(w http.ResponseWriter, r *http.Request) 
 	switch metricType {
 	case "gauge":
 		var gaugeValue float64
-		gaugeValue, found = h.service.GetGauge(metricName)
+		var err error
+		gaugeValue, found, err = h.service.GetGauge(metricName)
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 		if found {
 			value = strconv.FormatFloat(gaugeValue, 'f', -1, 64)
 		}
 	case "counter":
 		var counterValue int64
-		counterValue, found = h.service.GetCounter(metricName)
+		var err error
+		counterValue, found, err = h.service.GetCounter(metricName)
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 		if found {
 			value = strconv.FormatInt(counterValue, 10)
 		}
@@ -102,8 +112,19 @@ func (h *MetricsHandler) GetAllMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	gauges := h.service.GetAllGauges()
-	counters := h.service.GetAllCounters()
+	gauges, err := h.service.GetAllGauges()
+	if err != nil {
+		log.Printf("Error getting gauges: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	counters, err := h.service.GetAllCounters()
+	if err != nil {
+		log.Printf("Error getting counters: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 
 	// Создаем шаблон
 	mt, err := template.NewMetricsTemplate()

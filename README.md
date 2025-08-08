@@ -236,6 +236,9 @@ go test ./internal/handler/... -v
 # Тесты сервиса
 go test ./internal/service/... -v
 
+# Тесты репозитория
+go test ./internal/repository/... -v
+
 # Тесты модели
 go test ./internal/model/... -v
 
@@ -258,6 +261,7 @@ go test ./internal/routes/... -v
 - ✅ **Роутер** - тестирование маршрутизации
 - ✅ **HTTP хендлеры** - тестирование API endpoints
 - ✅ **Сервисный слой** - тестирование бизнес-логики
+- ✅ **Репозиторий** - тестирование работы с данными
 - ✅ **Модели данных** - тестирование структур и интерфейсов (включая потокобезопасность)
 - ✅ **Агент** - тестирование сбора метрик
 - ✅ **Шаблоны** - тестирование генерации HTML
@@ -399,6 +403,14 @@ func SetupHealthRoutes() *chi.Mux
 - **Надежность** - graceful shutdown для корректного завершения
 - **Переиспользование** - можно использовать в разных точках входа
 
+### Преимущества пакета repository
+
+- **Абстракция** - скрывает детали работы с источниками данных
+- **Тестируемость** - легко создавать моки для тестирования
+- **Гибкость** - можно легко заменить реализацию
+- **Обработка ошибок** - все методы возвращают ошибки
+- **Разделение ответственности** - репозиторий не содержит бизнес-логику
+
 ### Преимущества пакета routes
 
 - **Разделение ответственности** - настройка маршрутов отделена от сервера
@@ -532,6 +544,26 @@ for name, value := range allGauges {
 for name, value := range allCounters {
     fmt.Printf("Counter %s: %d\n", name, value)
 }
+```
+
+### Работа с репозиторием
+
+```go
+// Создание репозитория
+storage := models.NewMemStorage()
+repo := repository.NewInMemoryMetricsRepository(storage)
+
+// Обновление метрик
+err := repo.UpdateGauge("temperature", 23.5)
+err = repo.UpdateCounter("requests", 100)
+
+// Получение метрик
+value, exists, err := repo.GetGauge("temperature")
+value, exists, err := repo.GetCounter("requests")
+
+// Получение всех метрик
+gauges, err := repo.GetAllGauges()
+counters, err := repo.GetAllCounters()
 ```
 
 ### Настройка маршрутов
