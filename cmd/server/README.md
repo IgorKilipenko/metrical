@@ -63,9 +63,8 @@ internal/
 - `TestMetricsHandler_UpdateMetric` - unit тестирование HTTP обработчика
 - `TestMetricsHandler_UpdateMetric_CounterAccumulation` - unit тестирование накопления счетчиков
 - `TestMetricsHandler_UpdateMetric_GaugeReplacement` - unit тестирование замены gauge метрик
-- `TestSplitPath` - unit тестирование функции разбора URL путей
 
-**Назначение:** Быстрые unit тесты для изолированного тестирования логики HTTP обработчика и вспомогательных функций.
+**Назначение:** Быстрые unit тесты для изолированного тестирования логики HTTP обработчика.
 
 ### Тесты сервиса (`internal/service/metrics_test.go`)
 - `TestMetricsService_UpdateMetric` - тестирование обновления метрик
@@ -87,11 +86,19 @@ internal/
 - `TestMemStorage_Isolation` - тестирование изоляции хранилищ
 - `TestMemStorage_EdgeCases` - тестирование граничных случаев
 
+### Тесты приложения (`internal/app/app_test.go`)
+- `TestLoadConfig` - тестирование загрузки конфигурации
+- `TestNew` - тестирование создания приложения
+- `TestApp_GetPort` - тестирование получения порта
+- `TestGetEnv` - тестирование работы с переменными окружения
+
+**Назначение:** Тестирование логики инициализации приложения и конфигурации.
+
 ## Запуск тестов
 
 ```bash
 # Все тесты сервера
-go test ./internal/httpserver/... ./internal/handler/... ./internal/service/... ./internal/model/... -v
+go test ./internal/httpserver/... ./internal/handler/... ./internal/service/... ./internal/model/... ./internal/app/... -v
 
 # Только тесты сервера
 go test ./internal/httpserver/... -v
@@ -104,6 +111,9 @@ go test ./internal/service/... -v
 
 # Только тесты модели
 go test ./internal/model/... -v
+
+# Только тесты приложения
+go test ./internal/app/... -v
 ```
 
 ## Разница между типами тестов
