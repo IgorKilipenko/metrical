@@ -18,6 +18,13 @@ func New() *Router {
 	}
 }
 
+// NewWithChiRouter создает роутер с готовым chi роутером
+func NewWithChiRouter(chiRouter *chi.Mux) *Router {
+	return &Router{
+		router: chiRouter,
+	}
+}
+
 // HandleFunc регистрирует обработчик для указанного пути
 func (r *Router) HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request)) {
 	r.router.HandleFunc(pattern, handler)

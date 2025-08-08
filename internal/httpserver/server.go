@@ -7,6 +7,7 @@ import (
 	"github.com/IgorKilipenko/metrical/internal/handler"
 	models "github.com/IgorKilipenko/metrical/internal/model"
 	"github.com/IgorKilipenko/metrical/internal/router"
+	"github.com/IgorKilipenko/metrical/internal/routes"
 	"github.com/IgorKilipenko/metrical/internal/service"
 )
 
@@ -14,6 +15,7 @@ import (
 type Server struct {
 	addr    string
 	handler *handler.MetricsHandler
+	router  *router.Router // Кэшированный роутер
 }
 
 // NewServer создает новый HTTP сервер
@@ -22,24 +24,21 @@ func NewServer(addr string) *Server {
 	service := service.NewMetricsService(storage)
 	handler := handler.NewMetricsHandler(service)
 
-	return &Server{
+	srv := &Server{
 		addr:    addr,
 		handler: handler,
 	}
+
+	// Инициализируем роутер один раз
+	srv.router = srv.createRouter()
+
+	return srv
 }
 
 // Start запускает HTTP сервер
 func (s *Server) Start() error {
-	r := router.New()
-	chiRouter := r.GetRouter()
-
-	// Настраиваем маршруты с помощью chi
-	chiRouter.Get("/", s.handler.GetAllMetrics)
-	chiRouter.Post("/update/{type}/{name}/{value}", s.handler.UpdateMetric)
-	chiRouter.Get("/value/{type}/{name}", s.handler.GetMetricValue)
-
 	log.Printf("Starting server on %s", s.addr)
-	return http.ListenAndServe(s.addr, r)
+	return http.ListenAndServe(s.addr, s.router)
 }
 
 // GetMux оставлен для обратной совместимости
@@ -50,19 +49,12 @@ func (s *Server) GetMux() *http.ServeMux {
 
 // ServeHTTP реализует интерфейс http.Handler
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	router := s.getRouter()
-	router.ServeHTTP(w, r)
+	s.router.ServeHTTP(w, r)
 }
 
-// getRouter создает роутер с настроенными маршрутами
-func (s *Server) getRouter() *router.Router {
-	r := router.New()
-	chiRouter := r.GetRouter()
-
-	// Настраиваем маршруты с помощью chi
-	chiRouter.Get("/", s.handler.GetAllMetrics)
-	chiRouter.Post("/update/{type}/{name}/{value}", s.handler.UpdateMetric)
-	chiRouter.Get("/value/{type}/{name}", s.handler.GetMetricValue)
-
-	return r
+// createRouter создает и настраивает роутер с маршрутами
+func (s *Server) createRouter() *router.Router {
+	// Используем отдельный пакет для настройки маршрутов
+	chiRouter := routes.SetupMetricsRoutes(s.handler)
+	return router.NewWithChiRouter(chiRouter)
 }
