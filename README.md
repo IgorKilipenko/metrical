@@ -241,6 +241,15 @@ go test ./internal/template/... -v
 
 ## Структура данных
 
+### Типы-алиасы
+
+Для улучшения читаемости кода определены типы-алиасы:
+
+```go
+type GaugeMetrics map[string]float64
+type CounterMetrics map[string]int64
+```
+
 ### MemStorage
 
 Хранилище метрик в памяти с интерфейсом `Storage`:
@@ -251,8 +260,8 @@ type Storage interface {
     UpdateCounter(name string, value int64)
     GetGauge(name string) (float64, bool)
     GetCounter(name string) (int64, bool)
-    GetAllGauges() map[string]float64
-    GetAllCounters() map[string]int64
+    GetAllGauges() GaugeMetrics
+    GetAllCounters() CounterMetrics
 }
 ```
 
@@ -267,6 +276,19 @@ type Metrics struct {
     Delta *int64   `json:"delta,omitempty"`
     Value *float64 `json:"value,omitempty"`
     Hash  string   `json:"hash,omitempty"`
+}
+```
+
+### MetricsData
+
+Структура для передачи данных в HTML шаблон:
+
+```go
+type MetricsData struct {
+    Gauges       models.GaugeMetrics  // Gauge метрики
+    Counters     models.CounterMetrics // Counter метрики
+    GaugeCount   int                  // Количество gauge метрик
+    CounterCount int                  // Количество counter метрик
 }
 ```
 
@@ -296,6 +318,14 @@ type Metrics struct {
 - **Гибкость** - легко добавлять middleware и расширять функциональность
 - **Совместимость** - полная совместимость с `net/http`
 - **Читаемость** - понятные и выразительные маршруты
+
+### Преимущества типов-алиасов
+
+- **Улучшенная читаемость** - явно понятно назначение типов (`GaugeMetrics`, `CounterMetrics`)
+- **Типобезопасность** - компилятор различает типы метрик
+- **Самодокументируемость** - код становится более понятным
+- **Расширяемость** - легко добавить методы к типам в будущем
+- **Консистентность** - единообразное использование типов во всем проекте
 
 ## Отладка
 

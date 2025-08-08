@@ -14,10 +14,10 @@
 
 ```go
 type MetricsData struct {
-    Gauges       map[string]float64  // Gauge метрики
-    Counters     map[string]int64    // Counter метрики
-    GaugeCount   int                 // Количество gauge метрик
-    CounterCount int                 // Количество counter метрик
+    Gauges       models.GaugeMetrics  // Gauge метрики
+    Counters     models.CounterMetrics // Counter метрики
+    GaugeCount   int                  // Количество gauge метрик
+    CounterCount int                  // Количество counter метрик
 }
 ```
 
@@ -42,11 +42,11 @@ if err != nil {
 
 // Подготовка данных
 data := template.MetricsData{
-    Gauges: map[string]float64{
+    Gauges: models.GaugeMetrics{
         "temperature": 23.5,
         "memory":      1024.0,
     },
-    Counters: map[string]int64{
+    Counters: models.CounterMetrics{
         "requests": 100,
         "errors":   5,
     },

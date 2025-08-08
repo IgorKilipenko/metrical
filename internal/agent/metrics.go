@@ -3,16 +3,18 @@ package agent
 import (
 	"math/rand"
 	"runtime"
+
+	models "github.com/IgorKilipenko/metrical/internal/model"
 )
 
 // Metrics структура для хранения метрик.
 // Содержит отдельные map'ы для gauge и counter метрик.
 type Metrics struct {
 	// Gauges содержит gauge метрики (заменяют предыдущие значения)
-	Gauges map[string]float64
+	Gauges models.GaugeMetrics
 
 	// Counters содержит counter метрики (накапливают значения)
-	Counters map[string]int64
+	Counters models.CounterMetrics
 }
 
 // NewMetrics создает новый экземпляр Metrics.
@@ -22,8 +24,8 @@ type Metrics struct {
 //   - *Metrics: указатель на новую структуру Metrics
 func NewMetrics() *Metrics {
 	return &Metrics{
-		Gauges:   make(map[string]float64),
-		Counters: make(map[string]int64),
+		Gauges:   make(models.GaugeMetrics),
+		Counters: make(models.CounterMetrics),
 	}
 }
 

@@ -3,12 +3,14 @@ package template
 import (
 	"bytes"
 	"text/template"
+
+	models "github.com/IgorKilipenko/metrical/internal/model"
 )
 
 // MetricsData содержит данные для отображения метрик
 type MetricsData struct {
-	Gauges       map[string]float64
-	Counters     map[string]int64
+	Gauges       models.GaugeMetrics
+	Counters     models.CounterMetrics
 	GaugeCount   int
 	CounterCount int
 }

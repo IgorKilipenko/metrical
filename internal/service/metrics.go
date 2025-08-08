@@ -54,11 +54,11 @@ func (s *MetricsService) GetCounter(name string) (int64, bool) {
 }
 
 // GetAllGauges возвращает все gauge метрики
-func (s *MetricsService) GetAllGauges() map[string]float64 {
+func (s *MetricsService) GetAllGauges() models.GaugeMetrics{
 	return s.storage.GetAllGauges()
 }
 
 // GetAllCounters возвращает все counter метрики
-func (s *MetricsService) GetAllCounters() map[string]int64 {
+func (s *MetricsService) GetAllCounters() models.CounterMetrics {
 	return s.storage.GetAllCounters()
 }

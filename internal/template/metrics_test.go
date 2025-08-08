@@ -3,6 +3,8 @@ package template
 import (
 	"strings"
 	"testing"
+
+	models "github.com/IgorKilipenko/metrical/internal/model"
 )
 
 func TestNewMetricsTemplate(t *testing.T) {
@@ -22,11 +24,11 @@ func TestMetricsTemplate_Execute(t *testing.T) {
 	}
 
 	data := MetricsData{
-		Gauges: map[string]float64{
+		Gauges: models.GaugeMetrics{
 			"temperature": 23.5,
 			"memory":      1024.0,
 		},
-		Counters: map[string]int64{
+		Counters: models.CounterMetrics{
 			"requests": 100,
 			"errors":   5,
 		},
@@ -67,8 +69,8 @@ func TestMetricsTemplate_Execute_EmptyData(t *testing.T) {
 	}
 
 	data := MetricsData{
-		Gauges:       map[string]float64{},
-		Counters:     map[string]int64{},
+		Gauges:       models.GaugeMetrics{},
+		Counters:     models.CounterMetrics{},
 		GaugeCount:   0,
 		CounterCount: 0,
 	}

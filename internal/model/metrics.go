@@ -5,6 +5,10 @@ const (
 	Gauge   = "gauge"
 )
 
+// Типы-алиасы для улучшения читаемости
+type GaugeMetrics map[string]float64
+type CounterMetrics map[string]int64
+
 // NOTE: Не усложняем пример, вводя иерархическую вложенность структур.
 // Органичиваясь плоской моделью.
 // Delta и Value объявлены через указатели,
@@ -24,21 +28,21 @@ type Storage interface {
 	UpdateCounter(name string, value int64)
 	GetGauge(name string) (float64, bool)
 	GetCounter(name string) (int64, bool)
-	GetAllGauges() map[string]float64
-	GetAllCounters() map[string]int64
+	GetAllGauges() GaugeMetrics
+	GetAllCounters() CounterMetrics
 }
 
 // MemStorage структура для хранения метрик в памяти
 type MemStorage struct {
-	Gauges   map[string]float64
-	Counters map[string]int64
+	Gauges   GaugeMetrics
+	Counters CounterMetrics
 }
 
 // NewMemStorage создает новый экземпляр MemStorage
 func NewMemStorage() *MemStorage {
 	return &MemStorage{
-		Gauges:   make(map[string]float64),
-		Counters: make(map[string]int64),
+		Gauges:   make(GaugeMetrics),
+		Counters: make(CounterMetrics),
 	}
 }
 
@@ -65,11 +69,11 @@ func (m *MemStorage) GetCounter(name string) (int64, bool) {
 }
 
 // GetAllGauges возвращает все gauge метрики
-func (m *MemStorage) GetAllGauges() map[string]float64 {
+func (m *MemStorage) GetAllGauges() GaugeMetrics {
 	return m.Gauges
 }
 
 // GetAllCounters возвращает все counter метрики
-func (m *MemStorage) GetAllCounters() map[string]int64 {
+func (m *MemStorage) GetAllCounters() CounterMetrics {
 	return m.Counters
 }
