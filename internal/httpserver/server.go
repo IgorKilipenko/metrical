@@ -8,11 +8,8 @@ import (
 	"net/http"
 
 	"github.com/IgorKilipenko/metrical/internal/handler"
-	models "github.com/IgorKilipenko/metrical/internal/model"
-	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/IgorKilipenko/metrical/internal/router"
 	"github.com/IgorKilipenko/metrical/internal/routes"
-	"github.com/IgorKilipenko/metrical/internal/service"
 )
 
 // Server представляет HTTP сервер
@@ -23,16 +20,14 @@ type Server struct {
 	server  *http.Server   // Ссылка на HTTP сервер для graceful shutdown
 }
 
-// NewServer создает новый HTTP сервер
-func NewServer(addr string) (*Server, error) {
+// NewServer создает новый HTTP сервер с переданными зависимостями
+func NewServer(addr string, handler *handler.MetricsHandler) (*Server, error) {
 	if addr == "" {
 		return nil, errors.New("address cannot be empty")
 	}
-
-	storage := models.NewMemStorage()
-	repo := repository.NewInMemoryMetricsRepository(storage)
-	service := service.NewMetricsService(repo)
-	handler := handler.NewMetricsHandler(service)
+	if handler == nil {
+		return nil, errors.New("handler cannot be nil")
+	}
 
 	srv := &Server{
 		addr:    addr,

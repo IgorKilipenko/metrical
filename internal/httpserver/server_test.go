@@ -5,10 +5,17 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/IgorKilipenko/metrical/internal/handler"
+	models "github.com/IgorKilipenko/metrical/internal/model"
+	"github.com/IgorKilipenko/metrical/internal/repository"
+	"github.com/IgorKilipenko/metrical/internal/service"
 )
 
 func TestNewServer(t *testing.T) {
-	srv, err := NewServer(":8080")
+	handler := createTestHandler()
+
+	srv, err := NewServer(":8080", handler)
 	if err != nil {
 		t.Fatalf("NewServer() returned error: %v", err)
 	}
@@ -23,8 +30,17 @@ func TestNewServer(t *testing.T) {
 	}
 }
 
+// createTestHandler создает handler для тестов
+func createTestHandler() *handler.MetricsHandler {
+	storage := models.NewMemStorage()
+	repo := repository.NewInMemoryMetricsRepository(storage)
+	service := service.NewMetricsService(repo)
+	return handler.NewMetricsHandler(service)
+}
+
 func TestNewServerWithEmptyAddr(t *testing.T) {
-	srv, err := NewServer("")
+	handler := createTestHandler()
+	srv, err := NewServer("", handler)
 	if err == nil {
 		t.Fatal("Expected error for empty address")
 	}
@@ -33,8 +49,19 @@ func TestNewServerWithEmptyAddr(t *testing.T) {
 	}
 }
 
+func TestNewServerWithNilHandler(t *testing.T) {
+	srv, err := NewServer(":8080", nil)
+	if err == nil {
+		t.Fatal("Expected error for nil handler")
+	}
+	if srv != nil {
+		t.Fatal("Expected nil server for nil handler")
+	}
+}
+
 func TestServerIntegration(t *testing.T) {
-	srv, err := NewServer(":8080")
+	handler := createTestHandler()
+	srv, err := NewServer(":8080", handler)
 	if err != nil {
 		t.Fatalf("NewServer() returned error: %v", err)
 	}
@@ -116,7 +143,8 @@ func TestServerIntegration(t *testing.T) {
 }
 
 func TestServerEndToEnd(t *testing.T) {
-	srv, err := NewServer(":8080")
+	handler := createTestHandler()
+	srv, err := NewServer(":8080", handler)
 	if err != nil {
 		t.Fatalf("NewServer() returned error: %v", err)
 	}
@@ -159,7 +187,8 @@ func TestServerEndToEnd(t *testing.T) {
 }
 
 func TestServerBasicFunctionality(t *testing.T) {
-	srv, err := NewServer(":8080")
+	handler := createTestHandler()
+	srv, err := NewServer(":8080", handler)
 	if err != nil {
 		t.Fatalf("NewServer() returned error: %v", err)
 	}
@@ -191,7 +220,8 @@ func TestServerBasicFunctionality(t *testing.T) {
 }
 
 func TestServerRedirects(t *testing.T) {
-	srv, err := NewServer(":8080")
+	handler := createTestHandler()
+	srv, err := NewServer(":8080", handler)
 	if err != nil {
 		t.Fatalf("NewServer() returned error: %v", err)
 	}

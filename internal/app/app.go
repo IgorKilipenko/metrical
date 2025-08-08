@@ -9,7 +9,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/IgorKilipenko/metrical/internal/handler"
 	"github.com/IgorKilipenko/metrical/internal/httpserver"
+	models "github.com/IgorKilipenko/metrical/internal/model"
+	"github.com/IgorKilipenko/metrical/internal/repository"
+	"github.com/IgorKilipenko/metrical/internal/service"
 )
 
 // App представляет основное приложение
@@ -34,8 +38,14 @@ func New(config Config) *App {
 func (a *App) Run() error {
 	log.Printf("Starting metrics server on port %s", a.port)
 
-	// Создаем сервер
-	server, err := httpserver.NewServer(":" + a.port)
+	// Создаем зависимости (Dependency Injection)
+	storage := models.NewMemStorage()
+	repo := repository.NewInMemoryMetricsRepository(storage)
+	service := service.NewMetricsService(repo)
+	handler := handler.NewMetricsHandler(service)
+
+	// Создаем сервер с переданными зависимостями
+	server, err := httpserver.NewServer(":"+a.port, handler)
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
 	}
