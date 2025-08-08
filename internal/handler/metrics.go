@@ -4,9 +4,9 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"text/template"
 
 	"github.com/IgorKilipenko/metrical/internal/service"
+	"github.com/IgorKilipenko/metrical/internal/template"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -105,89 +105,31 @@ func (h *MetricsHandler) GetAllMetrics(w http.ResponseWriter, r *http.Request) {
 	gauges := h.service.GetAllGauges()
 	counters := h.service.GetAllCounters()
 
-	// HTML шаблон для отображения метрик
-	const htmlTemplate = `
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Metrics Dashboard</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .metric-section { margin-bottom: 30px; }
-        .metric-item { 
-            padding: 8px; 
-            margin: 4px 0; 
-            background-color: #f5f5f5; 
-            border-radius: 4px;
-            display: flex;
-            justify-content: space-between;
-        }
-        .metric-name { font-weight: bold; }
-        .metric-value { color: #666; }
-        h2 { color: #333; border-bottom: 2px solid #ddd; padding-bottom: 10px; }
-        .header { text-align: center; margin-bottom: 30px; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>Metrics Dashboard</h1>
-        <p>Current metrics values</p>
-    </div>
-    
-    <div class="metric-section">
-        <h2>Gauge Metrics ({{.GaugeCount}})</h2>
-        {{range $name, $value := .Gauges}}
-        <div class="metric-item">
-            <span class="metric-name">{{$name}}</span>
-            <span class="metric-value">{{$value}}</span>
-        </div>
-        {{else}}
-        <p><em>No gauge metrics available</em></p>
-        {{end}}
-    </div>
-    
-    <div class="metric-section">
-        <h2>Counter Metrics ({{.CounterCount}})</h2>
-        {{range $name, $value := .Counters}}
-        <div class="metric-item">
-            <span class="metric-name">{{$name}}</span>
-            <span class="metric-value">{{$value}}</span>
-        </div>
-        {{else}}
-        <p><em>No counter metrics available</em></p>
-        {{end}}
-    </div>
-</body>
-</html>`
+	// Создаем шаблон
+	mt, err := template.NewMetricsTemplate()
+	if err != nil {
+		log.Printf("Error creating template: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 
-	// Данные для шаблона
-	data := struct {
-		Gauges       map[string]float64
-		Counters     map[string]int64
-		GaugeCount   int
-		CounterCount int
-	}{
+	// Подготавливаем данные для шаблона
+	data := template.MetricsData{
 		Gauges:       gauges,
 		Counters:     counters,
 		GaugeCount:   len(gauges),
 		CounterCount: len(counters),
 	}
 
-	// Парсим и выполняем шаблон
-	tmpl, err := template.New("metrics").Parse(htmlTemplate)
+	// Выполняем шаблон
+	htmlBytes, err := mt.Execute(data)
 	if err != nil {
-		log.Printf("Error parsing template: %v", err)
+		log.Printf("Error executing template: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-
-	err = tmpl.Execute(w, data)
-	if err != nil {
-		log.Printf("Error executing template: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
+	w.Write(htmlBytes)
 }
