@@ -4,88 +4,98 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 )
 
 func TestNew(t *testing.T) {
 	r := New()
-	assert.NotNil(t, r)
-	assert.NotNil(t, r.mux)
+	if r == nil {
+		t.Fatal("New() returned nil")
+	}
+	if r.router == nil {
+		t.Fatal("router is nil")
+	}
 }
 
 func TestHandleFunc(t *testing.T) {
 	r := New()
+	called := false
 
-	// Регистрируем обработчик
 	r.HandleFunc("/test", func(w http.ResponseWriter, req *http.Request) {
+		called = true
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
 	})
 
-	// Создаем тестовый сервер
-	server := httptest.NewServer(r)
-	defer server.Close()
+	req := httptest.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
 
-	// Тестируем запрос
-	resp, err := http.Get(server.URL + "/test")
-	assert.NoError(t, err)
-	defer resp.Body.Close()
+	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	if !called {
+		t.Error("Handler was not called")
+	}
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
 }
 
 func TestHandle(t *testing.T) {
 	r := New()
+	called := false
 
-	// Создаем обработчик
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		called = true
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
 	})
 
-	// Регистрируем обработчик
 	r.Handle("/test", handler)
 
-	// Создаем тестовый сервер
-	server := httptest.NewServer(r)
-	defer server.Close()
+	req := httptest.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
 
-	// Тестируем запрос
-	resp, err := http.Get(server.URL + "/test")
-	assert.NoError(t, err)
-	defer resp.Body.Close()
+	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	if !called {
+		t.Error("Handler was not called")
+	}
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
 }
 
 func TestServeHTTP(t *testing.T) {
 	r := New()
+	called := false
 
-	// Регистрируем обработчик
 	r.HandleFunc("/test", func(w http.ResponseWriter, req *http.Request) {
+		called = true
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
 	})
 
-	// Создаем запрос
-	req, err := http.NewRequest("GET", "/test", nil)
-	assert.NoError(t, err)
+	req := httptest.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
 
-	// Создаем ResponseRecorder
-	rr := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
 
-	// Вызываем ServeHTTP
-	r.ServeHTTP(rr, req)
+	if !called {
+		t.Error("Handler was not called")
+	}
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+}
 
-	assert.Equal(t, http.StatusOK, rr.Code)
-	assert.Equal(t, "OK", rr.Body.String())
+func TestGetRouter(t *testing.T) {
+	r := New()
+	chiRouter := r.GetRouter()
+	if chiRouter == nil {
+		t.Fatal("GetRouter() returned nil")
+	}
 }
 
 func TestGetMux(t *testing.T) {
 	r := New()
 	mux := r.GetMux()
-
-	assert.NotNil(t, mux)
-	assert.Equal(t, r.mux, mux)
+	if mux != nil {
+		t.Error("GetMux() should return nil with chi router")
+	}
 }
