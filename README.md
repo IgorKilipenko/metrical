@@ -21,7 +21,7 @@
   - **`httpserver/`** - HTTP сервер и его логика
   - **`router/`** - роутер (обертка над chi роутером)
   - **`routes/`** - настройка HTTP маршрутов
-  - **`model/`** - модели данных и интерфейсы
+  - **`model/`** - модели данных и интерфейсы (потокобезопасные)
   - **`service/`** - бизнес-логика
   - **`handler/`** - HTTP обработчики
   - **`template/`** - HTML шаблоны
@@ -180,6 +180,12 @@ curl "http://localhost:8080/"
 - **`github.com/go-chi/chi/v5`** - HTTP роутер для маршрутизации запросов
 - **`github.com/stretchr/testify/assert`** - библиотека для тестирования (в некоторых тестах)
 
+### Стандартные пакеты
+
+- **`sync`** - потокобезопасность (RWMutex)
+- **`net/http`** - HTTP сервер и клиент
+- **`text/template`** - HTML шаблоны
+
 ## Запуск
 
 ### Сервер
@@ -242,7 +248,7 @@ go test ./internal/routes/... -v
 - ✅ **Роутер** - тестирование маршрутизации
 - ✅ **HTTP хендлеры** - тестирование API endpoints
 - ✅ **Сервисный слой** - тестирование бизнес-логики
-- ✅ **Модели данных** - тестирование структур и интерфейсов
+- ✅ **Модели данных** - тестирование структур и интерфейсов (включая потокобезопасность)
 - ✅ **Агент** - тестирование сбора метрик
 - ✅ **Шаблоны** - тестирование генерации HTML
 - ✅ **Маршруты** - тестирование настройки HTTP endpoints
@@ -262,7 +268,7 @@ type CounterMetrics map[string]int64
 
 ### MemStorage
 
-Хранилище метрик в памяти с интерфейсом `Storage`:
+Потокобезопасное хранилище метрик в памяти с интерфейсом `Storage`:
 
 ```go
 type Storage interface {
@@ -273,7 +279,18 @@ type Storage interface {
     GetAllGauges() GaugeMetrics
     GetAllCounters() CounterMetrics
 }
+
+type MemStorage struct {
+    Gauges   GaugeMetrics
+    Counters CounterMetrics
+    mu       sync.RWMutex // Потокобезопасность
+}
 ```
+
+**Особенности:**
+- **Потокобезопасность** - все операции защищены RWMutex
+- **Типизированные метрики** - использование GaugeMetrics и CounterMetrics
+- **Безопасное копирование** - GetAllGauges/GetAllCounters возвращают копии
 
 ### Metrics
 
@@ -356,6 +373,14 @@ func SetupHealthRoutes() *chi.Mux
 - **Расширяемость** - легко добавить методы к типам в будущем
 - **Консистентность** - единообразное использование типов во всем проекте
 
+### Преимущества пакета routes
+
+- **Разделение ответственности** - настройка маршрутов отделена от сервера
+- **Модульность** - каждый тип маршрутов в отдельной функции
+- **Тестируемость** - легко тестировать маршруты изолированно
+- **Масштабируемость** - простое добавление новых групп маршрутов
+- **Переиспользование** - маршруты можно использовать в разных серверах
+
 ## Отладка
 
 Настроена конфигурация VS Code для отладки:
@@ -426,3 +451,48 @@ go run cmd/agent/main.go
 4. Наблюдайте, как метрики обновляются в реальном времени
 
 Все запросы возвращают статус 200 OK при успешном выполнении.
+
+## Примеры использования
+
+### Работа с хранилищем метрик
+
+```go
+// Создание потокобезопасного хранилища
+storage := models.NewMemStorage()
+
+// Обновление метрик
+storage.UpdateGauge("temperature", 23.5)
+storage.UpdateCounter("requests", 100)
+
+// Получение метрик
+value, exists := storage.GetGauge("temperature")
+if exists {
+    fmt.Printf("Temperature: %.2f\n", value)
+}
+
+// Получение всех метрик (типизированные)
+allGauges := storage.GetAllGauges()     // GaugeMetrics
+allCounters := storage.GetAllCounters() // CounterMetrics
+
+// Работа с типизированными метриками
+for name, value := range allGauges {
+    fmt.Printf("Gauge %s: %.2f\n", name, value)
+}
+
+for name, value := range allCounters {
+    fmt.Printf("Counter %s: %d\n", name, value)
+}
+```
+
+### Настройка маршрутов
+
+```go
+// Создание хендлера
+handler := handler.NewMetricsHandler(service)
+
+// Настройка маршрутов через пакет routes
+router := routes.SetupMetricsRoutes(handler)
+
+// Добавление health check маршрутов
+healthRouter := routes.SetupHealthRoutes()
+```
