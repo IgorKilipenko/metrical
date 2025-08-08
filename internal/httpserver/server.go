@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"log"
 	"net/http"
 
@@ -38,7 +39,19 @@ func NewServer(addr string) *Server {
 // Start запускает HTTP сервер
 func (s *Server) Start() error {
 	log.Printf("Starting server on %s", s.addr)
-	return http.ListenAndServe(s.addr, s.router)
+	srv := &http.Server{
+		Addr:    s.addr,
+		Handler: s.router,
+	}
+	return srv.ListenAndServe()
+}
+
+// Shutdown gracefully останавливает сервер
+func (s *Server) Shutdown(ctx context.Context) error {
+	log.Println("Shutting down server gracefully...")
+	// Здесь можно добавить логику graceful shutdown
+	// Например, остановка HTTP сервера
+	return nil
 }
 
 // GetMux оставлен для обратной совместимости
