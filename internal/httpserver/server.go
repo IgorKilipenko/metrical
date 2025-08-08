@@ -2,6 +2,8 @@ package httpserver
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 
@@ -18,10 +20,15 @@ type Server struct {
 	addr    string
 	handler *handler.MetricsHandler
 	router  *router.Router // Кэшированный роутер
+	server  *http.Server   // Ссылка на HTTP сервер для graceful shutdown
 }
 
 // NewServer создает новый HTTP сервер
-func NewServer(addr string) *Server {
+func NewServer(addr string) (*Server, error) {
+	if addr == "" {
+		return nil, errors.New("address cannot be empty")
+	}
+
 	storage := models.NewMemStorage()
 	repo := repository.NewInMemoryMetricsRepository(storage)
 	service := service.NewMetricsService(repo)
@@ -35,24 +42,30 @@ func NewServer(addr string) *Server {
 	// Инициализируем роутер один раз
 	srv.router = srv.createRouter()
 
-	return srv
+	return srv, nil
 }
 
 // Start запускает HTTP сервер
 func (s *Server) Start() error {
 	log.Printf("Starting server on %s", s.addr)
-	srv := &http.Server{
+	s.server = &http.Server{
 		Addr:    s.addr,
 		Handler: s.router,
 	}
-	return srv.ListenAndServe()
+
+	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Printf("Server error: %v", err)
+		return fmt.Errorf("failed to start server: %w", err)
+	}
+	return nil
 }
 
 // Shutdown gracefully останавливает сервер
 func (s *Server) Shutdown(ctx context.Context) error {
 	log.Println("Shutting down server gracefully...")
-	// Здесь можно добавить логику graceful shutdown
-	// Например, остановка HTTP сервера
+	if s.server != nil {
+		return s.server.Shutdown(ctx)
+	}
 	return nil
 }
 

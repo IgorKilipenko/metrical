@@ -8,7 +8,10 @@ import (
 )
 
 func TestNewServer(t *testing.T) {
-	srv := NewServer(":8080")
+	srv, err := NewServer(":8080")
+	if err != nil {
+		t.Fatalf("NewServer() returned error: %v", err)
+	}
 	if srv == nil {
 		t.Fatal("NewServer() returned nil")
 	}
@@ -20,8 +23,21 @@ func TestNewServer(t *testing.T) {
 	}
 }
 
+func TestNewServerWithEmptyAddr(t *testing.T) {
+	srv, err := NewServer("")
+	if err == nil {
+		t.Fatal("Expected error for empty address")
+	}
+	if srv != nil {
+		t.Fatal("Expected nil server for empty address")
+	}
+}
+
 func TestServerGetMux(t *testing.T) {
-	srv := NewServer(":8080")
+	srv, err := NewServer(":8080")
+	if err != nil {
+		t.Fatalf("NewServer() returned error: %v", err)
+	}
 	mux := srv.GetMux()
 	if mux != nil {
 		t.Error("GetMux() should return nil with chi router")
@@ -29,7 +45,10 @@ func TestServerGetMux(t *testing.T) {
 }
 
 func TestServerIntegration(t *testing.T) {
-	srv := NewServer(":8080")
+	srv, err := NewServer(":8080")
+	if err != nil {
+		t.Fatalf("NewServer() returned error: %v", err)
+	}
 	server := httptest.NewServer(srv)
 	defer server.Close()
 
@@ -108,7 +127,10 @@ func TestServerIntegration(t *testing.T) {
 }
 
 func TestServerEndToEnd(t *testing.T) {
-	srv := NewServer(":8080")
+	srv, err := NewServer(":8080")
+	if err != nil {
+		t.Fatalf("NewServer() returned error: %v", err)
+	}
 	server := httptest.NewServer(srv)
 	defer server.Close()
 
@@ -148,7 +170,10 @@ func TestServerEndToEnd(t *testing.T) {
 }
 
 func TestServerBasicFunctionality(t *testing.T) {
-	srv := NewServer(":8080")
+	srv, err := NewServer(":8080")
+	if err != nil {
+		t.Fatalf("NewServer() returned error: %v", err)
+	}
 	server := httptest.NewServer(srv)
 	defer server.Close()
 
@@ -177,7 +202,10 @@ func TestServerBasicFunctionality(t *testing.T) {
 }
 
 func TestServerRedirects(t *testing.T) {
-	srv := NewServer(":8080")
+	srv, err := NewServer(":8080")
+	if err != nil {
+		t.Fatalf("NewServer() returned error: %v", err)
+	}
 	server := httptest.NewServer(srv)
 	defer server.Close()
 

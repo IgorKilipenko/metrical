@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -34,7 +35,11 @@ func (a *App) Run() error {
 	log.Printf("Starting metrics server on port %s", a.port)
 
 	// Создаем сервер
-	a.server = httpserver.NewServer(":" + a.port)
+	server, err := httpserver.NewServer(":" + a.port)
+	if err != nil {
+		return fmt.Errorf("failed to create server: %w", err)
+	}
+	a.server = server
 
 	// Создаем контекст для graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
