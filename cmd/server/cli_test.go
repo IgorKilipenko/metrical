@@ -40,6 +40,26 @@ func TestInvalidAddressError(t *testing.T) {
 	assert.False(t, IsInvalidAddress(regularErr), "IsInvalidAddress should return false for regular error")
 }
 
+func TestInvalidAddressError_EmptyFields(t *testing.T) {
+	err := InvalidAddressError{
+		Address: "",
+		Reason:  "",
+	}
+
+	expectedMsg := "некорректный адрес '': "
+	assert.Equal(t, expectedMsg, err.Error(), "Error message should handle empty fields")
+}
+
+func TestInvalidAddressError_SpecialCharacters(t *testing.T) {
+	err := InvalidAddressError{
+		Address: "test:123:456",
+		Reason:  "multiple:colons:in:address",
+	}
+
+	expectedMsg := "некорректный адрес 'test:123:456': multiple:colons:in:address"
+	assert.Equal(t, expectedMsg, err.Error(), "Error message should handle special characters")
+}
+
 func TestValidateAddress(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -170,6 +190,90 @@ func TestValidateAddress_EdgeCases(t *testing.T) {
 	}
 }
 
+func TestValidateAddress_IPv6(t *testing.T) {
+	tests := []struct {
+		name    string
+		addr    string
+		wantErr bool
+	}{
+		{
+			name:    "Valid IPv6 address",
+			addr:    "[::1]:8080",
+			wantErr: false,
+		},
+		{
+			name:    "Valid IPv6 with port",
+			addr:    "[2001:db8::1]:9090",
+			wantErr: false,
+		},
+		{
+			name:    "Invalid IPv6 format",
+			addr:    "::1:8080",
+			wantErr: true,
+		},
+		{
+			name:    "IPv6 without brackets",
+			addr:    "2001:db8::1:8080",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateAddress(tt.addr)
+
+			if tt.wantErr {
+				assert.Error(t, err, "Expected error for invalid IPv6 address")
+				assert.True(t, IsInvalidAddress(err), "Should return InvalidAddressError")
+			} else {
+				assert.NoError(t, err, "Expected no error for valid IPv6 address")
+			}
+		})
+	}
+}
+
+func TestValidateAddress_Whitespace(t *testing.T) {
+	tests := []struct {
+		name    string
+		addr    string
+		wantErr bool
+	}{
+		{
+			name:    "Leading whitespace",
+			addr:    " localhost:8080",
+			wantErr: false, // net.SplitHostPort обрабатывает это как валидный адрес
+		},
+		{
+			name:    "Trailing whitespace",
+			addr:    "localhost:8080 ",
+			wantErr: true, // net.LookupPort не принимает порт с пробелом
+		},
+		{
+			name:    "Whitespace around colon",
+			addr:    "localhost : 8080",
+			wantErr: false, // net.SplitHostPort обрабатывает это как валидный адрес
+		},
+		{
+			name:    "Only whitespace",
+			addr:    "   ",
+			wantErr: true, // Это действительно некорректный адрес
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateAddress(tt.addr)
+
+			if tt.wantErr {
+				assert.Error(t, err, "Expected error for address with whitespace")
+				assert.True(t, IsInvalidAddress(err), "Should return InvalidAddressError")
+			} else {
+				assert.NoError(t, err, "Expected no error for valid address")
+			}
+		})
+	}
+}
+
 func TestParseFlags_DefaultAddress(t *testing.T) {
 	// Сохраняем оригинальные аргументы
 	originalArgs := os.Args
@@ -280,6 +384,122 @@ func TestParseFlags_VariousValidAddresses(t *testing.T) {
 			addr, err := parseFlags()
 			require.NoError(t, err, "parseFlags should not return error for valid address")
 			assert.Equal(t, tc.expected, addr, "Should return expected address")
+		})
+	}
+}
+
+func TestParseFlags_InvalidFlagValues(t *testing.T) {
+	// Сохраняем оригинальные аргументы
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	testCases := []struct {
+		name        string
+		args        []string
+		expectedErr string
+	}{
+		{
+			name:        "Empty address flag",
+			args:        []string{"server", "-a", ""},
+			expectedErr: "адрес не может быть пустым",
+		},
+		{
+			name:        "Whitespace address",
+			args:        []string{"server", "-a", "   "},
+			expectedErr: "некорректный формат адреса",
+		},
+		{
+			name:        "Invalid port number",
+			args:        []string{"server", "-a", "localhost:abc"},
+			expectedErr: "некорректный порт",
+		},
+		{
+			name:        "Port out of range",
+			args:        []string{"server", "-a", "localhost:99999"},
+			expectedErr: "некорректный порт",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			os.Args = tc.args
+
+			_, err := parseFlags()
+			require.Error(t, err, "Expected error for invalid flag value")
+			assert.True(t, IsInvalidAddress(err), "Should return InvalidAddressError")
+			assert.Contains(t, err.Error(), tc.expectedErr, "Error message should contain expected reason")
+		})
+	}
+}
+
+func TestParseFlags_MultipleUnknownArguments(t *testing.T) {
+	// Сохраняем оригинальные аргументы
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	testCases := []struct {
+		name        string
+		args        []string
+		expectedErr string
+	}{
+		{
+			name:        "Single unknown argument",
+			args:        []string{"server", "unknown"},
+			expectedErr: "неизвестные аргументы: [unknown]",
+		},
+		{
+			name:        "Multiple unknown arguments",
+			args:        []string{"server", "arg1", "arg2", "arg3"},
+			expectedErr: "неизвестные аргументы: [arg1 arg2 arg3]",
+		},
+		{
+			name:        "Unknown arguments with flags",
+			args:        []string{"server", "-a", "localhost:8080", "unknown"},
+			expectedErr: "неизвестные аргументы: [unknown]",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			os.Args = tc.args
+
+			_, err := parseFlags()
+			require.Error(t, err, "Expected error for unknown arguments")
+			assert.Equal(t, tc.expectedErr, err.Error(), "Error message should match")
+		})
+	}
+}
+
+func TestParseFlags_HelpVariations(t *testing.T) {
+	// Сохраняем оригинальные аргументы
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	testCases := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "Short help flag",
+			args: []string{"server", "-h"},
+		},
+		{
+			name: "Long help flag",
+			args: []string{"server", "--help"},
+		},
+		{
+			name: "Help with other flags",
+			args: []string{"server", "-a", "localhost:8080", "--help"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			os.Args = tc.args
+
+			_, err := parseFlags()
+			require.Error(t, err, "Expected error for help flag")
+			assert.True(t, IsHelpRequested(err), "Expected HelpRequestedError for help flag")
 		})
 	}
 }
