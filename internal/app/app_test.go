@@ -1,100 +1,78 @@
 package app
 
 import (
-	"fmt"
 	"testing"
-
-	"github.com/spf13/cobra"
 )
 
-func TestLoadConfig(t *testing.T) {
+func TestNewConfig(t *testing.T) {
 	tests := []struct {
 		name         string
-		args         []string
+		input        string
 		expectedAddr string
 		expectedPort string
 		expectError  bool
 	}{
 		{
 			name:         "Default address",
-			args:         []string{},
+			input:        "localhost:8080",
 			expectedAddr: "localhost",
 			expectedPort: "8080",
 			expectError:  false,
 		},
 		{
 			name:         "Custom address",
-			args:         []string{"--address=localhost:9090"},
+			input:        "localhost:9090",
 			expectedAddr: "localhost",
 			expectedPort: "9090",
 			expectError:  false,
 		},
 		{
 			name:         "Only port",
-			args:         []string{"--address=9090"},
+			input:        "9090",
 			expectedAddr: "localhost",
 			expectedPort: "9090",
 			expectError:  false,
 		},
 		{
 			name:         "Custom host and port",
-			args:         []string{"--address=127.0.0.1:9090"},
+			input:        "127.0.0.1:9090",
 			expectedAddr: "127.0.0.1",
 			expectedPort: "9090",
 			expectError:  false,
 		},
 		{
-			name:         "Unknown argument",
-			args:         []string{"unknown"},
-			expectedAddr: "",
+			name:         "Invalid address format",
+			input:        "invalid:address:format",
+			expectedAddr: "invalid",
+			expectedPort: "address:format",
+			expectError:  false,
+		},
+		{
+			name:         "Empty string",
+			input:        "",
+			expectedAddr: "localhost",
 			expectedPort: "",
-			expectError:  true,
+			expectError:  false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Создаем новый Cobra команду для каждого теста
-			cmd := &cobra.Command{
-				Use:   "test",
-				Short: "Test command",
-				RunE: func(cmd *cobra.Command, args []string) error {
-					if len(args) > 0 {
-						return fmt.Errorf("неизвестные аргументы: %v", args)
-					}
-					return nil
-				},
-			}
-
-			var addr string
-			cmd.Flags().StringVarP(&addr, "address", "a", "localhost:8080", "адрес эндпоинта HTTP-сервера")
-
-			// Устанавливаем аргументы для теста
-			cmd.SetArgs(tt.args)
-
-			// Выполняем команду
-			err := cmd.Execute()
+			config, err := NewConfig(tt.input)
 
 			if tt.expectError {
 				if err == nil {
-					t.Errorf("Expected error for unknown arguments, got nil")
+					t.Errorf("Expected error, got nil")
 				}
 			} else {
 				if err != nil {
 					t.Errorf("Unexpected error: %v", err)
 				}
-
-				// Парсим адрес и порт
-				serverAddr, serverPort, err := parseAddr(addr)
-				if err != nil {
-					t.Errorf("Failed to parse address: %v", err)
+				if config.Addr != tt.expectedAddr {
+					t.Errorf("Expected address %s, got %s", tt.expectedAddr, config.Addr)
 				}
-
-				if serverAddr != tt.expectedAddr {
-					t.Errorf("Expected address %s, got %s", tt.expectedAddr, serverAddr)
-				}
-				if serverPort != tt.expectedPort {
-					t.Errorf("Expected port %s, got %s", tt.expectedPort, serverPort)
+				if config.Port != tt.expectedPort {
+					t.Errorf("Expected port %s, got %s", tt.expectedPort, config.Port)
 				}
 			}
 		})

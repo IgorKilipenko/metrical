@@ -764,8 +764,14 @@ import (
 )
 
 func main() {
-    // Загружаем конфигурацию из флагов командной строки
-    config, err := app.LoadConfig()
+    // Парсим флаги командной строки
+    addr, err := parseFlags()
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Создаем конфигурацию
+    config, err := app.NewConfig(addr)
     if err != nil {
         log.Fatal(err)
     }
