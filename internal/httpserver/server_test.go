@@ -68,8 +68,8 @@ func TestServerIntegration(t *testing.T) {
 			name:           "Invalid URL format",
 			method:         "POST",
 			path:           "/update/gauge/temperature",
-			expectedStatus: http.StatusBadRequest,
-			expectedBody:   "Invalid URL format\n",
+			expectedStatus: http.StatusNotFound,
+			expectedBody:   "Not found\n",
 		},
 	}
 
@@ -169,7 +169,7 @@ func TestServerRedirects(t *testing.T) {
 		{
 			name:             "Path with trailing slash",
 			path:             "/update/gauge/test/123.45/",
-			expectedStatus:   http.StatusOK, // Обрабатывается напрямую
+			expectedStatus:   http.StatusNotFound, // Не соответствует регулярному выражению
 			expectedRedirect: false,
 		},
 		{
