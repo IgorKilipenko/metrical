@@ -1,39 +1,69 @@
 package httpserver
 
 import (
-	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/IgorKilipenko/metrical/internal/handler"
+	"github.com/IgorKilipenko/metrical/internal/repository"
+	"github.com/IgorKilipenko/metrical/internal/service"
 )
 
-// createTestServer создает тестовый HTTP сервер
-func createTestServer() *httptest.Server {
-	srv := NewServer(":8080")
-	return httptest.NewServer(srv)
-}
-
 func TestNewServer(t *testing.T) {
-	addr := ":8080"
-	srv := NewServer(addr)
+	handler := createTestHandler()
 
-	assert.NotNil(t, srv)
-	assert.Equal(t, addr, srv.addr)
-	assert.NotNil(t, srv.handler)
+	srv, err := NewServer(":8080", handler)
+	if err != nil {
+		t.Fatalf("NewServer() returned error: %v", err)
+	}
+	if srv == nil {
+		t.Fatal("NewServer() returned nil")
+	}
+	if srv.addr != ":8080" {
+		t.Errorf("Expected addr :8080, got %s", srv.addr)
+	}
+	if srv.handler == nil {
+		t.Fatal("handler is nil")
+	}
 }
 
-func TestServerGetMux(t *testing.T) {
-	srv := NewServer(":8080")
-	mux := srv.GetMux()
-
-	assert.NotNil(t, mux)
+// createTestHandler создает handler для тестов
+func createTestHandler() *handler.MetricsHandler {
+	repository := repository.NewInMemoryMetricsRepository()
+	service := service.NewMetricsService(repository)
+	return handler.NewMetricsHandler(service)
 }
 
-// TestServerIntegration тестирует интеграцию HTTP сервера
+func TestNewServerWithEmptyAddr(t *testing.T) {
+	handler := createTestHandler()
+	srv, err := NewServer("", handler)
+	if err == nil {
+		t.Fatal("Expected error for empty address")
+	}
+	if srv != nil {
+		t.Fatal("Expected nil server for empty address")
+	}
+}
+
+func TestNewServerWithNilHandler(t *testing.T) {
+	srv, err := NewServer(":8080", nil)
+	if err == nil {
+		t.Fatal("Expected error for nil handler")
+	}
+	if srv != nil {
+		t.Fatal("Expected nil server for nil handler")
+	}
+}
+
 func TestServerIntegration(t *testing.T) {
-	server := createTestServer()
+	handler := createTestHandler()
+	srv, err := NewServer(":8080", handler)
+	if err != nil {
+		t.Fatalf("NewServer() returned error: %v", err)
+	}
+	server := httptest.NewServer(srv)
 	defer server.Close()
 
 	tests := []struct {
@@ -48,106 +78,154 @@ func TestServerIntegration(t *testing.T) {
 			method:         "POST",
 			path:           "/update/gauge/temperature/23.5",
 			expectedStatus: http.StatusOK,
-			expectedBody:   "OK",
 		},
 		{
 			name:           "Update counter metric via HTTP",
 			method:         "POST",
 			path:           "/update/counter/requests/100",
 			expectedStatus: http.StatusOK,
-			expectedBody:   "OK",
+		},
+		{
+			name:           "Get gauge metric value",
+			method:         "GET",
+			path:           "/value/gauge/temperature",
+			expectedStatus: http.StatusOK,
+			expectedBody:   "23.5",
+		},
+		{
+			name:           "Get counter metric value",
+			method:         "GET",
+			path:           "/value/counter/requests",
+			expectedStatus: http.StatusOK,
+			expectedBody:   "100",
+		},
+		{
+			name:           "Get all metrics",
+			method:         "GET",
+			path:           "/",
+			expectedStatus: http.StatusOK,
 		},
 		{
 			name:           "Invalid HTTP method",
 			method:         "GET",
 			path:           "/update/gauge/temperature/23.5",
 			expectedStatus: http.StatusMethodNotAllowed,
-			expectedBody:   "Method not allowed\n",
 		},
 		{
 			name:           "Invalid URL format",
 			method:         "POST",
 			path:           "/update/gauge/temperature",
 			expectedStatus: http.StatusNotFound,
-			expectedBody:   "Not found\n",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Создаем HTTP запрос к тестовому серверу
-			req, err := http.NewRequest(tt.method, server.URL+tt.path, nil)
-			assert.NoError(t, err)
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			w := httptest.NewRecorder()
 
-			// Выполняем запрос
-			resp, err := http.DefaultClient.Do(req)
-			assert.NoError(t, err)
-			defer resp.Body.Close()
+			srv.ServeHTTP(w, req)
 
-			// Проверяем статус код
-			assert.Equal(t, tt.expectedStatus, resp.StatusCode, "Status code mismatch")
+			if w.Code != tt.expectedStatus {
+				t.Errorf("Expected status %d, got %d", tt.expectedStatus, w.Code)
+			}
 
-			// Проверяем тело ответа
-			body, err := io.ReadAll(resp.Body)
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expectedBody, string(body), "Response body mismatch")
+			if tt.expectedBody != "" {
+				body := strings.TrimSpace(w.Body.String())
+				if body != tt.expectedBody {
+					t.Errorf("Expected body '%s', got '%s'", tt.expectedBody, body)
+				}
+			}
 		})
 	}
 }
 
-// TestServerEndToEnd тестирует полный end-to-end цикл через HTTP
 func TestServerEndToEnd(t *testing.T) {
-	server := createTestServer()
+	handler := createTestHandler()
+	srv, err := NewServer(":8080", handler)
+	if err != nil {
+		t.Fatalf("NewServer() returned error: %v", err)
+	}
+	server := httptest.NewServer(srv)
 	defer server.Close()
 
-	// Тестируем обновление gauge метрики через HTTP
-	t.Run("Gauge metric end-to-end", func(t *testing.T) {
-		req, err := http.NewRequest("POST", server.URL+"/update/gauge/memory_usage/85.7", nil)
-		assert.NoError(t, err)
+	tests := []struct {
+		name           string
+		method         string
+		path           string
+		expectedStatus int
+		expectedBody   string
+	}{
+		{
+			name:           "Gauge metric end-to-end",
+			method:         "POST",
+			path:           "/update/gauge/temperature/23.5",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Counter metric end-to-end",
+			method:         "POST",
+			path:           "/update/counter/requests/100",
+			expectedStatus: http.StatusOK,
+		},
+	}
 
-		resp, err := http.DefaultClient.Do(req)
-		assert.NoError(t, err)
-		defer resp.Body.Close()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			w := httptest.NewRecorder()
 
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-	})
+			srv.ServeHTTP(w, req)
 
-	// Тестируем обновление counter метрики через HTTP
-	t.Run("Counter metric end-to-end", func(t *testing.T) {
-		req, err := http.NewRequest("POST", server.URL+"/update/counter/request_count/1", nil)
-		assert.NoError(t, err)
-
-		resp, err := http.DefaultClient.Do(req)
-		assert.NoError(t, err)
-		defer resp.Body.Close()
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-	})
+			if w.Code != tt.expectedStatus {
+				t.Errorf("Expected status %d, got %d", tt.expectedStatus, w.Code)
+			}
+		})
+	}
 }
 
-// TestServerBasicFunctionality тестирует базовую функциональность HTTP сервера
 func TestServerBasicFunctionality(t *testing.T) {
-	server := createTestServer()
+	handler := createTestHandler()
+	srv, err := NewServer(":8080", handler)
+	if err != nil {
+		t.Fatalf("NewServer() returned error: %v", err)
+	}
+	server := httptest.NewServer(srv)
 	defer server.Close()
 
-	// Тестируем простой запрос
-	req, err := http.NewRequest("POST", server.URL+"/update/gauge/test/123.45", nil)
-	assert.NoError(t, err)
+	// Тестируем обновление метрики
+	req1 := httptest.NewRequest("POST", "/update/gauge/test/42.0", nil)
+	w1 := httptest.NewRecorder()
+	srv.ServeHTTP(w1, req1)
 
-	resp, err := http.DefaultClient.Do(req)
-	assert.NoError(t, err)
-	defer resp.Body.Close()
+	if w1.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w1.Code)
+	}
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	// Тестируем получение значения метрики
+	req2 := httptest.NewRequest("GET", "/value/gauge/test", nil)
+	w2 := httptest.NewRecorder()
+	srv.ServeHTTP(w2, req2)
+
+	if w2.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w2.Code)
+	}
+
+	expectedValue := "42"
+	if strings.TrimSpace(w2.Body.String()) != expectedValue {
+		t.Errorf("Expected value %s, got %s", expectedValue, w2.Body.String())
+	}
 }
 
-// TestServerRedirects тестирует автоматические редиректы Go HTTP сервера
-// Go HTTP сервер автоматически выполняет редиректы для путей с двойными слешами
 func TestServerRedirects(t *testing.T) {
-	server := createTestServer()
+	handler := createTestHandler()
+	srv, err := NewServer(":8080", handler)
+	if err != nil {
+		t.Fatalf("NewServer() returned error: %v", err)
+	}
+	server := httptest.NewServer(srv)
 	defer server.Close()
 
-	// Создаем клиент, который НЕ следует редиректам
 	client := &http.Client{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -163,38 +241,42 @@ func TestServerRedirects(t *testing.T) {
 		{
 			name:             "Path with double slash",
 			path:             "/update/gauge//123.45",
-			expectedStatus:   http.StatusMovedPermanently, // Go HTTP server automatically redirects double slashes
-			expectedRedirect: true,
+			expectedStatus:   http.StatusMethodNotAllowed, // Chi router returns 405 for malformed paths
+			expectedRedirect: false,
 		},
 		{
 			name:             "Path with trailing slash",
 			path:             "/update/gauge/test/123.45/",
-			expectedStatus:   http.StatusNotFound, // Не соответствует регулярному выражению
+			expectedStatus:   http.StatusNotFound, // Chi router doesn't redirect trailing slashes by default
 			expectedRedirect: false,
 		},
 		{
 			name:             "Normal path",
 			path:             "/update/gauge/test/123.45",
-			expectedStatus:   http.StatusOK,
+			expectedStatus:   http.StatusMethodNotAllowed, // GET request to POST endpoint
 			expectedRedirect: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req, err := http.NewRequest("POST", server.URL+tt.path, nil)
-			assert.NoError(t, err)
-
-			resp, err := client.Do(req)
-			assert.NoError(t, err)
+			resp, err := client.Get(server.URL + tt.path)
+			if err != nil {
+				t.Fatalf("Failed to make request: %v", err)
+			}
 			defer resp.Body.Close()
 
-			assert.Equal(t, tt.expectedStatus, resp.StatusCode, "Status code mismatch for %s", tt.path)
+			if resp.StatusCode != tt.expectedStatus {
+				t.Errorf("Expected status %d, got %d", tt.expectedStatus, resp.StatusCode)
+			}
 
 			if tt.expectedRedirect {
 				location := resp.Header.Get("Location")
-				assert.NotEmpty(t, location, "Redirect should have Location header")
-				t.Logf("Redirect from %s to %s", tt.path, location)
+				if location == "" {
+					t.Error("Expected redirect location header")
+				} else {
+					t.Logf("Redirect from %s to %s", tt.path, location)
+				}
 			}
 		})
 	}

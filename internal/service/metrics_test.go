@@ -3,14 +3,14 @@ package service
 import (
 	"testing"
 
-	models "github.com/IgorKilipenko/metrical/internal/model"
+	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMetricsService_UpdateMetric(t *testing.T) {
-	storage := models.NewMemStorage()
-	service := NewMetricsService(storage)
+	repository := repository.NewInMemoryMetricsRepository()
+	service := NewMetricsService(repository)
 
 	tests := []struct {
 		name        string
@@ -70,8 +70,8 @@ func TestMetricsService_UpdateMetric(t *testing.T) {
 }
 
 func TestMetricsService_UpdateMetric_GaugeReplacement(t *testing.T) {
-	storage := models.NewMemStorage()
-	service := NewMetricsService(storage)
+	repository := repository.NewInMemoryMetricsRepository()
+	service := NewMetricsService(repository)
 
 	// Обновляем gauge метрику дважды
 	err := service.UpdateMetric("gauge", "temperature", "23.5")
@@ -81,14 +81,15 @@ func TestMetricsService_UpdateMetric_GaugeReplacement(t *testing.T) {
 	require.NoError(t, err, "Failed to update gauge metric")
 
 	// Проверяем, что значение заменилось
-	value, exists := service.GetGauge("temperature")
+	value, exists, err := service.GetGauge("temperature")
+	require.NoError(t, err, "Failed to get gauge metric")
 	assert.True(t, exists, "Gauge metric should exist")
 	assert.Equal(t, 25.0, value, "Gauge value should be replaced")
 }
 
 func TestMetricsService_UpdateMetric_CounterAccumulation(t *testing.T) {
-	storage := models.NewMemStorage()
-	service := NewMetricsService(storage)
+	repository := repository.NewInMemoryMetricsRepository()
+	service := NewMetricsService(repository)
 
 	// Обновляем counter метрику дважды
 	err := service.UpdateMetric("counter", "requests", "100")
@@ -98,75 +99,88 @@ func TestMetricsService_UpdateMetric_CounterAccumulation(t *testing.T) {
 	require.NoError(t, err, "Failed to update counter metric")
 
 	// Проверяем, что значения накопились
-	value, exists := service.GetCounter("requests")
+	value, exists, err := service.GetCounter("requests")
+	require.NoError(t, err, "Failed to get counter metric")
 	assert.True(t, exists, "Counter metric should exist")
 	assert.Equal(t, int64(150), value, "Counter value should be accumulated")
 }
 
 func TestMetricsService_GetGauge(t *testing.T) {
-	storage := models.NewMemStorage()
-	service := NewMetricsService(storage)
+	repository := repository.NewInMemoryMetricsRepository()
+	service := NewMetricsService(repository)
 
-	// Проверяем несуществующую метрику
-	_, exists := service.GetGauge("nonexistent")
-	assert.False(t, exists, "Non-existent gauge should not exist")
-
-	// Добавляем метрику и проверяем
+	// Добавляем gauge метрику
 	err := service.UpdateMetric("gauge", "temperature", "23.5")
 	require.NoError(t, err, "Failed to update gauge metric")
 
-	value, exists := service.GetGauge("temperature")
+	// Получаем значение
+	value, exists, err := service.GetGauge("temperature")
+	require.NoError(t, err, "Failed to get gauge metric")
 	assert.True(t, exists, "Gauge metric should exist")
 	assert.Equal(t, 23.5, value, "Gauge value should match")
+
+	// Проверяем несуществующую метрику
+	value, exists, err = service.GetGauge("nonexistent")
+	require.NoError(t, err, "Failed to get non-existent gauge metric")
+	assert.False(t, exists, "Non-existent gauge should not exist")
+	assert.Equal(t, 0.0, value, "Non-existent gauge should return 0")
 }
 
 func TestMetricsService_GetCounter(t *testing.T) {
-	storage := models.NewMemStorage()
-	service := NewMetricsService(storage)
+	repository := repository.NewInMemoryMetricsRepository()
+	service := NewMetricsService(repository)
 
-	// Проверяем несуществующую метрику
-	_, exists := service.GetCounter("nonexistent")
-	assert.False(t, exists, "Non-existent counter should not exist")
-
-	// Добавляем метрику и проверяем
+	// Добавляем counter метрику
 	err := service.UpdateMetric("counter", "requests", "100")
 	require.NoError(t, err, "Failed to update counter metric")
 
-	value, exists := service.GetCounter("requests")
+	// Получаем значение
+	value, exists, err := service.GetCounter("requests")
+	require.NoError(t, err, "Failed to get counter metric")
 	assert.True(t, exists, "Counter metric should exist")
 	assert.Equal(t, int64(100), value, "Counter value should match")
+
+	// Проверяем несуществующую метрику
+	value, exists, err = service.GetCounter("nonexistent")
+	require.NoError(t, err, "Failed to get non-existent counter metric")
+	assert.False(t, exists, "Non-existent counter should not exist")
+	assert.Equal(t, int64(0), value, "Non-existent counter should return 0")
 }
 
 func TestMetricsService_GetAllGauges(t *testing.T) {
-	storage := models.NewMemStorage()
-	service := NewMetricsService(storage)
+	repository := repository.NewInMemoryMetricsRepository()
+	service := NewMetricsService(repository)
 
 	// Добавляем несколько gauge метрик
-	err1 := service.UpdateMetric("gauge", "temperature", "23.5")
-	require.NoError(t, err1, "Failed to update temperature metric")
+	err := service.UpdateMetric("gauge", "temp1", "10.5")
+	require.NoError(t, err, "Failed to update gauge metric")
 
-	err2 := service.UpdateMetric("gauge", "humidity", "65.2")
-	require.NoError(t, err2, "Failed to update humidity metric")
+	err = service.UpdateMetric("gauge", "temp2", "20.7")
+	require.NoError(t, err, "Failed to update gauge metric")
 
-	gauges := service.GetAllGauges()
-	assert.Len(t, gauges, 2, "Should have 2 gauges")
-	assert.Equal(t, 23.5, gauges["temperature"], "Temperature should match")
-	assert.Equal(t, 65.2, gauges["humidity"], "Humidity should match")
+	// Получаем все gauge метрики
+	gauges, err := service.GetAllGauges()
+	require.NoError(t, err, "Failed to get all gauges")
+	assert.Len(t, gauges, 2, "Should have 2 gauge metrics")
+	assert.Equal(t, 10.5, gauges["temp1"], "First gauge value should match")
+	assert.Equal(t, 20.7, gauges["temp2"], "Second gauge value should match")
 }
 
 func TestMetricsService_GetAllCounters(t *testing.T) {
-	storage := models.NewMemStorage()
-	service := NewMetricsService(storage)
+	repository := repository.NewInMemoryMetricsRepository()
+	service := NewMetricsService(repository)
 
 	// Добавляем несколько counter метрик
-	err1 := service.UpdateMetric("counter", "requests", "100")
-	require.NoError(t, err1, "Failed to update requests metric")
+	err := service.UpdateMetric("counter", "req1", "100")
+	require.NoError(t, err, "Failed to update counter metric")
 
-	err2 := service.UpdateMetric("counter", "errors", "5")
-	require.NoError(t, err2, "Failed to update errors metric")
+	err = service.UpdateMetric("counter", "req2", "200")
+	require.NoError(t, err, "Failed to update counter metric")
 
-	counters := service.GetAllCounters()
-	assert.Len(t, counters, 2, "Should have 2 counters")
-	assert.Equal(t, int64(100), counters["requests"], "Requests should match")
-	assert.Equal(t, int64(5), counters["errors"], "Errors should match")
+	// Получаем все counter метрики
+	counters, err := service.GetAllCounters()
+	require.NoError(t, err, "Failed to get all counters")
+	assert.Len(t, counters, 2, "Should have 2 counter metrics")
+	assert.Equal(t, int64(100), counters["req1"], "First counter value should match")
+	assert.Equal(t, int64(200), counters["req2"], "Second counter value should match")
 }

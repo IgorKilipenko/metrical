@@ -18,6 +18,7 @@ cmd/agent/__debug_bin*
 cmd/server/main
 cmd/server/server
 cmd/server/__debug_bin*
+main
 
 # Dependency directories (remove the comment below to include it)
 vendor/

@@ -32,26 +32,44 @@ cmd/server/
 └── README.md        # Документация сервера
 
 internal/
+├── app/
+│   ├── app.go           # Основная логика приложения
+│   ├── config.go        # Конфигурация приложения
+│   ├── app_test.go      # Тесты приложения
+│   └── README.md        # Документация пакета app
 ├── httpserver/
-│   ├── server.go      # Логика HTTP сервера
-│   ├── server_test.go # Тесты сервера
-│   └── README.md      # Документация пакета httpserver
+│   ├── server.go        # Логика HTTP сервера
+│   ├── server_test.go   # Тесты сервера
+│   └── README.md        # Документация пакета httpserver
 ├── handler/
-│   ├── metrics.go      # HTTP обработчики
-│   └── metrics_test.go # Тесты обработчиков
+│   ├── metrics.go       # HTTP обработчики
+│   └── metrics_test.go  # Тесты обработчиков
 ├── service/
-│   ├── metrics.go      # Бизнес-логика
-│   └── metrics_test.go # Тесты сервиса
-└── model/
-    ├── metrics.go      # Модели данных
-    └── metrics_test.go # Тесты модели
+│   ├── metrics.go       # Бизнес-логика
+│   └── metrics_test.go  # Тесты сервиса
+├── repository/
+│   ├── metrics.go       # Интерфейс Repository
+│   ├── memory.go        # InMemory реализация
+│   ├── memory_test.go   # Тесты Repository
+│   └── README.md        # Документация пакета repository
+├── model/
+│   ├── metrics.go       # Структуры данных
+│   └── README.md        # Документация пакета model
+├── router/
+│   ├── router.go        # Роутер (обертка над chi)
+│   └── router_test.go   # Тесты роутера
+├── routes/
+│   ├── metrics.go       # Настройка HTTP маршрутов
+│   └── metrics_test.go  # Тесты маршрутов
+└── template/
+    ├── metrics.go       # HTML шаблоны
+    └── metrics_test.go  # Тесты шаблонов
 ```
 
 ## Тесты
 
 ### Тесты сервера (`internal/httpserver/server_test.go`)
 - `TestNewServer` - тестирование создания сервера
-- `TestServerGetMux` - тестирование получения ServeMux
 - `TestServerIntegration` - интеграционные тесты HTTP сервера
 - `TestServerEndToEnd` - end-to-end тестирование полного цикла работы с метриками
 - `TestServerBasicFunctionality` - тестирование базовой функциональности
@@ -63,9 +81,8 @@ internal/
 - `TestMetricsHandler_UpdateMetric` - unit тестирование HTTP обработчика
 - `TestMetricsHandler_UpdateMetric_CounterAccumulation` - unit тестирование накопления счетчиков
 - `TestMetricsHandler_UpdateMetric_GaugeReplacement` - unit тестирование замены gauge метрик
-- `TestSplitPath` - unit тестирование функции разбора URL путей
 
-**Назначение:** Быстрые unit тесты для изолированного тестирования логики HTTP обработчика и вспомогательных функций.
+**Назначение:** Быстрые unit тесты для изолированного тестирования логики HTTP обработчика.
 
 ### Тесты сервиса (`internal/service/metrics_test.go`)
 - `TestMetricsService_UpdateMetric` - тестирование обновления метрик
@@ -76,22 +93,28 @@ internal/
 - `TestMetricsService_GetAllGauges` - тестирование получения всех gauge метрик
 - `TestMetricsService_GetAllCounters` - тестирование получения всех counter метрик
 
-### Тесты модели (`internal/model/metrics_test.go`)
-- `TestNewMemStorage` - тестирование создания хранилища
-- `TestMemStorage_UpdateGauge` - тестирование обновления gauge метрик
-- `TestMemStorage_UpdateCounter` - тестирование обновления counter метрик
-- `TestMemStorage_GetGauge` - тестирование получения gauge метрик
-- `TestMemStorage_GetCounter` - тестирование получения counter метрик
-- `TestMemStorage_GetAllGauges` - тестирование получения всех gauge метрик
-- `TestMemStorage_GetAllCounters` - тестирование получения всех counter метрик
-- `TestMemStorage_Isolation` - тестирование изоляции хранилищ
-- `TestMemStorage_EdgeCases` - тестирование граничных случаев
+### Тесты репозитория (`internal/repository/memory_test.go`)
+- `TestInMemoryMetricsRepository_UpdateGauge` - тестирование обновления gauge метрик
+- `TestInMemoryMetricsRepository_UpdateCounter` - тестирование обновления counter метрик
+- `TestInMemoryMetricsRepository_GetGauge_NotExists` - тестирование получения несуществующих gauge
+- `TestInMemoryMetricsRepository_GetCounter_NotExists` - тестирование получения несуществующих counter
+- `TestInMemoryMetricsRepository_GetAllGauges` - тестирование получения всех gauge метрик
+- `TestInMemoryMetricsRepository_GetAllCounters` - тестирование получения всех counter метрик
+- `TestInMemoryMetricsRepository_Concurrency` - тестирование потокобезопасности
+
+### Тесты приложения (`internal/app/app_test.go`)
+- `TestLoadConfig` - тестирование загрузки конфигурации
+- `TestNew` - тестирование создания приложения
+- `TestApp_GetPort` - тестирование получения порта
+- `TestGetEnv` - тестирование работы с переменными окружения
+
+**Назначение:** Тестирование логики инициализации приложения и конфигурации.
 
 ## Запуск тестов
 
 ```bash
 # Все тесты сервера
-go test ./internal/httpserver/... ./internal/handler/... ./internal/service/... ./internal/model/... -v
+go test ./internal/httpserver/... ./internal/handler/... ./internal/service/... ./internal/repository/... ./internal/model/... ./internal/app/... ./internal/router/... ./internal/routes/... ./internal/template/... -v
 
 # Только тесты сервера
 go test ./internal/httpserver/... -v
@@ -102,8 +125,20 @@ go test ./internal/handler/... -v
 # Только тесты сервиса
 go test ./internal/service/... -v
 
-# Только тесты модели
-go test ./internal/model/... -v
+# Только тесты репозитория
+go test ./internal/repository/... -v
+
+# Только тесты приложения
+go test ./internal/app/... -v
+
+# Только тесты роутера
+go test ./internal/router/... -v
+
+# Только тесты маршрутов
+go test ./internal/routes/... -v
+
+# Только тесты шаблонов
+go test ./internal/template/... -v
 ```
 
 ## Разница между типами тестов
@@ -111,8 +146,20 @@ go test ./internal/model/... -v
 ### Unit тесты (`internal/handler/metrics_test.go`)
 - **Цель:** Тестирование изолированной логики HTTP обработчика
 - **Скорость:** Быстрые (миллисекунды)
-- **Зависимости:** Минимальные (только handler + service + storage)
+- **Зависимости:** Минимальные (handler + service + repository)
 - **Использование:** При разработке и рефакторинге handler
+
+### Тесты сервиса (`internal/service/metrics_test.go`)
+- **Цель:** Тестирование бизнес-логики с моками репозитория
+- **Скорость:** Быстрые (миллисекунды)
+- **Зависимости:** Service + Repository (мок)
+- **Использование:** При разработке и рефакторинге бизнес-логики
+
+### Тесты репозитория (`internal/repository/memory_test.go`)
+- **Цель:** Тестирование работы с данными
+- **Скорость:** Быстрые (миллисекунды)
+- **Зависимости:** Repository + Model
+- **Использование:** При разработке и рефакторинге репозитория
 
 ### Тесты сервера (`internal/httpserver/server_test.go`)
 - **Цель:** Тестирование полной интеграции всех компонентов сервера
@@ -123,15 +170,101 @@ go test ./internal/model/... -v
 ## Запуск сервера
 
 ```bash
+# Запуск с портом по умолчанию
 go run cmd/server/main.go
+
+# Запуск с кастомным портом
+SERVER_PORT=9090 go run cmd/server/main.go
 ```
 
-Сервер запустится на порту 8080.
+Сервер запустится на порту 8080 (или указанном в переменной `SERVER_PORT`).
 
 ### Архитектура
 
-Файл `main.go` содержит минимальную логику инициализации:
-- Создание экземпляра сервера через `httpserver.NewServer(":8080")`
+Файл `main.go` содержит простую логику инициализации:
+- Загрузка конфигурации из переменных окружения (`SERVER_PORT`)
+- Создание экземпляра сервера через `httpserver.NewServer(addr, handler)`
 - Запуск сервера через `srv.Start()`
 
 Вся остальная логика HTTP сервера инкапсулирована в пакете `internal/httpserver`.
+
+### Конфигурация
+
+Сервер поддерживает настройку через переменные окружения:
+- `SERVER_PORT` - порт для запуска сервера (по умолчанию: "8080")
+
+### Архитектурные слои
+
+Проект построен по принципам Clean Architecture:
+
+```mermaid
+graph TB
+    subgraph "Transport Layer"
+        H[HTTP Handler]
+        R[Router/Chi]
+        T[Template Engine]
+    end
+    
+    subgraph "Business Logic Layer"
+        S[Service Layer]
+        VAL[Validation]
+    end
+    
+    subgraph "Data Access Layer"
+        REPO[Repository Interface]
+        IMR[InMemory Repository]
+    end
+    
+    subgraph "Data Layer"
+        MODELS[Data Models]
+    end
+    
+    H --> S
+    R --> H
+    S --> REPO
+    REPO --> IMR
+    IMR --> MODELS
+    S --> T
+    S --> VAL
+    
+    style H fill:#e3f2fd
+    style R fill:#e3f2fd
+    style T fill:#e3f2fd
+    style S fill:#f3e5f5
+    style VAL fill:#f3e5f5
+    style REPO fill:#e8f5e8
+    style IMR fill:#e8f5e8
+    style MODELS fill:#fff3e0
+```
+
+### Поток обработки запроса
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Router
+    participant Handler
+    participant Service
+    participant Repository
+    participant Models
+    
+    Client->>Router: HTTP Request
+    Router->>Handler: Route to Handler
+    Handler->>Service: Call Business Logic
+    Service->>Repository: Data Operation
+    Repository->>Models: Update/Get Data
+    Models-->>Repository: Result
+    Repository-->>Service: Result
+    Service-->>Handler: Response
+    Handler-->>Router: HTTP Response
+    Router-->>Client: HTTP Response
+    
+    Note over Handler,Service: Валидация и обработка ошибок
+    Note over Service,Repository: Бизнес-логика
+    Note over Repository,Models: Абстракция данных
+```
+
+- **Handler** - HTTP обработчики
+- **Service** - бизнес-логика
+- **Repository** - абстракция над источниками данных
+- **Models** - структуры данных

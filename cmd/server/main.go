@@ -3,11 +3,18 @@ package main
 import (
 	"log"
 
-	"github.com/IgorKilipenko/metrical/internal/httpserver"
+	"github.com/IgorKilipenko/metrical/internal/app"
 )
 
 func main() {
-	// Создаем и запускаем сервер
-	srv := httpserver.NewServer(":8080")
-	log.Fatal(srv.Start())
+	// Загружаем конфигурацию
+	config := app.LoadConfig()
+
+	// Создаем приложение
+	application := app.New(config)
+
+	// Запускаем приложение
+	if err := application.Run(); err != nil {
+		log.Fatal(err)
+	}
 }

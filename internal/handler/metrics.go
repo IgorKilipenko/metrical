@@ -1,20 +1,21 @@
 package handler
 
 import (
-	"fmt"
+	"log"
 	"net/http"
-	"regexp"
-	"strings"
+	"strconv"
 
 	"github.com/IgorKilipenko/metrical/internal/service"
+	"github.com/IgorKilipenko/metrical/internal/template"
+	"github.com/go-chi/chi/v5"
 )
 
-// MetricsHandler обработчик HTTP запросов для метрик
+// MetricsHandler обрабатывает HTTP запросы для работы с метриками
 type MetricsHandler struct {
 	service *service.MetricsService
 }
 
-// NewMetricsHandler создает новый экземпляр MetricsHandler
+// NewMetricsHandler создает новый обработчик метрик
 func NewMetricsHandler(service *service.MetricsService) *MetricsHandler {
 	return &MetricsHandler{
 		service: service,
@@ -22,77 +23,134 @@ func NewMetricsHandler(service *service.MetricsService) *MetricsHandler {
 }
 
 // UpdateMetric обрабатывает POST запросы для обновления метрик
-// Формат: POST /update/<ТИП_МЕТРИКИ>/<ИМЯ_МЕТРИКИ>/<ЗНАЧЕНИЕ_МЕТРИКИ>
 func (h *MetricsHandler) UpdateMetric(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Используем регулярное выражение для парсинга URL
-	// Паттерн: /update/([^/]+)/([^/]+)/([^/]+)
-	re := regexp.MustCompile(`^/update/([^/]+)/([^/]+)/([^/]+)$`)
-	matches := re.FindStringSubmatch(r.URL.Path)
+	// Получаем параметры из chi роутера
+	metricType := chi.URLParam(r, "type")
+	metricName := chi.URLParam(r, "name")
+	metricValue := chi.URLParam(r, "value")
 
-	if len(matches) != 4 {
-		http.Error(w, "Not found", http.StatusNotFound)
-		return
-	}
-
-	metricType := matches[1]
-	metricName := matches[2]
-	metricValue := matches[3]
-
-	// Проверяем, что имя метрики не пустое
 	if metricName == "" {
 		http.Error(w, "Metric name is required", http.StatusNotFound)
 		return
 	}
 
-	// Обновляем метрику
 	err := h.service.UpdateMetric(metricType, metricName, metricValue)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Возвращаем успешный ответ
 	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprint(w, "OK")
 }
 
-// validatePath проверяет путь на наличие неподдерживаемых символов
-func validatePath(path string) error {
-	// Проверяем только на управляющие символы
-	invalidPathRegex, err := regexp.Compile(`[\x00-\x1F\x7F-\x9F]`)
-	if err != nil {
-		return err
-	}
-	if invalidPathRegex.MatchString(path) {
-		return fmt.Errorf("invalid path: %s", path)
+// GetMetricValue обрабатывает GET запросы для получения значения метрики
+func (h *MetricsHandler) GetMetricValue(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
 
-	return nil
+	// Получаем параметры из chi роутера
+	metricType := chi.URLParam(r, "type")
+	metricName := chi.URLParam(r, "name")
+
+	if metricName == "" {
+		http.Error(w, "Metric name is required", http.StatusNotFound)
+		return
+	}
+
+	var value string
+	var found bool
+
+	switch metricType {
+	case "gauge":
+		var gaugeValue float64
+		var err error
+		gaugeValue, found, err = h.service.GetGauge(metricName)
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		if found {
+			value = strconv.FormatFloat(gaugeValue, 'f', -1, 64)
+		}
+	case "counter":
+		var counterValue int64
+		var err error
+		counterValue, found, err = h.service.GetCounter(metricName)
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		if found {
+			value = strconv.FormatInt(counterValue, 10)
+		}
+	default:
+		http.Error(w, "Invalid metric type", http.StatusBadRequest)
+		return
+	}
+
+	if !found {
+		http.Error(w, "Metric not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(value))
 }
 
-// splitPath разбивает путь URL на части, сохраняя пустые сегменты
-func splitPath(path string) ([]string, error) {
-	// Валидируем путь
-	if err := validatePath(path); err != nil {
-		return nil, err
+// GetAllMetrics обрабатывает GET запросы для отображения всех метрик
+func (h *MetricsHandler) GetAllMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
 
-	// Убираем начальный слеш и пробелы в конце и разбиваем по слешам
-	trimRegex, err := regexp.Compile(`^/|/?\s*$`)
+	gauges, err := h.service.GetAllGauges()
 	if err != nil {
-		return nil, err
-	}
-	path = trimRegex.ReplaceAllString(path, "")
-
-	if path == "" {
-		return []string{""}, nil
+		log.Printf("Error getting gauges: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
 	}
 
-	return strings.Split(path, "/"), nil
+	counters, err := h.service.GetAllCounters()
+	if err != nil {
+		log.Printf("Error getting counters: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Создаем шаблон
+	mt, err := template.NewMetricsTemplate()
+	if err != nil {
+		log.Printf("Error creating template: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Подготавливаем данные для шаблона
+	data := template.MetricsData{
+		Gauges:       gauges,
+		Counters:     counters,
+		GaugeCount:   len(gauges),
+		CounterCount: len(counters),
+	}
+
+	// Выполняем шаблон
+	htmlBytes, err := mt.Execute(data)
+	if err != nil {
+		log.Printf("Error executing template: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write(htmlBytes)
 }
