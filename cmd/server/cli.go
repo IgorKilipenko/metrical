@@ -38,7 +38,7 @@ func parseFlags() (string, error) {
 	}
 
 	// Проверяем, не был ли запрошен help
-	if cmd.Flags().Lookup("help").Changed {
+	if helpFlag := cmd.Flags().Lookup("help"); helpFlag != nil && helpFlag.Changed {
 		return "", HelpRequestedError{}
 	}
 

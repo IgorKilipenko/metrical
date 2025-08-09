@@ -237,3 +237,65 @@ func TestParseFlags_HelpVariations(t *testing.T) {
 		})
 	}
 }
+
+func TestParseFlags_HelpFlagPanic(t *testing.T) {
+	// Сохраняем оригинальные аргументы
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	testCases := []struct {
+		name        string
+		args        []string
+		expectError bool
+		errorType   func(error) bool
+	}{
+		{
+			name:        "No help flag",
+			args:        []string{"server", "-a", "localhost:8080"},
+			expectError: false,
+		},
+		{
+			name:        "Short help flag",
+			args:        []string{"server", "-h"},
+			expectError: true,
+			errorType:   IsHelpRequested,
+		},
+		{
+			name:        "Long help flag",
+			args:        []string{"server", "--help"},
+			expectError: true,
+			errorType:   IsHelpRequested,
+		},
+		{
+			name:        "Help with other flags",
+			args:        []string{"server", "-a", "localhost:8080", "--help"},
+			expectError: true,
+			errorType:   IsHelpRequested,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			os.Args = tc.args
+
+			// Проверяем, что не происходит паника
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("parseFlags вызвал панику: %v", r)
+				}
+			}()
+
+			addr, err := parseFlags()
+
+			if tc.expectError {
+				require.Error(t, err, "Expected error")
+				if tc.errorType != nil {
+					assert.True(t, tc.errorType(err), "Expected specific error type")
+				}
+			} else {
+				require.NoError(t, err, "Expected no error")
+				assert.Equal(t, "localhost:8080", addr, "Should return expected address")
+			}
+		})
+	}
+}
