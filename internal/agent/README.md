@@ -10,6 +10,8 @@ graph TB
         AGENT[Agent]
         CONFIG[Config]
         METRICS[Metrics Collector]
+        METRIC_INFO[MetricInfo]
+        HTTP_HANDLER[HTTP Handler]
     end
     
     subgraph "Runtime"
@@ -24,15 +26,19 @@ graph TB
     
     AGENT --> CONFIG
     AGENT --> METRICS
-    AGENT --> HTTP_CLIENT
+    AGENT --> HTTP_HANDLER
     
     METRICS --> RUNTIME
     METRICS --> RANDOM
+    HTTP_HANDLER --> METRIC_INFO
+    HTTP_HANDLER --> HTTP_CLIENT
     HTTP_CLIENT --> SERVER
     
     style AGENT fill:#f3e5f5
     style CONFIG fill:#e8f5e8
     style METRICS fill:#e3f2fd
+    style METRIC_INFO fill:#fff8e1
+    style HTTP_HANDLER fill:#f3e5f5
     style RUNTIME fill:#fff3e0
     style RANDOM fill:#fff3e0
     style HTTP_CLIENT fill:#e1f5fe
@@ -70,12 +76,12 @@ sequenceDiagram
 ## Структура файлов
 
 ### Основные файлы
-- `agent.go` - основная логика агента
+- `agent.go` - основная логика агента (сбор, отправка, retry логика)
 - `config.go` - конфигурация агента
 - `metrics.go` - работа с метриками
 
 ### Тестовые файлы
-- `agent_test.go` - тесты агента (создание, сбор метрик, потокобезопасность, graceful shutdown)
+- `agent_test.go` - тесты агента (создание, сбор метрик, потокобезопасность, graceful shutdown, подготовка метрик)
 - `config_test.go` - тесты конфигурации (создание, валидация)
 - `metrics_test.go` - тесты метрик (создание, заполнение, обновление)
 

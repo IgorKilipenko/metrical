@@ -11,11 +11,25 @@ import (
 	"time"
 )
 
+// Константы для retry логики
+const (
+	DefaultMaxRetries = 2
+	DefaultRetryDelay = 100 * time.Millisecond
+)
+
 // MetricValue структура для хранения метрики
 type MetricValue struct {
 	Value     float64
 	Type      string // "gauge" или "counter"
 	Timestamp time.Time
+}
+
+// MetricInfo структура для хранения информации о метрике для отправки
+type MetricInfo struct {
+	Name  string
+	Type  string
+	Value string
+	URL   string
 }
 
 // Agent агент для сбора и отправки метрик
@@ -141,8 +155,8 @@ func (a *Agent) sendMetrics() {
 	}
 }
 
-// sendSingleMetric отправляет одну метрику с retry логикой
-func (a *Agent) sendSingleMetric(name string, value interface{}) error {
+// prepareMetricInfo подготавливает информацию о метрике для отправки
+func (a *Agent) prepareMetricInfo(name string, value interface{}) (*MetricInfo, error) {
 	var metricType string
 	var stringValue string
 
@@ -154,7 +168,7 @@ func (a *Agent) sendSingleMetric(name string, value interface{}) error {
 		metricType = MetricTypeCounter
 		stringValue = strconv.FormatInt(v, 10)
 	default:
-		return fmt.Errorf("unknown metric type for %s: %T", name, value)
+		return nil, fmt.Errorf("unknown metric type for %s: %T", name, value)
 	}
 
 	// Убеждаемся, что URL содержит протокол
@@ -164,33 +178,59 @@ func (a *Agent) sendSingleMetric(name string, value interface{}) error {
 	}
 	url := fmt.Sprintf("%s/update/%s/%s/%s", serverURL, metricType, name, stringValue)
 
-	// Retry логика для обработки временных проблем с сервером
-	maxRetries := 2
-	for attempt := 1; attempt <= maxRetries; attempt++ {
+	return &MetricInfo{
+		Name:  name,
+		Type:  metricType,
+		Value: stringValue,
+		URL:   url,
+	}, nil
+}
+
+// sendHTTPRequest выполняет HTTP запрос с retry логикой
+func (a *Agent) sendHTTPRequest(url string) error {
+	for attempt := 1; attempt <= DefaultMaxRetries; attempt++ {
 		resp, err := a.httpClient.Post(url, "text/plain", nil)
 		if err != nil {
 			// Если это последняя попытка, возвращаем ошибку
-			if attempt == maxRetries {
-				return fmt.Errorf("failed after %d attempts: %w", maxRetries, err)
+			if attempt == DefaultMaxRetries {
+				return fmt.Errorf("failed after %d attempts: %w", DefaultMaxRetries, err)
 			}
 			// Небольшая задержка перед повторной попыткой
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(DefaultRetryDelay)
 			continue
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode == http.StatusOK {
-			if a.config.VerboseLogging {
-				log.Printf("Sent metric %s = %s, status: %d", name, stringValue, resp.StatusCode)
-			}
 			return nil
 		} else {
-			if attempt == maxRetries {
+			if attempt == DefaultMaxRetries {
 				return fmt.Errorf("server returned status %d", resp.StatusCode)
 			}
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(DefaultRetryDelay)
 		}
 	}
 
-	return fmt.Errorf("failed to send metric %s after %d attempts", name, maxRetries)
+	return fmt.Errorf("failed to send request after %d attempts", DefaultMaxRetries)
+}
+
+// sendSingleMetric отправляет одну метрику с retry логикой
+func (a *Agent) sendSingleMetric(name string, value interface{}) error {
+	// Подготавливаем информацию о метрике
+	metricInfo, err := a.prepareMetricInfo(name, value)
+	if err != nil {
+		return err
+	}
+
+	// Отправляем HTTP запрос
+	if err := a.sendHTTPRequest(metricInfo.URL); err != nil {
+		return fmt.Errorf("failed to send metric %s: %w", name, err)
+	}
+
+	// Логируем успешную отправку
+	if a.config.VerboseLogging {
+		log.Printf("Sent metric %s = %s, status: 200", metricInfo.Name, metricInfo.Value)
+	}
+
+	return nil
 }
