@@ -11,9 +11,10 @@ func parseFlags() (string, error) {
 	var addr string
 
 	cmd := &cobra.Command{
-		Use:   "server",
-		Short: "HTTP сервер для сбора метрик",
-		Long:  `HTTP сервер для приема метрик от агентов по протоколу HTTP.`,
+		Use:     "server",
+		Short:   "HTTP сервер для сбора метрик",
+		Long:    `HTTP сервер для приема метрик от агентов по протоколу HTTP.`,
+		Version: Version,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Проверяем на неизвестные аргументы
 			if len(args) > 0 {
@@ -40,6 +41,11 @@ func parseFlags() (string, error) {
 	// Проверяем, не был ли запрошен help
 	if helpFlag := cmd.Flags().Lookup("help"); helpFlag != nil && helpFlag.Changed {
 		return "", HelpRequestedError{}
+	}
+
+	// Проверяем, не был ли запрошен version
+	if versionFlag := cmd.Flags().Lookup("version"); versionFlag != nil && versionFlag.Changed {
+		return "", VersionRequestedError{}
 	}
 
 	return addr, nil

@@ -8,6 +8,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestVersionRequestedError(t *testing.T) {
+	err := VersionRequestedError{}
+
+	// Проверяем сообщение об ошибке
+	assert.Equal(t, "version requested", err.Error(), "Error message should match")
+
+	// Проверяем функцию IsVersionRequested
+	assert.True(t, IsVersionRequested(err), "IsVersionRequested should return true for VersionRequestedError")
+
+	// Проверяем с обычной ошибкой
+	regularErr := &os.PathError{}
+	assert.False(t, IsVersionRequested(regularErr), "IsVersionRequested should return false for regular error")
+}
+
 func TestHelpRequestedError(t *testing.T) {
 	err := HelpRequestedError{}
 

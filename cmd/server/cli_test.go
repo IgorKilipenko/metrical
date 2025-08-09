@@ -299,3 +299,23 @@ func TestParseFlags_HelpFlagPanic(t *testing.T) {
 		})
 	}
 }
+
+func TestParseFlags_VersionFlag(t *testing.T) {
+	// Сохраняем оригинальные аргументы
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	// Устанавливаем тестовые аргументы с флагом версии
+	os.Args = []string{"server", "--version"}
+
+	_, err := parseFlags()
+	// Версия должна возвращать VersionRequestedError
+	assert.Error(t, err, "Version flag should return error")
+	assert.True(t, IsVersionRequested(err), "Expected VersionRequestedError for version flag")
+}
+
+func TestVersionVariable(t *testing.T) {
+	// Проверяем, что переменная Version не пустая
+	assert.NotEmpty(t, Version, "Version should not be empty")
+	assert.Contains(t, Version, "dev", "Version should contain 'dev' by default")
+}

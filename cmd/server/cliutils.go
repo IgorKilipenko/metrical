@@ -18,6 +18,19 @@ func IsHelpRequested(err error) bool {
 	return ok
 }
 
+// VersionRequestedError представляет ошибку запроса версии
+type VersionRequestedError struct{}
+
+func (e VersionRequestedError) Error() string {
+	return "version requested"
+}
+
+// IsVersionRequested проверяет, является ли ошибка запросом версии
+func IsVersionRequested(err error) bool {
+	_, ok := err.(VersionRequestedError)
+	return ok
+}
+
 // InvalidAddressError представляет ошибку некорректного адреса
 type InvalidAddressError struct {
 	Address string
