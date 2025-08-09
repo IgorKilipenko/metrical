@@ -23,11 +23,18 @@ graph TB
         HANDLER[MetricsHandler]
     end
     
-    subgraph "External Dependencies"
+    subgraph "Business Logic Layer"
         SERVICE[Service]
-        REPO[Repository]
-        STORAGE[Storage Interface]
         TEMPLATE[Template]
+    end
+    
+    subgraph "Data Access Layer"
+        REPO[Repository Interface]
+        IMR[InMemory Repository]
+    end
+    
+    subgraph "Data Models"
+        MODELS[Models]
     end
     
     subgraph "HTTP Layer"
@@ -38,7 +45,8 @@ graph TB
     SERVER --> ROUTER
     HANDLER --> SERVICE
     SERVICE --> REPO
-    REPO --> STORAGE
+    REPO --> IMR
+    IMR --> MODELS
     SERVICE --> TEMPLATE
     
     HTTP_SERVER --> SERVER
@@ -48,7 +56,8 @@ graph TB
     style ROUTER fill:#e3f2fd
     style SERVICE fill:#e8f5e8
     style REPO fill:#fff3e0
-    style STORAGE fill:#e1f5fe
+    style IMR fill:#fff3e0
+    style MODELS fill:#e1f5fe
     style TEMPLATE fill:#fff3e0
     
     note right of SERVER
@@ -76,8 +85,8 @@ stateDiagram-v2
     Stopped --> [*]
     
     note right of Configure
-        • Create Handler
-        • Setup Router
+        • Create Router
+        • Setup Routes
         • Initialize Dependencies
     end note
     
@@ -95,9 +104,8 @@ stateDiagram-v2
 
 ```go
 // Создание зависимостей (на уровне приложения)
-storage := models.NewMemStorage()
-repo := repository.NewInMemoryMetricsRepository(storage)
-service := service.NewMetricsService(repo)
+repository := repository.NewInMemoryMetricsRepository()
+service := service.NewMetricsService(repository)
 handler := handler.NewMetricsHandler(service)
 
 // Создание сервера с переданными зависимостями
@@ -122,10 +130,12 @@ if err := server.Shutdown(ctx); err != nil {
 ### Использование в тестах
 
 ```go
-// Создание mock handler для тестов
-mockHandler := &MockMetricsHandler{}
+// Создание test handler для тестов
+repository := repository.NewInMemoryMetricsRepository()
+service := service.NewMetricsService(repository)
+handler := handler.NewMetricsHandler(service)
 
-server, err := httpserver.NewServer(":8080", mockHandler)
+server, err := httpserver.NewServer(":8080", handler)
 if err != nil {
     t.Fatalf("Failed to create server: %v", err)
 }
@@ -179,11 +189,13 @@ Gracefully останавливает сервер с использование
 **Возвращает:**
 - `error` - ошибка shutdown или nil
 
-
-
 ### ServeHTTP(w http.ResponseWriter, r *http.Request)
 
 Реализует интерфейс `http.Handler`, что позволяет использовать сервер напрямую в тестах.
+
+### createRouter() *router.Router
+
+Создает и настраивает роутер с маршрутами. Использует пакет `routes` для настройки маршрутов.
 
 ## 🏗️ Архитектурные принципы
 
@@ -209,19 +221,16 @@ Gracefully останавливает сервер с использование
 
 ## Маршруты
 
-- `POST /update/<тип>/<имя>/<значение>` - обновление метрики
+Сервер поддерживает следующие маршруты:
 
-## 📋 Changelog
+- `GET /` - отображение всех метрик (HTML)
+- `POST /update/{type}/{name}/{value}` - обновление метрики
+- `GET /value/{type}/{name}` - получение значения метрики
 
-### v2.0.0 (Текущая версия)
-- ✨ **Dependency Injection** - сервер принимает handler через конструктор
-- ✨ **Clean Architecture** - убрана прямая зависимость от конкретных реализаций
-- ✨ **Улучшенная валидация** - проверка handler на nil
-- 🧹 **Очистка API** - удален метод `NewServerWithDefaults`
-- 📚 **Обновленная документация** - актуальные примеры использования
+## Тестирование
 
-### v1.0.0
-- 🎉 **Первоначальный релиз** - базовая функциональность HTTP сервера
-- 🌐 **HTTP API** - обработка запросов метрик
-- 🔄 **Graceful Shutdown** - корректная остановка сервера
-- 🧪 **Тестирование** - полное покрытие тестами 
+Пакет включает интеграционные тесты, которые проверяют:
+- Создание сервера с валидными параметрами
+- Обработку ошибок при невалидных параметрах
+- HTTP endpoints и их корректную работу
+- Graceful shutdown функциональность

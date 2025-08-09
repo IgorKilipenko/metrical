@@ -3,16 +3,14 @@ package service
 import (
 	"testing"
 
-	models "github.com/IgorKilipenko/metrical/internal/model"
 	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMetricsService_UpdateMetric(t *testing.T) {
-	storage := models.NewMemStorage()
-	repo := repository.NewInMemoryMetricsRepository(storage)
-	service := NewMetricsService(repo)
+	repository := repository.NewInMemoryMetricsRepository()
+	service := NewMetricsService(repository)
 
 	tests := []struct {
 		name        string
@@ -72,9 +70,8 @@ func TestMetricsService_UpdateMetric(t *testing.T) {
 }
 
 func TestMetricsService_UpdateMetric_GaugeReplacement(t *testing.T) {
-	storage := models.NewMemStorage()
-	repo := repository.NewInMemoryMetricsRepository(storage)
-	service := NewMetricsService(repo)
+	repository := repository.NewInMemoryMetricsRepository()
+	service := NewMetricsService(repository)
 
 	// Обновляем gauge метрику дважды
 	err := service.UpdateMetric("gauge", "temperature", "23.5")
@@ -91,9 +88,8 @@ func TestMetricsService_UpdateMetric_GaugeReplacement(t *testing.T) {
 }
 
 func TestMetricsService_UpdateMetric_CounterAccumulation(t *testing.T) {
-	storage := models.NewMemStorage()
-	repo := repository.NewInMemoryMetricsRepository(storage)
-	service := NewMetricsService(repo)
+	repository := repository.NewInMemoryMetricsRepository()
+	service := NewMetricsService(repository)
 
 	// Обновляем counter метрику дважды
 	err := service.UpdateMetric("counter", "requests", "100")
@@ -110,9 +106,8 @@ func TestMetricsService_UpdateMetric_CounterAccumulation(t *testing.T) {
 }
 
 func TestMetricsService_GetGauge(t *testing.T) {
-	storage := models.NewMemStorage()
-	repo := repository.NewInMemoryMetricsRepository(storage)
-	service := NewMetricsService(repo)
+	repository := repository.NewInMemoryMetricsRepository()
+	service := NewMetricsService(repository)
 
 	// Добавляем gauge метрику
 	err := service.UpdateMetric("gauge", "temperature", "23.5")
@@ -132,9 +127,8 @@ func TestMetricsService_GetGauge(t *testing.T) {
 }
 
 func TestMetricsService_GetCounter(t *testing.T) {
-	storage := models.NewMemStorage()
-	repo := repository.NewInMemoryMetricsRepository(storage)
-	service := NewMetricsService(repo)
+	repository := repository.NewInMemoryMetricsRepository()
+	service := NewMetricsService(repository)
 
 	// Добавляем counter метрику
 	err := service.UpdateMetric("counter", "requests", "100")
@@ -154,9 +148,8 @@ func TestMetricsService_GetCounter(t *testing.T) {
 }
 
 func TestMetricsService_GetAllGauges(t *testing.T) {
-	storage := models.NewMemStorage()
-	repo := repository.NewInMemoryMetricsRepository(storage)
-	service := NewMetricsService(repo)
+	repository := repository.NewInMemoryMetricsRepository()
+	service := NewMetricsService(repository)
 
 	// Добавляем несколько gauge метрик
 	err := service.UpdateMetric("gauge", "temp1", "10.5")
@@ -174,9 +167,8 @@ func TestMetricsService_GetAllGauges(t *testing.T) {
 }
 
 func TestMetricsService_GetAllCounters(t *testing.T) {
-	storage := models.NewMemStorage()
-	repo := repository.NewInMemoryMetricsRepository(storage)
-	service := NewMetricsService(repo)
+	repository := repository.NewInMemoryMetricsRepository()
+	service := NewMetricsService(repository)
 
 	// Добавляем несколько counter метрик
 	err := service.UpdateMetric("counter", "req1", "100")

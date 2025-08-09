@@ -56,14 +56,19 @@ graph TB
     end
     
     subgraph "Data Access Layer"
-        REPO[Repository]
-        M[Model/Storage]
+        REPO[Repository Interface]
+        IMR[InMemory Repository]
+    end
+    
+    subgraph "Data Models"
+        M[Models]
     end
     
     H --> S
     R --> H
     S --> REPO
-    REPO --> M
+    REPO --> IMR
+    IMR --> M
     S --> T
     
     style H fill:#e3f2fd
@@ -71,7 +76,8 @@ graph TB
     style S fill:#f3e5f5
     style T fill:#f3e5f5
     style REPO fill:#e8f5e8
-    style M fill:#e8f5e8
+    style IMR fill:#e8f5e8
+    style M fill:#fff3e0
 ```
 
 ### Поток данных
@@ -82,23 +88,23 @@ sequenceDiagram
     participant Handler
     participant Service
     participant Repository
-    participant Storage
+    participant Models
     
     Client->>Handler: POST /update/{type}/{name}/{value}
     Handler->>Service: UpdateMetric(type, name, value)
     Service->>Repository: UpdateGauge/UpdateCounter
-    Repository->>Storage: UpdateGauge/UpdateCounter
-    Storage-->>Repository: Success
+    Repository->>Models: UpdateGauge/UpdateCounter
+    Models-->>Repository: Success
     Repository-->>Service: Success
     Service-->>Handler: Success
     Handler-->>Client: 200 OK
     
-    Note over Client,Storage: Получение метрики
+    Note over Client,Models: Получение метрики
     Client->>Handler: GET /value/{type}/{name}
     Handler->>Service: GetGauge/GetCounter
     Service->>Repository: GetGauge/GetCounter
-    Repository->>Storage: GetGauge/GetCounter
-    Storage-->>Repository: Value
+    Repository->>Models: GetGauge/GetCounter
+    Models-->>Repository: Value
     Repository-->>Service: Value
     Service-->>Handler: Value
     Handler-->>Client: 200 OK + Value
@@ -121,8 +127,9 @@ graph TB
         ROUTER[Router/Chi]
         HANDLER[Handler]
         SERVICE[Service]
-        REPO[Repository]
-        STORAGE[MemStorage]
+        REPO[Repository Interface]
+        IMR[InMemory Repository]
+        MODELS[Models]
         TEMPLATE[Template]
     end
     
@@ -145,14 +152,17 @@ graph TB
     ROUTER --> HANDLER
     HANDLER --> SERVICE
     SERVICE --> REPO
-    REPO --> STORAGE
+    REPO --> IMR
+    IMR --> MODELS
     SERVICE --> TEMPLATE
     
     style AGENT fill:#e1f5fe
     style SERVER fill:#f3e5f5
     style APP fill:#e8f5e8
     style SERVICE fill:#fff3e0
-    style STORAGE fill:#e3f2fd
+    style REPO fill:#e8f5e8
+    style IMR fill:#e8f5e8
+    style MODELS fill:#fff3e0
 ```
 
 - **`cmd/`** - точки входа в приложение (server, agent)
@@ -161,13 +171,13 @@ graph TB
   - **`httpserver/`** - HTTP сервер и его логика
   - **`router/`** - роутер (обертка над chi роутером)
   - **`routes/`** - настройка HTTP маршрутов
-  - **`model/`** - модели данных и интерфейсы (потокобезопасные)
+  - **`model/`** - структуры данных (только модели)
+  - **`repository/`** - интерфейсы и реализации для работы с данными
   - **`service/`** - бизнес-логика
   - **`handler/`** - HTTP обработчики
   - **`template/`** - HTML шаблоны
   - **`agent/`** - агент для сбора метрик
   - **`config/`** - конфигурация
-  - **`repository/`** - работа с данными
 
 ## Структура проекта
 
@@ -209,15 +219,19 @@ go-metrics/
 │   │   ├── metrics_test.go  # Тесты маршрутов
 │   │   └── README.md        # Документация пакета routes
 │   ├── model/
-│   │   ├── metrics.go       # Модели данных
-│   │   └── metrics_test.go  # Тесты модели
+│   │   ├── metrics.go       # Структуры данных
+│   │   └── README.md        # Документация пакета model
+│   ├── repository/
+│   │   ├── metrics.go       # Интерфейс Repository
+│   │   ├── memory.go        # InMemory реализация
+│   │   ├── memory_test.go   # Тесты Repository
+│   │   └── README.md        # Документация пакета repository
 │   ├── agent/
 │   │   ├── agent.go         # Логика агента
 │   │   ├── config.go        # Конфигурация агента
 │   │   ├── metrics.go       # Сбор метрик
 │   │   └── *_test.go        # Тесты агента
-│   ├── config/              # Конфигурация
-│   └── repository/          # Работа с данными
+│   └── config/              # Конфигурация
 ├── migrations/              # Миграции БД
 ├── pkg/                     # Публичные пакеты
 ├── go.mod                   # Зависимости
@@ -434,40 +448,61 @@ go test ./internal/routes/... -v
 
 ## Структура данных
 
-### Типы-алиасы
+### Модели (internal/model)
 
-Для улучшения читаемости кода определены типы-алиасы:
+Структуры данных для метрик:
 
 ```go
+// Константы типов метрик
+const (
+    Counter = "counter"
+    Gauge   = "gauge"
+)
+
+// Типы-алиасы
 type GaugeMetrics map[string]float64
 type CounterMetrics map[string]int64
+
+// Структура метрики
+type Metrics struct {
+    ID    string   `json:"id"`
+    MType string   `json:"type"`
+    Delta *int64   `json:"delta,omitempty"`
+    Value *float64 `json:"value,omitempty"`
+    Hash  string   `json:"hash,omitempty"`
+}
 ```
 
-### MemStorage
+### Репозиторий (internal/repository)
 
-Потокобезопасное хранилище метрик в памяти с интерфейсом `Storage`:
+Интерфейс для работы с данными:
 
 ```go
-type Storage interface {
-    UpdateGauge(name string, value float64)
-    UpdateCounter(name string, value int64)
-    GetGauge(name string) (float64, bool)
-    GetCounter(name string) (int64, bool)
-    GetAllGauges() GaugeMetrics
-    GetAllCounters() CounterMetrics
+type MetricsRepository interface {
+    UpdateGauge(name string, value float64) error
+    UpdateCounter(name string, value int64) error
+    GetGauge(name string) (float64, bool, error)
+    GetCounter(name string) (int64, bool, error)
+    GetAllGauges() (models.GaugeMetrics, error)
+    GetAllCounters() (models.CounterMetrics, error)
 }
+```
 
-type MemStorage struct {
-    Gauges   GaugeMetrics
-    Counters CounterMetrics
-    mu       sync.RWMutex // Потокобезопасность
+**InMemoryRepository** - потокобезопасная реализация в памяти:
+
+```go
+type InMemoryMetricsRepository struct {
+    Gauges   models.GaugeMetrics
+    Counters models.CounterMetrics
+    mu       sync.RWMutex
 }
 ```
 
 **Особенности:**
 - **Потокобезопасность** - все операции защищены RWMutex
-- **Типизированные метрики** - использование GaugeMetrics и CounterMetrics
-- **Безопасное копирование** - GetAllGauges/GetAllCounters возвращают копии
+- **Абстракция данных** - сервис не зависит от конкретной реализации
+- **Легкое тестирование** - можно мокать интерфейс
+- **Расширяемость** - легко добавить PostgreSQL, Redis и т.д.
 
 ### Metrics
 
@@ -525,7 +560,8 @@ func SetupHealthRoutes() *chi.Mux
 - **`internal/service/`** - бизнес-логика, работа с метриками
 - **`internal/template/`** - HTML шаблоны для отображения метрик
 - **`internal/routes/`** - настройка HTTP маршрутов и их группировка
-- **`internal/model/`** - модели данных и интерфейсы хранилища
+- **`internal/model/`** - структуры данных (только модели)
+- **`internal/repository/`** - абстракция над источниками данных
 
 ### 🔧 **Последние архитектурные улучшения**
 
@@ -576,11 +612,21 @@ func SetupHealthRoutes() *chi.Mux
 
 ### Преимущества пакета repository
 
-- **Абстракция** - скрывает детали работы с источниками данных
+- **Абстракция данных** - скрывает детали работы с источниками данных
 - **Тестируемость** - легко создавать моки для тестирования
-- **Гибкость** - можно легко заменить реализацию
+- **Гибкость** - можно легко заменить реализацию (PostgreSQL, Redis)
 - **Обработка ошибок** - все методы возвращают ошибки
 - **Разделение ответственности** - репозиторий не содержит бизнес-логику
+- **Потокобезопасность** - встроенная защита от гонки данных
+- **Классический паттерн** - стандартный подход в Go
+
+### Преимущества пакета model
+
+- **Чистота архитектуры** - только структуры данных, никакой бизнес-логики
+- **Простота** - минимальный набор полей и методов
+- **Независимость** - нет зависимостей от других пакетов
+- **Переиспользование** - модели используются во всех слоях приложения
+- **Типобезопасность** - строгая типизация для метрик
 
 ### Преимущества пакета routes
 
@@ -592,7 +638,15 @@ func SetupHealthRoutes() *chi.Mux
 
 ## 📋 Changelog
 
-### v1.0.0-rc2 (Текущая версия)
+### v2.0.0 (Текущая версия) - Рефакторинг архитектуры
+- 🏗️ **Repository Pattern** - внедрен классический паттерн Repository
+- 🧹 **Очистка моделей** - убраны Storage и MemStorage из models
+- 📦 **Новый пакет repository** - интерфейсы и реализации для работы с данными
+- 🔧 **Упрощение архитектуры** - четкое разделение ответственности
+- 📚 **Обновленная документация** - отражена новая архитектура
+- 🧪 **Обновленные тесты** - все тесты адаптированы под новую архитектуру
+
+### v1.0.0-rc2
 - ✨ **Graceful Shutdown** - корректная остановка сервера
 - ✨ **Улучшенная обработка ошибок** - валидация и детальное логирование
 - 🧹 **Очистка API** - удален устаревший метод `GetMux()`
@@ -725,33 +779,23 @@ if err := server.Shutdown(ctx); err != nil {
 }
 ```
 
-### Работа с хранилищем метрик
+### Работа с моделями
 
 ```go
-// Создание потокобезопасного хранилища
-storage := models.NewMemStorage()
-
-// Обновление метрик
-storage.UpdateGauge("temperature", 23.5)
-storage.UpdateCounter("requests", 100)
-
-// Получение метрик
-value, exists := storage.GetGauge("temperature")
-if exists {
-    fmt.Printf("Temperature: %.2f\n", value)
+// Создание метрики
+metric := models.Metrics{
+    ID:    "temperature",
+    MType: models.Gauge,
+    Value: &value,
 }
 
-// Получение всех метрик (типизированные)
-allGauges := storage.GetAllGauges()     // GaugeMetrics
-allCounters := storage.GetAllCounters() // CounterMetrics
+// Работа с типами-алиасами
+gauges := models.GaugeMetrics{"temp": 23.5}
+counters := models.CounterMetrics{"requests": 100}
 
-// Работа с типизированными метриками
-for name, value := range allGauges {
-    fmt.Printf("Gauge %s: %.2f\n", name, value)
-}
-
-for name, value := range allCounters {
-    fmt.Printf("Counter %s: %d\n", name, value)
+// Проверка типов метрик
+if metric.MType == models.Gauge {
+    // обработка gauge метрики
 }
 ```
 
@@ -759,8 +803,7 @@ for name, value := range allCounters {
 
 ```go
 // Создание репозитория
-storage := models.NewMemStorage()
-repo := repository.NewInMemoryMetricsRepository(storage)
+repo := repository.NewInMemoryMetricsRepository()
 
 // Обновление метрик
 err := repo.UpdateGauge("temperature", 23.5)

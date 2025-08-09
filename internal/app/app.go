@@ -11,7 +11,6 @@ import (
 
 	"github.com/IgorKilipenko/metrical/internal/handler"
 	"github.com/IgorKilipenko/metrical/internal/httpserver"
-	models "github.com/IgorKilipenko/metrical/internal/model"
 	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/IgorKilipenko/metrical/internal/service"
 )
@@ -39,9 +38,8 @@ func (a *App) Run() error {
 	log.Printf("Starting metrics server on port %s", a.port)
 
 	// Создаем зависимости (Dependency Injection)
-	storage := models.NewMemStorage()
-	repo := repository.NewInMemoryMetricsRepository(storage)
-	service := service.NewMetricsService(repo)
+	repository := repository.NewInMemoryMetricsRepository()
+	service := service.NewMetricsService(repository)
 	handler := handler.NewMetricsHandler(service)
 
 	// Создаем сервер с переданными зависимостями

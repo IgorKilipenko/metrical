@@ -11,11 +11,20 @@
 - кэши (Redis, Memcached)
 - другие источники данных.
 
+## Архитектура
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│     Service     │───▶│   Repository     │───▶│   Data Source   │
+│                 │    │   (Interface)    │    │   (Memory/DB)   │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+```
+
 ## Компоненты
 
-### MetricsRepository
+### MetricsRepository (Интерфейс)
 
-Интерфейс для работы с метриками:
+Основной интерфейс для работы с метриками:
 
 ```go
 type MetricsRepository interface {
@@ -28,104 +37,36 @@ type MetricsRepository interface {
 }
 ```
 
-### Архитектура репозитория
+### InMemoryMetricsRepository (Реализация)
 
-```mermaid
-graph TB
-    subgraph "Repository Layer"
-        REPO[MetricsRepository Interface]
-        IMPL[InMemoryRepository]
-        ERR[Error Handling]
-    end
-    
-    subgraph "Data Sources"
-        MEM[In-Memory Storage]
-        DB[(Database)]
-        FILE[File System]
-        CACHE[Cache]
-    end
-    
-    subgraph "Service Layer"
-        SERVICE[Service]
-    end
-    
-    SERVICE --> REPO
-    REPO --> IMPL
-    IMPL --> MEM
-    IMPL --> ERR
-    
-    REPO -.-> DB
-    REPO -.-> FILE
-    REPO -.-> CACHE
-    
-    style REPO fill:#e8f5e8
-    style IMPL fill:#f3e5f5
-    style ERR fill:#fff3e0
-    style MEM fill:#e3f2fd
-    style SERVICE fill:#e1f5fe
-    style DB fill:#fff3e0
-    style FILE fill:#fff3e0
-    style CACHE fill:#fff3e0
-```
-
-### Паттерн Repository
-
-```mermaid
-classDiagram
-    class MetricsRepository {
-        <<interface>>
-        +UpdateGauge(name, value) error
-        +UpdateCounter(name, value) error
-        +GetGauge(name) (float64, bool, error)
-        +GetCounter(name) (int64, bool, error)
-        +GetAllGauges() (GaugeMetrics, error)
-        +GetAllCounters() (CounterMetrics, error)
-    }
-    
-    class InMemoryRepository {
-        -storage Storage
-        +UpdateGauge(name, value) error
-        +UpdateCounter(name, value) error
-        +GetGauge(name) (float64, bool, error)
-        +GetCounter(name) (int64, bool, error)
-        +GetAllGauges() (GaugeMetrics, error)
-        +GetAllCounters() (CounterMetrics, error)
-    }
-    
-    class Storage {
-        <<interface>>
-        +UpdateGauge(name, value)
-        +UpdateCounter(name, value)
-        +GetGauge(name) (float64, bool)
-        +GetCounter(name) (int64, bool)
-        +GetAllGauges() GaugeMetrics
-        +GetAllCounters() CounterMetrics
-    }
-    
-    MetricsRepository <|.. InMemoryRepository
-    InMemoryRepository --> Storage
-```
-
-### InMemoryMetricsRepository
-
-Реализация репозитория в памяти:
+Реализация репозитория в памяти с потокобезопасностью:
 
 ```go
 type InMemoryMetricsRepository struct {
-    storage models.Storage
+    Gauges   models.GaugeMetrics
+    Counters models.CounterMetrics
+    mu       sync.RWMutex
 }
 ```
 
 ## Использование
 
-```go
-// Создание репозитория
-storage := models.NewMemStorage()
-repo := repository.NewInMemoryMetricsRepository(storage)
+### Создание репозитория
 
+```go
+// Создаем репозиторий в памяти
+repo := repository.NewInMemoryMetricsRepository()
+
+// Создаем сервис с репозиторием
+service := service.NewMetricsService(repo)
+```
+
+### Основные операции
+
+```go
 // Обновление метрик
 err := repo.UpdateGauge("temperature", 23.5)
-err = repo.UpdateCounter("requests", 100)
+err := repo.UpdateCounter("requests", 100)
 
 // Получение метрик
 value, exists, err := repo.GetGauge("temperature")
@@ -138,14 +79,63 @@ counters, err := repo.GetAllCounters()
 
 ## Преимущества
 
-1. **Абстракция** - скрывает детали работы с источниками данных
-2. **Тестируемость** - легко создавать моки для тестирования
-3. **Гибкость** - можно легко заменить реализацию
-4. **Обработка ошибок** - все методы возвращают ошибки
-5. **Разделение ответственности** - репозиторий не содержит бизнес-логику
+- **Абстракция данных** - сервис не зависит от конкретной реализации хранения
+- **Легкое тестирование** - можно легко мокать репозиторий
+- **Расширяемость** - легко добавить новые реализации (PostgreSQL, Redis)
+- **Потокобезопасность** - встроенная защита от гонки данных
+- **Чистая архитектура** - четкое разделение ответственности
 
 ## Тестирование
 
 ```bash
 go test -v ./internal/repository
+```
+
+## Примеры
+
+### Базовое использование
+
+```go
+package main
+
+import (
+    "github.com/IgorKilipenko/metrical/internal/repository"
+    "github.com/IgorKilipenko/metrical/internal/service"
+)
+
+func main() {
+    // Создаем репозиторий
+    repo := repository.NewInMemoryMetricsRepository()
+    
+    // Создаем сервис
+    service := service.NewMetricsService(repo)
+    
+    // Используем сервис
+    err := service.UpdateMetric("gauge", "temperature", "23.5")
+    if err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+### Тестирование с моками
+
+```go
+func TestServiceWithMockRepository(t *testing.T) {
+    // Создаем мок репозитория
+    mockRepo := &MockMetricsRepository{}
+    
+    // Настраиваем ожидания
+    mockRepo.On("UpdateGauge", "test", 23.5).Return(nil)
+    
+    // Создаем сервис с моком
+    service := service.NewMetricsService(mockRepo)
+    
+    // Тестируем
+    err := service.UpdateMetric("gauge", "test", "23.5")
+    assert.NoError(t, err)
+    
+    // Проверяем, что мок был вызван
+    mockRepo.AssertExpectations(t)
+}
 ```

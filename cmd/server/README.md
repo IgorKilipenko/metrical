@@ -48,11 +48,13 @@ internal/
 │   ├── metrics.go       # Бизнес-логика
 │   └── metrics_test.go  # Тесты сервиса
 ├── repository/
-│   ├── metrics.go       # Репозиторий для работы с данными
-│   └── metrics_test.go  # Тесты репозитория
+│   ├── metrics.go       # Интерфейс Repository
+│   ├── memory.go        # InMemory реализация
+│   ├── memory_test.go   # Тесты Repository
+│   └── README.md        # Документация пакета repository
 ├── model/
-│   ├── metrics.go       # Модели данных
-│   └── metrics_test.go  # Тесты модели
+│   ├── metrics.go       # Структуры данных
+│   └── README.md        # Документация пакета model
 ├── router/
 │   ├── router.go        # Роутер (обертка над chi)
 │   └── router_test.go   # Тесты роутера
@@ -68,7 +70,6 @@ internal/
 
 ### Тесты сервера (`internal/httpserver/server_test.go`)
 - `TestNewServer` - тестирование создания сервера
-- `TestServerGetMux` - тестирование получения ServeMux
 - `TestServerIntegration` - интеграционные тесты HTTP сервера
 - `TestServerEndToEnd` - end-to-end тестирование полного цикла работы с метриками
 - `TestServerBasicFunctionality` - тестирование базовой функциональности
@@ -92,25 +93,14 @@ internal/
 - `TestMetricsService_GetAllGauges` - тестирование получения всех gauge метрик
 - `TestMetricsService_GetAllCounters` - тестирование получения всех counter метрик
 
-### Тесты репозитория (`internal/repository/metrics_test.go`)
+### Тесты репозитория (`internal/repository/memory_test.go`)
 - `TestInMemoryMetricsRepository_UpdateGauge` - тестирование обновления gauge метрик
 - `TestInMemoryMetricsRepository_UpdateCounter` - тестирование обновления counter метрик
 - `TestInMemoryMetricsRepository_GetGauge_NotExists` - тестирование получения несуществующих gauge
 - `TestInMemoryMetricsRepository_GetCounter_NotExists` - тестирование получения несуществующих counter
 - `TestInMemoryMetricsRepository_GetAllGauges` - тестирование получения всех gauge метрик
 - `TestInMemoryMetricsRepository_GetAllCounters` - тестирование получения всех counter метрик
-
-### Тесты модели (`internal/model/metrics_test.go`)
-- `TestNewMemStorage` - тестирование создания хранилища
-- `TestMemStorage_UpdateGauge` - тестирование обновления gauge метрик
-- `TestMemStorage_UpdateCounter` - тестирование обновления counter метрик
-- `TestMemStorage_GetGauge` - тестирование получения gauge метрик
-- `TestMemStorage_GetCounter` - тестирование получения counter метрик
-- `TestMemStorage_GetAllGauges` - тестирование получения всех gauge метрик
-- `TestMemStorage_GetAllCounters` - тестирование получения всех counter метрик
-- `TestMemStorage_Isolation` - тестирование изоляции хранилищ
-- `TestMemStorage_EdgeCases` - тестирование граничных случаев
-- `TestMemStorage_Concurrency` - тестирование потокобезопасности
+- `TestInMemoryMetricsRepository_Concurrency` - тестирование потокобезопасности
 
 ### Тесты приложения (`internal/app/app_test.go`)
 - `TestLoadConfig` - тестирование загрузки конфигурации
@@ -138,9 +128,6 @@ go test ./internal/service/... -v
 # Только тесты репозитория
 go test ./internal/repository/... -v
 
-# Только тесты модели
-go test ./internal/model/... -v
-
 # Только тесты приложения
 go test ./internal/app/... -v
 
@@ -159,7 +146,7 @@ go test ./internal/template/... -v
 ### Unit тесты (`internal/handler/metrics_test.go`)
 - **Цель:** Тестирование изолированной логики HTTP обработчика
 - **Скорость:** Быстрые (миллисекунды)
-- **Зависимости:** Минимальные (handler + service + repository + model)
+- **Зависимости:** Минимальные (handler + service + repository)
 - **Использование:** При разработке и рефакторинге handler
 
 ### Тесты сервиса (`internal/service/metrics_test.go`)
@@ -168,7 +155,7 @@ go test ./internal/template/... -v
 - **Зависимости:** Service + Repository (мок)
 - **Использование:** При разработке и рефакторинге бизнес-логики
 
-### Тесты репозитория (`internal/repository/metrics_test.go`)
+### Тесты репозитория (`internal/repository/memory_test.go`)
 - **Цель:** Тестирование работы с данными
 - **Скорость:** Быстрые (миллисекунды)
 - **Зависимости:** Repository + Model
@@ -196,7 +183,7 @@ SERVER_PORT=9090 go run cmd/server/main.go
 
 Файл `main.go` содержит простую логику инициализации:
 - Загрузка конфигурации из переменных окружения (`SERVER_PORT`)
-- Создание экземпляра сервера через `httpserver.NewServer(addr)`
+- Создание экземпляра сервера через `httpserver.NewServer(addr, handler)`
 - Запуск сервера через `srv.Start()`
 
 Вся остальная логика HTTP сервера инкапсулирована в пакете `internal/httpserver`.
@@ -225,22 +212,20 @@ graph TB
     
     subgraph "Data Access Layer"
         REPO[Repository Interface]
-        IMPL[InMemory Implementation]
+        IMR[InMemory Repository]
     end
     
     subgraph "Data Layer"
-        STORAGE[MemStorage]
-        MODEL[Data Models]
+        MODELS[Data Models]
     end
     
     H --> S
     R --> H
     S --> REPO
-    REPO --> IMPL
-    IMPL --> STORAGE
+    REPO --> IMR
+    IMR --> MODELS
     S --> T
     S --> VAL
-    STORAGE --> MODEL
     
     style H fill:#e3f2fd
     style R fill:#e3f2fd
@@ -248,9 +233,8 @@ graph TB
     style S fill:#f3e5f5
     style VAL fill:#f3e5f5
     style REPO fill:#e8f5e8
-    style IMPL fill:#e8f5e8
-    style STORAGE fill:#fff3e0
-    style MODEL fill:#fff3e0
+    style IMR fill:#e8f5e8
+    style MODELS fill:#fff3e0
 ```
 
 ### Поток обработки запроса
@@ -262,14 +246,14 @@ sequenceDiagram
     participant Handler
     participant Service
     participant Repository
-    participant Storage
+    participant Models
     
     Client->>Router: HTTP Request
     Router->>Handler: Route to Handler
     Handler->>Service: Call Business Logic
     Service->>Repository: Data Operation
-    Repository->>Storage: Update/Get Data
-    Storage-->>Repository: Result
+    Repository->>Models: Update/Get Data
+    Models-->>Repository: Result
     Repository-->>Service: Result
     Service-->>Handler: Response
     Handler-->>Router: HTTP Response
@@ -277,10 +261,10 @@ sequenceDiagram
     
     Note over Handler,Service: Валидация и обработка ошибок
     Note over Service,Repository: Бизнес-логика
-    Note over Repository,Storage: Абстракция данных
+    Note over Repository,Models: Абстракция данных
 ```
 
 - **Handler** - HTTP обработчики
 - **Service** - бизнес-логика
 - **Repository** - абстракция над источниками данных
-- **Model** - модели данных и хранилище
+- **Models** - структуры данных

@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/IgorKilipenko/metrical/internal/handler"
-	models "github.com/IgorKilipenko/metrical/internal/model"
 	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/IgorKilipenko/metrical/internal/service"
 )
@@ -32,9 +31,8 @@ func TestNewServer(t *testing.T) {
 
 // createTestHandler создает handler для тестов
 func createTestHandler() *handler.MetricsHandler {
-	storage := models.NewMemStorage()
-	repo := repository.NewInMemoryMetricsRepository(storage)
-	service := service.NewMetricsService(repo)
+	repository := repository.NewInMemoryMetricsRepository()
+	service := service.NewMetricsService(repository)
 	return handler.NewMetricsHandler(service)
 }
 
