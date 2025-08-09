@@ -29,6 +29,11 @@ curl -X POST http://localhost:8080/update/counter/request_count/1
 ```
 cmd/server/
 ├── main.go          # Точка входа сервера
+├── main_test.go     # Тесты main функции
+├── cli.go           # CLI логика и парсинг флагов
+├── cli_test.go      # Тесты CLI логики
+├── cliutils.go      # Утилиты CLI и кастомные ошибки
+├── cliutils_test.go # Тесты утилит CLI
 └── README.md        # Документация сервера
 
 internal/
@@ -67,6 +72,42 @@ internal/
 ```
 
 ## Тесты
+
+### Тесты CLI (`cmd/server/`)
+
+**Тестирование типов ошибок:**
+- **`TestHelpRequestedError`** - тестирование кастомного типа ошибки
+- **`TestInvalidAddressError`** - тестирование ошибки некорректного адреса
+- **`TestInvalidAddressError_EmptyFields`** - тестирование пустых полей ошибки
+- **`TestInvalidAddressError_SpecialCharacters`** - тестирование специальных символов
+
+**Тестирование валидации адреса:**
+- **`TestValidateAddress`** - тестирование валидации адреса (11 сценариев)
+- **`TestValidateAddress_EdgeCases`** - тестирование граничных случаев (5 сценариев)
+- **`TestValidateAddress_IPv6`** - тестирование IPv6 адресов (4 сценария)
+- **`TestValidateAddress_Whitespace`** - тестирование обработки пробелов (4 сценария)
+
+**Тестирование парсинга флагов:**
+- **`TestParseFlags_DefaultAddress`** - тестирование адреса по умолчанию
+- **`TestParseFlags_CustomAddress`** - тестирование кастомного адреса
+- **`TestParseFlags_InvalidAddress`** - тестирование некорректного адреса
+- **`TestParseFlags_UnknownArguments`** - тестирование неизвестных аргументов
+- **`TestParseFlags_HelpFlag`** - тестирование флага help
+- **`TestParseFlags_VariousValidAddresses`** - тестирование различных валидных адресов (4 сценария)
+- **`TestParseFlags_InvalidFlagValues`** - тестирование некорректных значений флагов (4 сценария)
+- **`TestParseFlags_MultipleUnknownArguments`** - тестирование множественных неизвестных аргументов (3 сценария)
+- **`TestParseFlags_HelpVariations`** - тестирование различных вариантов help (3 сценария)
+- **`TestParseFlags_HelpFlagPanic`** - тестирование отсутствия паники с help флагом (4 сценария)
+
+### Тесты main функции (`cmd/server/main_test.go`)
+
+**Тестирование обработки ошибок:**
+- **`TestHandleError_NilError`** - тестирование обработки nil ошибки
+- **`TestHandleError_ErrorTypes`** - тестирование функций-предикатов для типов ошибок
+- **`TestHandleError_WithExitCodes`** - тестирование кодов выхода в отдельном процессе
+- **`TestHandleError_LogicFlow`** - тестирование логики без вызова os.Exit
+- **`TestHandleError_EdgeCases`** - тестирование граничных случаев
+- **`TestMainFunction_ErrorHandling`** - интеграционный тест с table-driven tests
 
 ### Тесты сервера (`internal/httpserver/server_test.go`)
 - `TestNewServer` - тестирование создания сервера
@@ -114,7 +155,10 @@ internal/
 
 ```bash
 # Все тесты сервера
-go test ./internal/httpserver/... ./internal/handler/... ./internal/service/... ./internal/repository/... ./internal/model/... ./internal/app/... ./internal/router/... ./internal/routes/... ./internal/template/... -v
+go test ./cmd/server/... ./internal/httpserver/... ./internal/handler/... ./internal/service/... ./internal/repository/... ./internal/model/... ./internal/app/... ./internal/router/... ./internal/routes/... ./internal/template/... -v
+
+# Только тесты CLI
+go test ./cmd/server/... -v
 
 # Только тесты сервера
 go test ./internal/httpserver/... -v
@@ -139,6 +183,18 @@ go test ./internal/routes/... -v
 
 # Только тесты шаблонов
 go test ./internal/template/... -v
+```
+
+### Покрытие тестами
+
+```bash
+# Общее покрытие
+go test ./cmd/server/... -cover
+# ok      github.com/IgorKilipenko/metrical/cmd/server    0.034s  coverage: 81.6% of statements
+
+# Покрытие только CLI тестов
+go test ./cmd/server/... -cover -run "TestHandleError|TestMainFunction"
+# ok      github.com/IgorKilipenko/metrical/cmd/server    0.032s  coverage: 71.4% of statements
 ```
 
 ## Разница между типами тестов
@@ -167,31 +223,197 @@ go test ./internal/template/... -v
 - **Зависимости:** Все компоненты сервера
 - **Использование:** При проверке end-to-end сценариев и регрессий
 
+### Тесты CLI (`cmd/server/`)
+- **Цель:** Тестирование CLI логики и обработки ошибок
+- **Скорость:** Быстрые (миллисекунды)
+- **Зависимости:** CLI компоненты
+- **Использование:** При разработке и рефакторинге CLI
+
 ## Запуск сервера
 
 ```bash
-# Запуск с портом по умолчанию
+# Запуск с адресом по умолчанию (localhost:8080)
 go run cmd/server/main.go
 
-# Запуск с кастомным портом
-SERVER_PORT=9090 go run cmd/server/main.go
+# Запуск с кастомным адресом
+go run cmd/server/main.go -a=localhost:9090
+
+# Запуск сбилженного сервера
+./server -a=localhost:9090
 ```
 
-Сервер запустится на порту 8080 (или указанном в переменной `SERVER_PORT`).
+### Поддерживаемые флаги:
+
+- `-a, --address` - адрес эндпоинта HTTP-сервера (по умолчанию: "localhost:8080")
+- `-h, --help` - показать справку по флагам
+
+### Примеры использования:
+
+```bash
+# Запуск на адресе по умолчанию (localhost:8080)
+./server
+
+# Запуск на кастомном порту (localhost:9090)
+./server --address=9090
+
+# Запуск на кастомном адресе и порту
+./server --address=127.0.0.1:9090
+
+# Запуск с коротким флагом
+./server -a=9090
+
+# Показать справку
+./server --help
+```
+
+### Обработка ошибок:
+
+Приложение использует кастомные типы ошибок для корректной обработки различных сценариев:
+
+**HelpRequestedError** - для запросов справки:
+```go
+type HelpRequestedError struct{}
+
+func (e HelpRequestedError) Error() string {
+    return "help requested"
+}
+
+func IsHelpRequested(err error) bool {
+    _, ok := err.(HelpRequestedError)
+    return ok
+}
+```
+
+**InvalidAddressError** - для некорректных адресов:
+```go
+type InvalidAddressError struct {
+    Address string
+    Reason  string
+}
+
+func (e InvalidAddressError) Error() string {
+    return fmt.Sprintf("некорректный адрес '%s': %s", e.Address, e.Reason)
+}
+
+func IsInvalidAddress(err error) bool {
+    _, ok := err.(InvalidAddressError)
+    return ok
+}
+```
+
+**Централизованная обработка ошибок:**
+```go
+// handleError обрабатывает ошибки и завершает программу с соответствующим кодом выхода
+func handleError(err error) {
+    if err == nil {
+        return
+    }
+
+    // Если это help, просто выходим без ошибки
+    if IsHelpRequested(err) {
+        osExit(0)
+        return
+    }
+
+    // Если это ошибка валидации адреса, выводим сообщение и выходим с кодом 1
+    if IsInvalidAddress(err) {
+        log.Printf("Ошибка конфигурации: %v", err)
+        osExit(1)
+        return
+    }
+
+    // Для всех остальных ошибок используем log.Fatal
+    log.Fatal(err)
+}
+```
+
+**Валидация адреса:**
+
+Функция `validateAddress()` проверяет корректность адреса:
+- Поддерживает форматы: `host:port`, `:port`, `port`
+- Проверяет корректность порта (число от 1 до 65535)
+- Возвращает детальные сообщения об ошибках
+
+**Поддерживаемые форматы адреса:**
+- `localhost:8080` - полный адрес (хост:порт)
+- `127.0.0.1:9090` - IP адрес с портом
+- `:8080` - все интерфейсы на указанном порту
+- `9090` - только порт (хост по умолчанию: localhost)
+
+При попытке передать приложению неизвестные флаги или аргументы оно завершается с сообщением об ошибке:
+
+```bash
+# Неизвестный аргумент
+./server unknown
+# Error: неизвестные аргументы: [unknown]
+
+# Некорректный адрес
+./server -a=invalid:address:format
+# Error: некорректный адрес 'invalid:address:format': некорректный формат адреса
+
+# Некорректный порт
+./server -a=localhost:invalid
+# Error: некорректный адрес 'localhost:invalid': некорректный порт
+
+# Отсутствие порта
+./server -a=localhost
+# Error: некорректный адрес 'localhost': некорректный формат адреса
+```
+
+Сервер запустится на указанном адресе (по умолчанию localhost:8080).
+
+### Формат адреса:
+
+Флаг `-a` поддерживает следующие форматы:
+- `localhost:8080` - полный адрес (хост:порт)
+- `9090` - только порт (хост по умолчанию: localhost)
+- `127.0.0.1:9090` - IP адрес с портом
+- `:8080` - все интерфейсы на указанном порту
 
 ### Архитектура
 
-Файл `main.go` содержит простую логику инициализации:
-- Загрузка конфигурации из переменных окружения (`SERVER_PORT`)
-- Создание экземпляра сервера через `httpserver.NewServer(addr, handler)`
-- Запуск сервера через `srv.Start()`
+**`main.go`** - точка входа сервера:
+- Парсинг флагов командной строки
+- Создание конфигурации
+- Инициализация и запуск приложения
+- Централизованная обработка ошибок через `handleError`
+
+**`cli.go`** - CLI логика:
+- Настройка Cobra команд
+- Парсинг аргументов
+- Валидация входных данных
+- Обработка help флага с безопасной проверкой на nil
+- Кастомный тип ошибки `HelpRequestedError`
+- Валидация адреса с кастомным типом ошибки `InvalidAddressError`
+
+**`cliutils.go`** - утилиты CLI:
+- Кастомные типы ошибок
+- Функции-предикаты для проверки типов ошибок
+- Валидация адреса с детальными сообщениями об ошибках
+
+**`main_test.go`** - тесты main функции:
+- Тестирование обработки ошибок
+- Тестирование кодов выхода
+- Интеграционные тесты
+- Edge cases
 
 Вся остальная логика HTTP сервера инкапсулирована в пакете `internal/httpserver`.
 
+### Тестирование
+
+Пакет включает comprehensive unit тесты для CLI логики с использованием `testify`:
+
+
 ### Конфигурация
 
-Сервер поддерживает настройку через переменные окружения:
-- `SERVER_PORT` - порт для запуска сервера (по умолчанию: "8080")
+Сервер поддерживает настройку через флаги командной строки:
+- `-a` - адрес эндпоинта HTTP-сервера (по умолчанию: "localhost:8080")
+
+**Структура конфигурации:**
+- `Addr` - адрес сервера (например, "localhost", "127.0.0.1")
+- `Port` - порт сервера (например, "8080", "9090")
+
+Все значения имеют значения по умолчанию, поэтому сервер можно запускать без указания флагов.
 
 ### Архитектурные слои
 

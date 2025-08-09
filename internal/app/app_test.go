@@ -1,59 +1,151 @@
 package app
 
 import (
-	"os"
 	"testing"
 )
 
-func TestLoadConfig(t *testing.T) {
+func TestNewConfig(t *testing.T) {
 	tests := []struct {
 		name         string
-		serverPort   string
+		input        string
+		expectedAddr string
 		expectedPort string
-		cleanupEnv   bool
+		expectError  bool
 	}{
 		{
-			name:         "Environment variable set",
-			serverPort:   "9090",
-			expectedPort: "9090",
-			cleanupEnv:   true,
+			name:         "Default address",
+			input:        "localhost:8080",
+			expectedAddr: "localhost",
+			expectedPort: "8080",
+			expectError:  false,
 		},
 		{
-			name:         "Environment variable not set",
-			serverPort:   "",
-			expectedPort: "8080",
-			cleanupEnv:   false,
+			name:         "Custom address",
+			input:        "localhost:9090",
+			expectedAddr: "localhost",
+			expectedPort: "9090",
+			expectError:  false,
+		},
+		{
+			name:         "Only port",
+			input:        "9090",
+			expectedAddr: "localhost",
+			expectedPort: "9090",
+			expectError:  false,
+		},
+		{
+			name:         "Custom host and port",
+			input:        "127.0.0.1:9090",
+			expectedAddr: "127.0.0.1",
+			expectedPort: "9090",
+			expectError:  false,
+		},
+		{
+			name:         "Invalid address format",
+			input:        "invalid:address:format",
+			expectedAddr: "invalid",
+			expectedPort: "address:format",
+			expectError:  false,
+		},
+		{
+			name:         "Empty string",
+			input:        "",
+			expectedAddr: "localhost",
+			expectedPort: "",
+			expectError:  false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Устанавливаем переменную окружения
-			if tt.serverPort != "" {
-				os.Setenv("SERVER_PORT", tt.serverPort)
+			config, err := NewConfig(tt.input)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error, got nil")
+				}
 			} else {
-				os.Unsetenv("SERVER_PORT")
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+				if config.Addr != tt.expectedAddr {
+					t.Errorf("Expected address %s, got %s", tt.expectedAddr, config.Addr)
+				}
+				if config.Port != tt.expectedPort {
+					t.Errorf("Expected port %s, got %s", tt.expectedPort, config.Port)
+				}
 			}
+		})
+	}
+}
 
-			// Очищаем переменную после теста
-			if tt.cleanupEnv {
-				defer os.Unsetenv("SERVER_PORT")
-			}
+func TestParseAddr(t *testing.T) {
+	tests := []struct {
+		name         string
+		input        string
+		expectedAddr string
+		expectedPort string
+		expectError  bool
+	}{
+		{
+			name:         "Full address",
+			input:        "localhost:8080",
+			expectedAddr: "localhost",
+			expectedPort: "8080",
+			expectError:  false,
+		},
+		{
+			name:         "Only port",
+			input:        "9090",
+			expectedAddr: "localhost",
+			expectedPort: "9090",
+			expectError:  false,
+		},
+		{
+			name:         "IP address",
+			input:        "127.0.0.1:8080",
+			expectedAddr: "127.0.0.1",
+			expectedPort: "8080",
+			expectError:  false,
+		},
+		{
+			name:         "Empty string",
+			input:        "",
+			expectedAddr: "localhost",
+			expectedPort: "",
+			expectError:  false,
+		},
+	}
 
-			config := LoadConfig()
-			if config.Port != tt.expectedPort {
-				t.Errorf("LoadConfig() = %s, want %s", config.Port, tt.expectedPort)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			addr, port, err := parseAddr(tt.input)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error, got nil")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+				if addr != tt.expectedAddr {
+					t.Errorf("Expected address %s, got %s", tt.expectedAddr, addr)
+				}
+				if port != tt.expectedPort {
+					t.Errorf("Expected port %s, got %s", tt.expectedPort, port)
+				}
 			}
 		})
 	}
 }
 
 func TestNew(t *testing.T) {
-	config := Config{Port: "9090"}
+	config := Config{Addr: "localhost", Port: "9090"}
 	app := New(config)
 
-	if app.GetPort() != "9090" {
-		t.Errorf("New() port = %s, want 9090", app.GetPort())
+	if app.GetPort() != "localhost:9090" {
+		t.Errorf("New() addr = %s, want localhost:9090", app.GetPort())
 	}
 
 	if app.GetServer() != nil {
@@ -62,60 +154,11 @@ func TestNew(t *testing.T) {
 }
 
 func TestApp_GetPort(t *testing.T) {
-	config := Config{Port: "8080"}
+	config := Config{Addr: "localhost", Port: "8080"}
 	app := New(config)
 
-	port := app.GetPort()
-	if port != "8080" {
-		t.Errorf("GetPort() = %s, want 8080", port)
-	}
-}
-
-func TestGetEnv(t *testing.T) {
-	tests := []struct {
-		name         string
-		key          string
-		defaultValue string
-		envValue     string
-		expected     string
-	}{
-		{
-			name:         "Environment variable set",
-			key:          "TEST_PORT",
-			defaultValue: "8080",
-			envValue:     "9090",
-			expected:     "9090",
-		},
-		{
-			name:         "Environment variable not set",
-			key:          "NONEXISTENT",
-			defaultValue: "8080",
-			envValue:     "",
-			expected:     "8080",
-		},
-		{
-			name:         "Empty environment variable",
-			key:          "EMPTY_VAR",
-			defaultValue: "8080",
-			envValue:     "",
-			expected:     "8080",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Устанавливаем переменную окружения
-			if tt.envValue != "" {
-				os.Setenv(tt.key, tt.envValue)
-				defer os.Unsetenv(tt.key)
-			} else {
-				os.Unsetenv(tt.key)
-			}
-
-			result := getEnv(tt.key, tt.defaultValue)
-			if result != tt.expected {
-				t.Errorf("getEnv(%s, %s) = %s, want %s", tt.key, tt.defaultValue, result, tt.expected)
-			}
-		})
+	addr := app.GetPort()
+	if addr != "localhost:8080" {
+		t.Errorf("GetPort() = %s, want localhost:8080", addr)
 	}
 }

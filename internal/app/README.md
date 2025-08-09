@@ -5,7 +5,7 @@
 ## Назначение
 
 Пакет инкапсулирует всю логику запуска приложения, включая:
-- Загрузку конфигурации из переменных окружения
+- Создание конфигурации из строки адреса
 - Создание и запуск HTTP сервера
 - Graceful shutdown при получении сигналов
 - Обработку ошибок и логирование
@@ -18,7 +18,17 @@
 ```go
 type App struct {
     server *httpserver.Server
-    port   string
+    addr   string
+}
+```
+
+### `Config`
+Конфигурация приложения.
+
+```go
+type Config struct {
+    Addr string // Адрес сервера (например, "localhost")
+    Port string // Порт сервера (например, "8080")
 }
 ```
 
@@ -39,14 +49,14 @@ graph TB
     end
     
     subgraph "External"
-        ENV[Environment Variables]
+        CLI[CLI Arguments]
         SIGNALS[OS Signals]
     end
     
+    CLI --> CONFIG
     APP --> CONFIG
     APP --> HTTPSERVER
     APP --> GRACEFUL
-    CONFIG --> ENV
     GRACEFUL --> SIGNALS
     HTTPSERVER --> HANDLER
     HTTPSERVER --> ROUTER
@@ -57,7 +67,7 @@ graph TB
     style HTTPSERVER fill:#e3f2fd
     style HANDLER fill:#e1f5fe
     style ROUTER fill:#e1f5fe
-    style ENV fill:#fff3e0
+    style CLI fill:#fff3e0
     style SIGNALS fill:#fff3e0
 ```
 
@@ -65,8 +75,9 @@ graph TB
 
 ```mermaid
 stateDiagram-v2
-    [*] --> LoadConfig
-    LoadConfig --> CreateApp
+    [*] --> ParseAddress
+    ParseAddress --> CreateConfig
+    CreateConfig --> CreateApp
     CreateApp --> StartServer
     StartServer --> Running
     
@@ -78,9 +89,12 @@ stateDiagram-v2
     
     Running --> Running : Handle Requests
     
-    note right of LoadConfig
-        • SERVER_PORT env var
-        • Default: 8080
+    note right of ParseAddress
+        • Парсинг адреса из строки
+        • Поддержка форматов:
+        • localhost:8080
+        • 9090 (localhost:9090)
+        • 127.0.0.1:9090
     end note
     
     note right of GracefulShutdown
@@ -90,29 +104,19 @@ stateDiagram-v2
     end note
 ```
 
-### `Config`
-Конфигурация приложения.
-
-```go
-type Config struct {
-    Port string
-}
-```
-
 ## Основные методы
+
+### `NewConfig(addr string) (Config, error)`
+Создает конфигурацию из строки адреса. Поддерживает различные форматы:
+- `localhost:8080` - полный адрес
+- `9090` - только порт (хост по умолчанию: localhost)
+- `127.0.0.1:9090` - IP адрес с портом
 
 ### `New(config Config) *App`
 Создает новое приложение с заданной конфигурацией.
 
 ### `Run() error`
 Запускает приложение и ожидает сигналы для graceful shutdown.
-
-### `LoadConfig() Config`
-Загружает конфигурацию из переменных окружения.
-
-## Переменные окружения
-
-- `SERVER_PORT` - порт для запуска сервера (по умолчанию: "8080")
 
 ## Пример использования
 
@@ -125,8 +129,11 @@ import (
 )
 
 func main() {
-    // Загружаем конфигурацию
-    config := app.LoadConfig()
+    // Создаем конфигурацию из строки адреса
+    config, err := app.NewConfig("localhost:8080")
+    if err != nil {
+        log.Fatal(err)
+    }
     
     // Создаем приложение
     application := app.New(config)
@@ -153,9 +160,10 @@ func main() {
 ## Тестирование
 
 Пакет включает полное покрытие тестами:
-- Загрузка конфигурации
+- Создание конфигурации из различных форматов адреса
+- Парсинг адреса и порта
 - Создание приложения
-- Обработка переменных окружения
+- Получение адреса приложения
 
 Запуск тестов:
 ```bash
@@ -164,8 +172,9 @@ go test -v ./internal/app
 
 ## Преимущества
 
-1. **Разделение ответственности** - логика инициализации отделена от main
+1. **Разделение ответственности** - логика инициализации отделена от CLI
 2. **Тестируемость** - легко тестировать компоненты изолированно
-3. **Конфигурируемость** - гибкая настройка через переменные окружения
+3. **Конфигурируемость** - гибкая настройка через строку адреса
 4. **Надежность** - graceful shutdown для корректного завершения
 5. **Переиспользование** - можно использовать в разных точках входа
+6. **Чистая архитектура** - CLI логика находится в транспортном слое

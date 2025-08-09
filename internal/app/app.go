@@ -18,24 +18,25 @@ import (
 // App представляет основное приложение
 type App struct {
 	server *httpserver.Server
-	port   string
+	addr   string
 }
 
 // Config содержит конфигурацию приложения
 type Config struct {
-	Port string
+	Addr string // Адрес сервера (например, "localhost")
+	Port string // Порт сервера (например, "8080")
 }
 
 // New создает новое приложение с заданной конфигурацией
 func New(config Config) *App {
 	return &App{
-		port: config.Port,
+		addr: config.Addr + ":" + config.Port,
 	}
 }
 
 // Run запускает приложение
 func (a *App) Run() error {
-	log.Printf("Starting metrics server on port %s", a.port)
+	log.Printf("Starting metrics server on %s", a.addr)
 
 	// Создаем зависимости (Dependency Injection)
 	repository := repository.NewInMemoryMetricsRepository()
@@ -43,7 +44,7 @@ func (a *App) Run() error {
 	handler := handler.NewMetricsHandler(service)
 
 	// Создаем сервер с переданными зависимостями
-	server, err := httpserver.NewServer(":"+a.port, handler)
+	server, err := httpserver.NewServer(a.addr, handler)
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
 	}
@@ -98,7 +99,7 @@ func (a *App) GetServer() *httpserver.Server {
 	return a.server
 }
 
-// GetPort возвращает порт приложения
+// GetPort возвращает адрес приложения
 func (a *App) GetPort() string {
-	return a.port
+	return a.addr
 }
