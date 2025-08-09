@@ -11,7 +11,7 @@
 - **Dependency Injection** - инверсия зависимостей
 - **Graceful Shutdown** - корректная остановка сервера
 - **Error Handling** - детальная обработка ошибок с кастомными типами
-- **Test-Driven Development** - полное покрытие тестами (81.6%)
+- **Test-Driven Development** - полное покрытие тестами
 - **Security First** - безопасная обработка CLI аргументов
 - **Code Quality** - рефакторинг и устранение дублирования
 
@@ -188,7 +188,11 @@ go-metrics/
 ├── cmd/
 │   ├── server/
 │   │   ├── main.go          # Точка входа сервера
+│   │   ├── main_test.go     # Тесты main функции
 │   │   ├── cli.go           # CLI логика и парсинг флагов
+│   │   ├── cli_test.go      # Тесты CLI логики
+│   │   ├── cliutils.go      # Утилиты CLI и кастомные ошибки
+│   │   ├── cliutils_test.go # Тесты утилит CLI
 │   │   └── README.md        # Документация сервера
 │   └── agent/
 │       ├── main.go          # Точка входа агента
@@ -461,6 +465,9 @@ go test ./internal/agent/... -v
 # Тесты CLI агента
 go test ./cmd/agent/... -v
 
+# Тесты CLI сервера
+go test ./cmd/server/... -v
+
 # Тесты шаблонов
 go test ./internal/template/... -v
 
@@ -483,7 +490,7 @@ go test ./internal/routes/... -v
 - ✅ **CLI агента** - тестирование парсинга флагов и обработки ошибок
 - ✅ **Шаблоны** - тестирование генерации HTML
 - ✅ **Маршруты** - тестирование настройки HTTP endpoints
-- ✅ **CLI** - тестирование парсинга флагов и обработки ошибок (81.6% покрытие)
+- ✅ **CLI** - тестирование парсинга флагов и обработки ошибок
 - ✅ **Валидация** - тестирование обработки ошибок с кастомными типами
 - ✅ **Потокобезопасность** - тестирование конкурентного доступа
 - ✅ **Edge cases** - тестирование граничных случаев и ошибок
@@ -595,8 +602,12 @@ func SetupHealthRoutes() *chi.Mux
 
 ### Разделение ответственности
 
-- **`cmd/server/main.go`** - точка входа, инициализация приложения
-- **`cmd/server/cli.go`** - CLI логика и парсинг флагов
+- **`cmd/server/main.go`** - точка входа, инициализация приложения, централизованная обработка ошибок
+- **`cmd/server/cli.go`** - CLI логика и парсинг флагов с безопасной обработкой
+- **`cmd/server/cliutils.go`** - кастомные типы ошибок и функции валидации
+- **`cmd/server/main_test.go`** - тесты обработки ошибок и интеграционные тесты
+- **`cmd/server/cli_test.go`** - тесты парсинга флагов и валидации
+- **`cmd/server/cliutils_test.go`** - тесты кастомных типов ошибок
 - **`internal/httpserver/`** - инкапсуляция всей логики HTTP сервера с graceful shutdown
 - **`internal/router/`** - абстракция над `chi` роутером для будущей расширяемости
 - **`internal/handler/`** - HTTP обработчики, только парсинг запросов и валидация
@@ -825,4 +836,46 @@ router := routes.SetupMetricsRoutes(handler)
 
 // Добавление health check маршрутов
 healthRouter := routes.SetupHealthRoutes()
+```
+
+### Работа с кастомными типами ошибок
+
+```go
+// Кастомные типы ошибок
+type HelpRequestedError struct{}
+type InvalidAddressError struct {
+    Address string
+    Reason  string
+}
+
+// Функции-предикаты для проверки типов ошибок
+func IsHelpRequested(err error) bool {
+    _, ok := err.(HelpRequestedError)
+    return ok
+}
+
+func IsInvalidAddress(err error) bool {
+    _, ok := err.(InvalidAddressError)
+    return ok
+}
+
+// Централизованная обработка ошибок
+func handleError(err error) {
+    if err == nil {
+        return
+    }
+
+    if IsHelpRequested(err) {
+        osExit(0)
+        return
+    }
+
+    if IsInvalidAddress(err) {
+        log.Printf("Ошибка конфигурации: %v", err)
+        osExit(1)
+        return
+    }
+
+    log.Fatal(err)
+}
 ```

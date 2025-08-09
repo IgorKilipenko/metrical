@@ -190,11 +190,11 @@ go test ./internal/template/... -v
 ```bash
 # Общее покрытие
 go test ./cmd/server/... -cover
-# ok      github.com/IgorKilipenko/metrical/cmd/server    0.034s  coverage: 81.6% of statements
+# ok      github.com/IgorKilipenko/metrical/cmd/server    0.022s  coverage: 78.3% of statements
 
 # Покрытие только CLI тестов
 go test ./cmd/server/... -cover -run "TestHandleError|TestMainFunction"
-# ok      github.com/IgorKilipenko/metrical/cmd/server    0.032s  coverage: 71.4% of statements
+# ok      github.com/IgorKilipenko/metrical/cmd/server    0.020s  coverage: 65.2% of statements
 ```
 
 ## Разница между типами тестов
@@ -266,7 +266,7 @@ go run cmd/server/main.go -a=localhost:9090
 ./server --help
 ```
 
-### Обработка ошибок:
+### Обработка ошибок
 
 Приложение использует кастомные типы ошибок для корректной обработки различных сценариев:
 
@@ -391,17 +391,28 @@ func handleError(err error) {
 - Функции-предикаты для проверки типов ошибок
 - Валидация адреса с детальными сообщениями об ошибках
 
-**`main_test.go`** - тесты main функции:
-- Тестирование обработки ошибок
-- Тестирование кодов выхода
-- Интеграционные тесты
-- Edge cases
+**Тестовые файлы:**
+- **`main_test.go`** - тесты main функции (обработка ошибок, коды выхода, интеграционные тесты)
+- **`cli_test.go`** - тесты CLI логики (парсинг флагов, валидация, обработка ошибок)
+- **`cliutils_test.go`** - тесты утилит (кастомные типы ошибок, функции валидации)
 
 Вся остальная логика HTTP сервера инкапсулирована в пакете `internal/httpserver`.
 
 ### Тестирование
 
 Пакет включает comprehensive unit тесты для CLI логики с использованием `testify`:
+
+**Статистика тестирования:**
+- **Всего тестов:** 20+ функций тестирования
+- **Подтестов:** 60+ сценариев
+- **Покрытие:** 78.3% общего покрытия
+- **Время выполнения:** ~23ms
+
+**Преимущества использования testify:**
+- **Читаемость** - более выразительные утверждения (`assert.Equal`, `assert.True`)
+- **Детальные сообщения** - автоматическое форматирование ошибок
+- **Разделение проверок** - `require` для критических ошибок, `assert` для проверок
+- **Совместимость** - полная совместимость со стандартным testing пакетом
 
 
 ### Конфигурация
