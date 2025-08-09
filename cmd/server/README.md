@@ -30,6 +30,7 @@ curl -X POST http://localhost:8080/update/counter/request_count/1
 cmd/server/
 ├── main.go          # Точка входа сервера
 ├── cli.go           # CLI логика и парсинг флагов
+├── cli_test.go      # Тесты CLI логики
 └── README.md        # Документация сервера
 
 internal/
@@ -207,6 +208,52 @@ go run cmd/server/main.go -a=localhost:9090
 
 ### Обработка ошибок:
 
+Приложение использует кастомные типы ошибок для корректной обработки различных сценариев:
+
+**HelpRequestedError** - для запросов справки:
+```go
+type HelpRequestedError struct{}
+
+func (e HelpRequestedError) Error() string {
+    return "help requested"
+}
+
+func IsHelpRequested(err error) bool {
+    _, ok := err.(HelpRequestedError)
+    return ok
+}
+```
+
+**InvalidAddressError** - для некорректных адресов:
+```go
+type InvalidAddressError struct {
+    Address string
+    Reason  string
+}
+
+func (e InvalidAddressError) Error() string {
+    return fmt.Sprintf("некорректный адрес '%s': %s", e.Address, e.Reason)
+}
+
+func IsInvalidAddress(err error) bool {
+    _, ok := err.(InvalidAddressError)
+    return ok
+}
+```
+
+**Валидация адреса:**
+
+Функция `validateAddress()` проверяет корректность адреса:
+- Поддерживает форматы: `host:port`, `:port`, `port`
+- Проверяет корректность порта (число от 1 до 65535)
+- Возвращает детальные сообщения об ошибках
+
+**Поддерживаемые форматы адреса:**
+- `localhost:8080` - полный адрес (хост:порт)
+- `127.0.0.1:9090` - IP адрес с портом
+- `:8080` - все интерфейсы на указанном порту
+- `9090` - только порт (хост по умолчанию: localhost)
+
 При попытке передать приложению неизвестные флаги или аргументы оно завершается с сообщением об ошибке:
 
 ```bash
@@ -215,8 +262,16 @@ go run cmd/server/main.go -a=localhost:9090
 # Error: неизвестные аргументы: [unknown]
 
 # Некорректный адрес
-./server --address=invalid:address:format
-# некорректный адрес сервера: некорректный формат адреса: invalid:address:format
+./server -a=invalid:address:format
+# Error: некорректный адрес 'invalid:address:format': некорректный формат адреса
+
+# Некорректный порт
+./server -a=localhost:invalid
+# Error: некорректный адрес 'localhost:invalid': некорректный порт
+
+# Отсутствие порта
+./server -a=localhost
+# Error: некорректный адрес 'localhost': некорректный формат адреса
 ```
 
 Сервер запустится на указанном адресе (по умолчанию localhost:8080).
@@ -241,8 +296,36 @@ go run cmd/server/main.go -a=localhost:9090
 - Парсинг аргументов
 - Валидация входных данных
 - Обработка help флага
+- Кастомный тип ошибки `HelpRequestedError`
+- Валидация адреса с кастомным типом ошибки `InvalidAddressError`
 
 Вся остальная логика HTTP сервера инкапсулирована в пакете `internal/httpserver`.
+
+### Тестирование
+
+Пакет включает unit тесты для CLI логики с использованием `testify`:
+
+- **`TestHelpRequestedError`** - тестирование кастомного типа ошибки
+- **`TestInvalidAddressError`** - тестирование ошибки некорректного адреса
+- **`TestValidateAddress`** - тестирование валидации адреса (11 сценариев)
+- **`TestValidateAddress_EdgeCases`** - тестирование граничных случаев (5 сценариев)
+- **`TestParseFlags_DefaultAddress`** - тестирование адреса по умолчанию
+- **`TestParseFlags_CustomAddress`** - тестирование кастомного адреса
+- **`TestParseFlags_InvalidAddress`** - тестирование некорректного адреса
+- **`TestParseFlags_UnknownArguments`** - тестирование неизвестных аргументов
+- **`TestParseFlags_HelpFlag`** - тестирование флага help
+- **`TestParseFlags_VariousValidAddresses`** - тестирование различных валидных адресов (4 сценария)
+
+**Запуск тестов:**
+```bash
+go test ./cmd/server/ -v
+```
+
+**Преимущества использования testify:**
+- **Читаемость** - более выразительные утверждения (`assert.Equal`, `assert.True`)
+- **Детальные сообщения** - автоматическое форматирование ошибок
+- **Разделение проверок** - `require` для критических ошибок, `assert` для проверок
+- **Совместимость** - полная совместимость со стандартным testing пакетом
 
 ### Конфигурация
 

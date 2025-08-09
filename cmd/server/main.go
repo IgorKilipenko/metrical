@@ -11,8 +11,13 @@ func main() {
 	addr, err := parseFlags()
 	if err != nil {
 		// Если это help, просто выходим без ошибки
-		if err.Error() == "help requested" {
+		if IsHelpRequested(err) {
 			os.Exit(0)
+		}
+		// Если это ошибка валидации адреса, выводим сообщение и выходим с кодом 1
+		if IsInvalidAddress(err) {
+			log.Printf("Ошибка конфигурации: %v", err)
+			os.Exit(1)
 		}
 		log.Fatal(err)
 	}
