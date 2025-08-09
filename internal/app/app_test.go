@@ -1,8 +1,10 @@
 package app
 
 import (
-	"flag"
+	"fmt"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -22,21 +24,21 @@ func TestLoadConfig(t *testing.T) {
 		},
 		{
 			name:         "Custom address",
-			args:         []string{"-a=localhost:9090"},
+			args:         []string{"--address=localhost:9090"},
 			expectedAddr: "localhost",
 			expectedPort: "9090",
 			expectError:  false,
 		},
 		{
 			name:         "Only port",
-			args:         []string{"-a=9090"},
+			args:         []string{"--address=9090"},
 			expectedAddr: "localhost",
 			expectedPort: "9090",
 			expectError:  false,
 		},
 		{
 			name:         "Custom host and port",
-			args:         []string{"-a=127.0.0.1:9090"},
+			args:         []string{"--address=127.0.0.1:9090"},
 			expectedAddr: "127.0.0.1",
 			expectedPort: "9090",
 			expectError:  false,
@@ -52,18 +54,30 @@ func TestLoadConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Создаем новый FlagSet для каждого теста
-			fs := flag.NewFlagSet("test", flag.ContinueOnError)
-			var addr string
-			fs.StringVar(&addr, "a", "localhost:8080", "адрес эндпоинта HTTP-сервера")
+			// Создаем новый Cobra команду для каждого теста
+			cmd := &cobra.Command{
+				Use:   "test",
+				Short: "Test command",
+				RunE: func(cmd *cobra.Command, args []string) error {
+					if len(args) > 0 {
+						return fmt.Errorf("неизвестные аргументы: %v", args)
+					}
+					return nil
+				},
+			}
 
-			// Парсим аргументы
-			err := fs.Parse(tt.args)
+			var addr string
+			cmd.Flags().StringVarP(&addr, "address", "a", "localhost:8080", "адрес эндпоинта HTTP-сервера")
+
+			// Устанавливаем аргументы для теста
+			cmd.SetArgs(tt.args)
+
+			// Выполняем команду
+			err := cmd.Execute()
 
 			if tt.expectError {
-				// Проверяем, что остались нераспарсенные аргументы
-				if len(fs.Args()) == 0 {
-					t.Errorf("Expected unknown arguments, but all arguments were parsed")
+				if err == nil {
+					t.Errorf("Expected error for unknown arguments, got nil")
 				}
 			} else {
 				if err != nil {

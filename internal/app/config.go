@@ -1,23 +1,41 @@
 package app
 
 import (
-	"flag"
 	"fmt"
 	"strings"
+
+	"github.com/spf13/cobra"
 )
 
-// LoadConfig загружает конфигурацию из флагов и переменных окружения
+// LoadConfig загружает конфигурацию из флагов командной строки
 func LoadConfig() (Config, error) {
-	// Определяем флаги
 	var addr string
-	flag.StringVar(&addr, "a", "localhost:8080", "адрес эндпоинта HTTP-сервера")
 
-	// Парсим флаги
-	flag.Parse()
+	// Создаем команду с Cobra
+	cmd := &cobra.Command{
+		Use:   "server",
+		Short: "HTTP сервер для сбора метрик",
+		Long:  `HTTP сервер для приема метрик от агентов по протоколу HTTP.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Проверяем на неизвестные аргументы
+			if len(args) > 0 {
+				return fmt.Errorf("неизвестные аргументы: %v", args)
+			}
+			return nil
+		},
+	}
 
-	// Проверяем на неизвестные флаги
-	if flag.NArg() > 0 {
-		return Config{}, fmt.Errorf("неизвестные аргументы: %v", flag.Args())
+	// Добавляем флаг для адреса
+	cmd.Flags().StringVarP(&addr, "address", "a", "localhost:8080", "адрес эндпоинта HTTP-сервера")
+
+	// Парсим аргументы
+	if err := cmd.Execute(); err != nil {
+		return Config{}, err
+	}
+
+	// Проверяем, не был ли запрошен help
+	if cmd.Flags().Lookup("help").Changed {
+		return Config{}, fmt.Errorf("help requested")
 	}
 
 	// Парсим адрес и порт

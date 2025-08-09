@@ -676,17 +676,18 @@ func SetupHealthRoutes() *chi.Mux
 go run cmd/server/main.go
 
 # Запуск с кастомным портом (localhost:9090)
-go run cmd/server/main.go -a=9090
+go run cmd/server/main.go --address=9090
 
 # Запуск с кастомным адресом и портом
-go run cmd/server/main.go -a=127.0.0.1:9090
+go run cmd/server/main.go --address=127.0.0.1:9090
 
 # Запуск сбилженного сервера
-./server -a=localhost:9090
+./server --address=localhost:9090
 ```
 
 **Поддерживаемые флаги:**
-- `-a` - адрес эндпоинта HTTP-сервера (по умолчанию: "localhost:8080")
+- `-a, --address` - адрес эндпоинта HTTP-сервера (по умолчанию: "localhost:8080")
+- `-h, --help` - показать справку по флагам
 
 **Форматы адреса:**
 - `localhost:8080` - полный адрес (хост:порт)

@@ -182,8 +182,8 @@ go run cmd/server/main.go -a=localhost:9090
 
 ### Поддерживаемые флаги:
 
-- `-a` - адрес эндпоинта HTTP-сервера (по умолчанию: "localhost:8080")
-- `-h` - показать справку по флагам
+- `-a, --address` - адрес эндпоинта HTTP-сервера (по умолчанию: "localhost:8080")
+- `-h, --help` - показать справку по флагам
 
 ### Примеры использования:
 
@@ -192,16 +192,16 @@ go run cmd/server/main.go -a=localhost:9090
 ./server
 
 # Запуск на кастомном порту (localhost:9090)
-./server -a=9090
+./server --address=9090
 
 # Запуск на кастомном адресе и порту
-./server -a=127.0.0.1:9090
+./server --address=127.0.0.1:9090
 
-# Запуск на всех интерфейсах
-./server -a=:8080
+# Запуск с коротким флагом
+./server -a=9090
 
 # Показать справку
-./server -h
+./server --help
 ```
 
 ### Обработка ошибок:
@@ -209,16 +209,12 @@ go run cmd/server/main.go -a=localhost:9090
 При попытке передать приложению неизвестные флаги или аргументы оно завершается с сообщением об ошибке:
 
 ```bash
-# Неизвестный флаг
-./server -unknown
-# flag provided but not defined: -unknown
-
 # Неизвестный аргумент
 ./server unknown
-# неизвестные аргументы: [unknown]
+# Error: неизвестные аргументы: [unknown]
 
 # Некорректный адрес
-./server -a=invalid:address:format
+./server --address=invalid:address:format
 # некорректный адрес сервера: некорректный формат адреса: invalid:address:format
 ```
 
