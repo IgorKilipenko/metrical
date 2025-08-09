@@ -24,6 +24,9 @@ type Config struct {
 
 	// ReportInterval - интервал отправки метрик на сервер
 	ReportInterval time.Duration
+
+	// VerboseLogging - подробное логирование (включая ошибки отправки метрик)
+	VerboseLogging bool
 }
 
 // NewConfig создает конфигурацию с значениями по умолчанию.
@@ -36,6 +39,7 @@ func NewConfig() *Config {
 		ServerURL:      DefaultServerURL,
 		PollInterval:   DefaultPollInterval,
 		ReportInterval: DefaultReportInterval,
+		VerboseLogging: false,
 	}
 }
 

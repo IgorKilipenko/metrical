@@ -118,39 +118,79 @@ func (a *Agent) sendMetrics() {
 	metrics := a.metrics.GetAllMetrics()
 	a.mu.RUnlock()
 
+	successCount := 0
+	errorCount := 0
+
 	for name, value := range metrics {
-		var metricType string
-		var stringValue string
-
-		switch v := value.(type) {
-		case float64:
-			metricType = MetricTypeGauge
-			stringValue = strconv.FormatFloat(v, 'f', -1, 64)
-		case int64:
-			metricType = MetricTypeCounter
-			stringValue = strconv.FormatInt(v, 10)
-		default:
-			log.Printf("Unknown metric type for %s: %T", name, value)
-			continue
+		if err := a.sendSingleMetric(name, value); err != nil {
+			errorCount++
+			// Логируем ошибки только если включено подробное логирование
+			if a.config.VerboseLogging {
+				log.Printf("Error sending metric %s: %v", name, err)
+			}
+		} else {
+			successCount++
 		}
+	}
 
-		// Убеждаемся, что URL содержит протокол
-		serverURL := a.config.ServerURL
-		if !strings.HasPrefix(serverURL, "http://") && !strings.HasPrefix(serverURL, "https://") {
-			serverURL = "http://" + serverURL
-		}
-		url := fmt.Sprintf("%s/update/%s/%s/%s", serverURL, metricType, name, stringValue)
+	// Логируем итоговую статистику
+	if errorCount > 0 {
+		log.Printf("Sent %d metrics successfully, %d failed", successCount, errorCount)
+	} else {
+		log.Printf("Successfully sent %d metrics", successCount)
+	}
+}
+
+// sendSingleMetric отправляет одну метрику с retry логикой
+func (a *Agent) sendSingleMetric(name string, value interface{}) error {
+	var metricType string
+	var stringValue string
+
+	switch v := value.(type) {
+	case float64:
+		metricType = MetricTypeGauge
+		stringValue = strconv.FormatFloat(v, 'f', -1, 64)
+	case int64:
+		metricType = MetricTypeCounter
+		stringValue = strconv.FormatInt(v, 10)
+	default:
+		return fmt.Errorf("unknown metric type for %s: %T", name, value)
+	}
+
+	// Убеждаемся, что URL содержит протокол
+	serverURL := a.config.ServerURL
+	if !strings.HasPrefix(serverURL, "http://") && !strings.HasPrefix(serverURL, "https://") {
+		serverURL = "http://" + serverURL
+	}
+	url := fmt.Sprintf("%s/update/%s/%s/%s", serverURL, metricType, name, stringValue)
+
+	// Retry логика для обработки временных проблем с сервером
+	maxRetries := 2
+	for attempt := 1; attempt <= maxRetries; attempt++ {
 		resp, err := a.httpClient.Post(url, "text/plain", nil)
 		if err != nil {
-			log.Printf("Error sending metric %s: %v", name, err)
+			// Если это последняя попытка, возвращаем ошибку
+			if attempt == maxRetries {
+				return fmt.Errorf("failed after %d attempts: %w", maxRetries, err)
+			}
+			// Небольшая задержка перед повторной попыткой
+			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode == http.StatusOK {
-			log.Printf("Sent metric %s = %s, status: %d", name, stringValue, resp.StatusCode)
+			if a.config.VerboseLogging {
+				log.Printf("Sent metric %s = %s, status: %d", name, stringValue, resp.StatusCode)
+			}
+			return nil
 		} else {
-			log.Printf("Failed to send metric %s, status: %d", name, resp.StatusCode)
+			if attempt == maxRetries {
+				return fmt.Errorf("server returned status %d", resp.StatusCode)
+			}
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
+
+	return fmt.Errorf("failed to send metric %s after %d attempts", name, maxRetries)
 }
