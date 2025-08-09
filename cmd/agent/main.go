@@ -1,59 +1,49 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"log"
-	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/IgorKilipenko/metrical/internal/agent"
 )
 
 func main() {
-	serverURL := "http://localhost:8080"
+	// Конфигурация агента с значениями по умолчанию
+	config := agent.NewConfig()
 
-	// Тестируем gauge метрики
-	gaugeMetrics := map[string]float64{
-		"temperature": 23.5,
-		"humidity":    65.2,
-		"pressure":    1013.25,
+	// Создаем агент
+	metricsAgent := agent.NewAgent(config)
+
+	// Создаем контекст с отменой для graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Обработка сигналов для graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// Запускаем агент в горутине
+	go func() {
+		log.Println("Starting metrics agent...")
+		metricsAgent.Run()
+	}()
+
+	// Ждем сигнала завершения
+	select {
+	case sig := <-sigChan:
+		log.Printf("Received signal: %v", sig)
+	case <-ctx.Done():
+		log.Println("Context cancelled")
 	}
 
-	for name, value := range gaugeMetrics {
-		url := fmt.Sprintf("%s/update/gauge/%s/%f", serverURL, name, value)
-		resp, err := http.Post(url, "text/plain", nil)
-		if err != nil {
-			log.Printf("Error sending gauge metric %s: %v", name, err)
-			continue
-		}
-		resp.Body.Close()
-		log.Printf("Sent gauge metric %s = %f, status: %d", name, value, resp.StatusCode)
-	}
+	// Graceful shutdown
+	metricsAgent.Stop()
 
-	// Тестируем counter метрики
-	counterMetrics := map[string]int64{
-		"requests":    100,
-		"errors":      5,
-		"connections": 25,
-	}
-
-	for name, value := range counterMetrics {
-		url := fmt.Sprintf("%s/update/counter/%s/%d", serverURL, name, value)
-		resp, err := http.Post(url, "text/plain", nil)
-		if err != nil {
-			log.Printf("Error sending counter metric %s: %v", name, err)
-			continue
-		}
-		resp.Body.Close()
-		log.Printf("Sent counter metric %s = %d, status: %d", name, value, resp.StatusCode)
-	}
-
-	// Тестируем добавление к counter метрике
-	url := fmt.Sprintf("%s/update/counter/requests/50", serverURL)
-	resp, err := http.Post(url, "text/plain", nil)
-	if err != nil {
-		log.Printf("Error sending additional counter metric: %v", err)
-	} else {
-		resp.Body.Close()
-		log.Printf("Sent additional counter metric requests = 50, status: %d", resp.StatusCode)
-	}
-
-	log.Println("Agent finished sending metrics")
+	// Даем время на завершение горутин
+	time.Sleep(1 * time.Second)
+	log.Println("Agent shutdown completed")
 }

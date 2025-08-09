@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 
 	"github.com/IgorKilipenko/metrical/internal/service"
 )
@@ -59,4 +60,39 @@ func (h *MetricsHandler) UpdateMetric(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	fmt.Fprint(w, "OK")
+}
+
+// validatePath проверяет путь на наличие неподдерживаемых символов
+func validatePath(path string) error {
+	// Проверяем только на управляющие символы
+	invalidPathRegex, err := regexp.Compile(`[\x00-\x1F\x7F-\x9F]`)
+	if err != nil {
+		return err
+	}
+	if invalidPathRegex.MatchString(path) {
+		return fmt.Errorf("invalid path: %s", path)
+	}
+
+	return nil
+}
+
+// splitPath разбивает путь URL на части, сохраняя пустые сегменты
+func splitPath(path string) ([]string, error) {
+	// Валидируем путь
+	if err := validatePath(path); err != nil {
+		return nil, err
+	}
+
+	// Убираем начальный слеш и пробелы в конце и разбиваем по слешам
+	trimRegex, err := regexp.Compile(`^/|/?\s*$`)
+	if err != nil {
+		return nil, err
+	}
+	path = trimRegex.ReplaceAllString(path, "")
+
+	if path == "" {
+		return []string{""}, nil
+	}
+
+	return strings.Split(path, "/"), nil
 }
