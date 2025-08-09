@@ -22,6 +22,7 @@ func TestNewConfigWithURL(t *testing.T) {
 	assert.Equal(t, customURL, config.ServerURL, "ServerURL should match provided URL")
 	assert.Equal(t, DefaultPollInterval, config.PollInterval, "PollInterval should match default")
 	assert.Equal(t, DefaultReportInterval, config.ReportInterval, "ReportInterval should match default")
+	assert.Equal(t, false, config.VerboseLogging, "VerboseLogging should be false by default")
 }
 
 func TestConfig_Validate(t *testing.T) {
