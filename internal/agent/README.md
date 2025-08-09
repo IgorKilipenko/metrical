@@ -70,15 +70,34 @@ sequenceDiagram
     end
     
     Note over Agent,Collector: Потокобезопасный сбор
-    Note over HTTPClient,Server: JSON формат данных
+    Note over HTTPClient,Server: Retry логика при ошибках
 ```
+
+## Возможности
+
+### ✅ Основные функции
+- **Сбор метрик**: 27 runtime метрик + 1 дополнительная (RandomValue) + 1 counter (PollCount)
+- **Отправка метрик**: HTTP POST запросы с retry логикой
+- **Graceful shutdown**: Корректное завершение работы
+- **Потокобезопасность**: Использование `sync.RWMutex`
+- **Конфигурация**: Гибкие настройки через структуру Config
+
+### ✅ Обработка ошибок
+- **Retry логика**: 2 попытки с задержкой 100ms
+- **Детальная диагностика**: Чтение тела ответа при ошибках
+- **Логирование ошибок**: Опциональное подробное логирование
+
+### ✅ Конфигурация
+- **Валидация**: Проверка корректности настроек
+- **Значения по умолчанию**: Готовые к использованию настройки
+- **Гибкость**: Поддержка кастомных URL и интервалов
 
 ## Структура файлов
 
 ### Основные файлы
 - `agent.go` - основная логика агента (сбор, отправка, retry логика)
-- `config.go` - конфигурация агента
-- `metrics.go` - работа с метриками
+- `config.go` - конфигурация агента с валидацией
+- `metrics.go` - работа с метриками (runtime + дополнительные)
 
 ### Тестовые файлы
 - `agent_test.go` - тесты агента (создание, сбор метрик, потокобезопасность, graceful shutdown, подготовка метрик)
@@ -99,4 +118,18 @@ go test ./internal/agent/agent_test.go ./internal/agent/agent.go ./internal/agen
 
 # Только тесты метрик
 go test ./internal/agent/metrics_test.go ./internal/agent/metrics.go -v
+
+# Проверка линтером
+go vet ./internal/agent/...
+```
+
+## Конфигурация по умолчанию
+
+```go
+DefaultServerURL      = "http://localhost:8080"
+DefaultPollInterval   = 2 * time.Second
+DefaultReportInterval = 10 * time.Second
+DefaultHTTPTimeout    = 10 * time.Second
+DefaultMaxRetries     = 2
+DefaultRetryDelay     = 100 * time.Millisecond
 ```

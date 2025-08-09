@@ -167,7 +167,7 @@ func TestAgent_CollectMetrics(t *testing.T) {
 		{
 			name:                    "Default configuration",
 			config:                  NewConfig(),
-			expectedMinTotalMetrics: 28, // 27 runtime + 1 additional
+			expectedMinTotalMetrics: 29, // 27 runtime + 1 additional + 1 counter
 			expectedGaugeMetrics: []string{
 				MetricAlloc, MetricBuckHashSys, MetricFrees, MetricGCCPUFraction, MetricGCSys,
 				MetricHeapAlloc, MetricHeapIdle, MetricHeapInuse, MetricHeapObjects, MetricHeapReleased,
@@ -226,13 +226,13 @@ func TestAgent_CollectMetrics_ThreadSafety(t *testing.T) {
 			name:               "10 goroutines with default config",
 			config:             NewConfig(),
 			goroutines:         10,
-			expectedMinMetrics: 28, // 27 runtime + 1 additional
+			expectedMinMetrics: 29, // 27 runtime + 1 additional + 1 counter
 		},
 		{
 			name:               "5 goroutines with custom config",
 			config:             NewConfigWithURL("http://example.com:9090"),
 			goroutines:         5,
-			expectedMinMetrics: 28,
+			expectedMinMetrics: 29,
 		},
 	}
 
