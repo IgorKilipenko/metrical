@@ -34,7 +34,7 @@ func (h *MetricsHandler) UpdateMetric(w http.ResponseWriter, r *http.Request) {
 	matches := re.FindStringSubmatch(r.URL.Path)
 
 	if len(matches) != 4 {
-		http.Error(w, "Invalid URL format", http.StatusBadRequest)
+		http.Error(w, "Not found", http.StatusNotFound)
 		return
 	}
 
