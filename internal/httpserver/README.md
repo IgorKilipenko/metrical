@@ -9,6 +9,8 @@
 - Настройку маршрутов HTTP
 - Запуск сервера с graceful shutdown
 - Обработку ошибок и валидацию входных параметров
+- Структурированное логирование с использованием `slog`
+- Гибкую конфигурацию сервера
 
 ### Архитектура HTTP сервера (Clean Architecture)
 
@@ -17,6 +19,7 @@ graph TB
     subgraph "HTTPServer Package"
         SERVER[Server]
         ROUTER[Router]
+        CONFIG[ServerConfig]
     end
     
     subgraph "Injected Dependencies"
@@ -43,6 +46,7 @@ graph TB
     
     SERVER -.->|Dependency Injection| HANDLER
     SERVER --> ROUTER
+    SERVER --> CONFIG
     HANDLER --> SERVICE
     SERVICE --> REPO
     REPO --> IMR
@@ -54,6 +58,7 @@ graph TB
     style SERVER fill:#f3e5f5
     style HANDLER fill:#e3f2fd
     style ROUTER fill:#e3f2fd
+    style CONFIG fill:#fff3e0
     style SERVICE fill:#e8f5e8
     style REPO fill:#fff3e0
     style IMR fill:#fff3e0
@@ -64,6 +69,8 @@ graph TB
         • Принимает handler через DI
         • Не создает зависимости
         • Следует принципам Clean Architecture
+        • Структурированное логирование
+        • Гибкая конфигурация
     end note
 ```
 
@@ -88,6 +95,7 @@ stateDiagram-v2
         • Create Router
         • Setup Routes
         • Initialize Dependencies
+        • Apply Server Config
     end note
     
     note right of HandleRequest
@@ -127,6 +135,34 @@ if err := server.Shutdown(ctx); err != nil {
 }
 ```
 
+### Создание сервера с кастомной конфигурацией
+
+```go
+// Создание кастомной конфигурации
+config := &httpserver.ServerConfig{
+    Addr:         ":9090",
+    ReadTimeout:  15 * time.Second,
+    WriteTimeout: 15 * time.Second,
+    IdleTimeout:  30 * time.Second,
+}
+
+// Создание сервера с конфигурацией
+server, err := httpserver.NewServerWithConfig(config, handler)
+if err != nil {
+    log.Fatalf("Failed to create server: %v", err)
+}
+```
+
+### Использование конфигурации по умолчанию
+
+```go
+// Получение конфигурации по умолчанию
+config := httpserver.DefaultServerConfig()
+config.Addr = ":8080" // Переопределяем адрес
+
+server, err := httpserver.NewServerWithConfig(config, handler)
+```
+
 ### Использование в тестах
 
 ```go
@@ -143,21 +179,27 @@ if err != nil {
 
 ## Структуры
 
+### ServerConfig
+
+```go
+type ServerConfig struct {
+    Addr         string        // Адрес для запуска сервера
+    ReadTimeout  time.Duration // Таймаут чтения запроса
+    WriteTimeout time.Duration // Таймаут записи ответа
+    IdleTimeout  time.Duration // Таймаут простоя соединения
+}
+```
+
 ### Server
 
 ```go
 type Server struct {
-    addr    string
-    handler *handler.MetricsHandler
-    router  *router.Router
-    server  *http.Server
+    config  *ServerConfig           // Конфигурация сервера
+    handler *handler.MetricsHandler // HTTP обработчик для метрик
+    router  *router.Router          // Кэшированный роутер
+    server  *http.Server            // Ссылка на HTTP сервер для graceful shutdown
 }
 ```
-
-- `addr` - адрес для запуска сервера
-- `handler` - HTTP обработчик для метрик
-- `router` - кэшированный роутер
-- `server` - ссылка на HTTP сервер для graceful shutdown
 
 ## Методы
 
@@ -174,9 +216,30 @@ type Server struct {
 - `*Server` - экземпляр сервера
 - `error` - ошибка валидации или nil
 
+### NewServerWithConfig(config *ServerConfig, handler *handler.MetricsHandler) (*Server, error)
+
+Создает новый экземпляр сервера с кастомной конфигурацией.
+
+**Параметры:**
+- `config` - конфигурация сервера (не может быть nil)
+- `handler` - HTTP обработчик для метрик (не может быть nil)
+
+**Возвращает:**
+- `*Server` - экземпляр сервера
+- `error` - ошибка валидации или nil
+
+### DefaultServerConfig() *ServerConfig
+
+Возвращает конфигурацию сервера по умолчанию:
+- `Addr`: ":8080"
+- `ReadTimeout`: 30 секунд
+- `WriteTimeout`: 30 секунд
+- `IdleTimeout`: 60 секунд
+
 ### Start() error
 
-Запускает HTTP сервер и блокирует выполнение до завершения работы сервера. Корректно обрабатывает ошибки и логирует их.
+Запускает HTTP сервер и блокирует выполнение до завершения работы сервера. 
+Использует структурированное логирование для записи событий.
 
 ### Shutdown(ctx context.Context) error
 
@@ -210,7 +273,7 @@ Gracefully останавливает сервер с использование
 - ✅ **Направление зависимостей** - зависимости направлены внутрь
 
 ### Error Handling
-- ✅ **Валидация входных параметров** - проверка addr и handler
+- ✅ **Валидация входных параметров** - проверка config и handler
 - ✅ **Контекстные ошибки** - детальные сообщения об ошибках
 - ✅ **Graceful shutdown** - корректная остановка сервера
 
@@ -218,6 +281,11 @@ Gracefully останавливает сервер с использование
 - ✅ **Единственная ответственность** - сервер отвечает только за HTTP
 - ✅ **Композиция** - делегирует обработку handler'у
 - ✅ **Инкапсуляция** - скрывает детали реализации
+
+### Structured Logging
+- ✅ **Структурированные логи** - использование `slog` для лучшей читаемости
+- ✅ **Контекстная информация** - логи содержат адрес сервера и ошибки
+- ✅ **Уровни логирования** - Info для нормальных событий, Error для ошибок
 
 ## Маршруты
 
@@ -229,8 +297,13 @@ Gracefully останавливает сервер с использование
 
 ## Тестирование
 
-Пакет включает интеграционные тесты, которые проверяют:
+Пакет включает интеграционные тесты с **70.8% покрытием**, которые проверяют:
 - Создание сервера с валидными параметрами
 - Обработку ошибок при невалидных параметрах
 - HTTP endpoints и их корректную работу
 - Graceful shutdown функциональность
+- Работу с конфигурацией сервера
+- Edge cases и граничные условия
+- Конкурентные запросы
+- Валидацию HTTP методов
+

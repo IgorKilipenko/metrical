@@ -4,17 +4,36 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/IgorKilipenko/metrical/internal/handler"
 	"github.com/IgorKilipenko/metrical/internal/router"
 	"github.com/IgorKilipenko/metrical/internal/routes"
 )
 
+// ServerConfig конфигурация HTTP сервера
+type ServerConfig struct {
+	Addr         string
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+	IdleTimeout  time.Duration
+}
+
+// DefaultServerConfig возвращает конфигурацию по умолчанию
+func DefaultServerConfig() *ServerConfig {
+	return &ServerConfig{
+		Addr:         ":8080",
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+}
+
 // Server представляет HTTP сервер
 type Server struct {
-	addr    string
+	config  *ServerConfig
 	handler *handler.MetricsHandler
 	router  *router.Router // Кэшированный роутер
 	server  *http.Server   // Ссылка на HTTP сервер для graceful shutdown
@@ -22,7 +41,15 @@ type Server struct {
 
 // NewServer создает новый HTTP сервер с переданными зависимостями
 func NewServer(addr string, handler *handler.MetricsHandler) (*Server, error) {
-	if addr == "" {
+	return NewServerWithConfig(&ServerConfig{Addr: addr}, handler)
+}
+
+// NewServerWithConfig создает новый HTTP сервер с конфигурацией
+func NewServerWithConfig(config *ServerConfig, handler *handler.MetricsHandler) (*Server, error) {
+	if config == nil {
+		return nil, errors.New("config cannot be nil")
+	}
+	if config.Addr == "" {
 		return nil, errors.New("address cannot be empty")
 	}
 	if handler == nil {
@@ -30,7 +57,7 @@ func NewServer(addr string, handler *handler.MetricsHandler) (*Server, error) {
 	}
 
 	srv := &Server{
-		addr:    addr,
+		config:  config,
 		handler: handler,
 	}
 
@@ -42,14 +69,17 @@ func NewServer(addr string, handler *handler.MetricsHandler) (*Server, error) {
 
 // Start запускает HTTP сервер
 func (s *Server) Start() error {
-	log.Printf("Starting server on %s", s.addr)
+	slog.Info("starting HTTP server", "addr", s.config.Addr)
 	s.server = &http.Server{
-		Addr:    s.addr,
-		Handler: s.router,
+		Addr:         s.config.Addr,
+		Handler:      s.router,
+		ReadTimeout:  s.config.ReadTimeout,
+		WriteTimeout: s.config.WriteTimeout,
+		IdleTimeout:  s.config.IdleTimeout,
 	}
 
 	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Printf("Server error: %v", err)
+		slog.Error("server error", "error", err)
 		return fmt.Errorf("failed to start server: %w", err)
 	}
 	return nil
@@ -57,7 +87,7 @@ func (s *Server) Start() error {
 
 // Shutdown gracefully останавливает сервер
 func (s *Server) Shutdown(ctx context.Context) error {
-	log.Println("Shutting down server gracefully...")
+	slog.Info("shutting down server gracefully")
 	if s.server != nil {
 		return s.server.Shutdown(ctx)
 	}
