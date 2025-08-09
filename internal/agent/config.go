@@ -56,6 +56,7 @@ func NewConfigWithURL(serverURL string) *Config {
 		ServerURL:      serverURL,
 		PollInterval:   DefaultPollInterval,
 		ReportInterval: DefaultReportInterval,
+		VerboseLogging: false,
 	}
 }
 

@@ -107,7 +107,12 @@ func (a *Agent) collectMetrics() {
 	UpdateCounterMetrics(a.metrics)
 
 	totalMetrics := len(a.metrics.Gauges) + len(a.metrics.Counters)
-	log.Printf("Collected %d metrics", totalMetrics)
+	if a.config.VerboseLogging {
+		log.Printf("Collected %d metrics (gauges: %d, counters: %d)",
+			totalMetrics, len(a.metrics.Gauges), len(a.metrics.Counters))
+	} else {
+		log.Printf("Collected %d metrics", totalMetrics)
+	}
 }
 
 // reportMetrics отправляет метрики на сервер
@@ -204,8 +209,13 @@ func (a *Agent) sendHTTPRequest(url string) error {
 		if resp.StatusCode == http.StatusOK {
 			return nil
 		} else {
+			// Читаем тело ответа для лучшей диагностики
+			body := make([]byte, 1024)
+			n, _ := resp.Body.Read(body)
+			bodyStr := string(body[:n])
+
 			if attempt == DefaultMaxRetries {
-				return fmt.Errorf("server returned status %d", resp.StatusCode)
+				return fmt.Errorf("server returned status %d: %s", resp.StatusCode, bodyStr)
 			}
 			time.Sleep(DefaultRetryDelay)
 		}
