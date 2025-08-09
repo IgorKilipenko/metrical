@@ -49,9 +49,48 @@ type Config struct {
 go run cmd/agent/main.go
 
 # Компиляция в бинарный файл
-go build -o agent cmd/agent/main.go
+go build -o agent ./cmd/agent/
+
+# Компиляция с версией
+go build -ldflags "-X main.Version=1.0.0" -o agent ./cmd/agent/
+
+# Запуск
 ./agent
 ```
+
+### 📦 Версионирование
+
+Приложение поддерживает версионирование через ldflags:
+
+```bash
+# Установка версии при сборке
+go build -ldflags "-X main.Version=1.0.0" -o agent ./cmd/agent/
+
+# Проверка версии
+./agent --help
+# Выведет: Starting metrics agent v1.0.0
+```
+
+### 📋 Флаги командной строки
+
+```bash
+# Показать справку
+./agent --help
+
+# Запуск с кастомными настройками
+./agent -a http://example.com:9090 -p 5 -r 15 -v
+
+# Только verbose логирование
+./agent -v
+```
+
+| Флаг | Описание | По умолчанию |
+|------|----------|--------------|
+| `-a, --a` | HTTP server endpoint address | `http://localhost:8080` |
+| `-p, --p` | Poll interval in seconds | `2` |
+| `-r, --r` | Report interval in seconds | `10` |
+| `-v, --v` | Enable verbose logging | `false` |
+| `-h, --help` | Show help | - |
 
 ## 🛑 Graceful Shutdown
 

@@ -18,6 +18,7 @@ var (
 	serverURL      string
 	pollInterval   int
 	reportInterval int
+	verboseLogging bool
 )
 
 // rootCmd представляет корневую команду приложения
@@ -38,6 +39,7 @@ func init() {
 	rootCmd.Flags().StringVarP(&serverURL, "a", "a", agent.DefaultServerURL, "HTTP server endpoint address")
 	rootCmd.Flags().IntVarP(&pollInterval, "p", "p", int(agent.DefaultPollInterval.Seconds()), "Poll interval in seconds")
 	rootCmd.Flags().IntVarP(&reportInterval, "r", "r", int(agent.DefaultReportInterval.Seconds()), "Report interval in seconds")
+	rootCmd.Flags().BoolVarP(&verboseLogging, "v", "v", false, "Enable verbose logging")
 
 	// Отключаем автоматическое использование флага help, так как Cobra его добавляет автоматически
 	rootCmd.Flags().BoolP("help", "h", false, "Show help")
@@ -55,12 +57,17 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		ServerURL:      serverURL,
 		PollInterval:   time.Duration(pollInterval) * time.Second,
 		ReportInterval: time.Duration(reportInterval) * time.Second,
+		VerboseLogging: verboseLogging,
 	}
 
 	// Валидируем конфигурацию
 	if err := config.Validate(); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
+
+	// Логируем конфигурацию при запуске
+	log.Printf("Agent configuration: server=%s, poll=%v, report=%v, verbose=%v",
+		config.ServerURL, config.PollInterval, config.ReportInterval, config.VerboseLogging)
 
 	// Создаем и запускаем агент
 	metricsAgent := agent.NewAgent(config)
@@ -99,9 +106,6 @@ func runAgent(cmd *cobra.Command, args []string) error {
 }
 
 // Execute запускает CLI приложение
-func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+func Execute() error {
+	return rootCmd.Execute()
 }

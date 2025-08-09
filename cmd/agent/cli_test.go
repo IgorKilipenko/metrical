@@ -68,6 +68,16 @@ func TestRootCmdFlags(t *testing.T) {
 			expectError: false,
 		},
 		{
+			name: "with verbose logging",
+			args: []string{"-v"},
+			expectedConfig: &agent.Config{
+				ServerURL:      agent.DefaultServerURL,
+				PollInterval:   agent.DefaultPollInterval,
+				ReportInterval: agent.DefaultReportInterval,
+			},
+			expectError: false,
+		},
+		{
 			name:        "unknown argument",
 			args:        []string{"unknown"},
 			expectError: true,
@@ -116,6 +126,7 @@ func TestRootCmdFlags(t *testing.T) {
 			cmd.Flags().StringVarP(&serverURL, "a", "a", agent.DefaultServerURL, "HTTP server endpoint address")
 			cmd.Flags().IntVarP(&pollInterval, "p", "p", int(agent.DefaultPollInterval.Seconds()), "Poll interval in seconds")
 			cmd.Flags().IntVarP(&reportInterval, "r", "r", int(agent.DefaultReportInterval.Seconds()), "Report interval in seconds")
+			cmd.Flags().BoolVarP(&verboseLogging, "v", "v", false, "Enable verbose logging")
 
 			// Устанавливаем аргументы
 			cmd.SetArgs(tt.args)
@@ -137,11 +148,16 @@ func TestRootCmdFlags(t *testing.T) {
 					ServerURL:      serverURL,
 					PollInterval:   time.Duration(pollInterval) * time.Second,
 					ReportInterval: time.Duration(reportInterval) * time.Second,
+					VerboseLogging: verboseLogging,
 				}
 
 				assert.Equal(t, tt.expectedConfig.ServerURL, config.ServerURL)
 				assert.Equal(t, tt.expectedConfig.PollInterval, config.PollInterval)
 				assert.Equal(t, tt.expectedConfig.ReportInterval, config.ReportInterval)
+				// Проверяем VerboseLogging только для теста с verbose
+				if tt.name == "with verbose logging" {
+					assert.True(t, config.VerboseLogging)
+				}
 			}
 		})
 	}
@@ -152,4 +168,10 @@ func TestRootCmdHelp(t *testing.T) {
 	rootCmd.SetArgs([]string{"--help"})
 	err := rootCmd.Execute()
 	assert.NoError(t, err)
+}
+
+func TestVersion(t *testing.T) {
+	// Проверяем, что версия установлена
+	assert.NotEmpty(t, Version, "Version should not be empty")
+	assert.Contains(t, Version, "dev", "Version should contain 'dev' by default")
 }
