@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -133,7 +134,12 @@ func (a *Agent) sendMetrics() {
 			continue
 		}
 
-		url := fmt.Sprintf("%s/update/%s/%s/%s", a.config.ServerURL, metricType, name, stringValue)
+		// Убеждаемся, что URL содержит протокол
+		serverURL := a.config.ServerURL
+		if !strings.HasPrefix(serverURL, "http://") && !strings.HasPrefix(serverURL, "https://") {
+			serverURL = "http://" + serverURL
+		}
+		url := fmt.Sprintf("%s/update/%s/%s/%s", serverURL, metricType, name, stringValue)
 		resp, err := a.httpClient.Post(url, "text/plain", nil)
 		if err != nil {
 			log.Printf("Error sending metric %s: %v", name, err)
