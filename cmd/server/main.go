@@ -8,7 +8,10 @@ import (
 
 func main() {
 	// Загружаем конфигурацию
-	config := app.LoadConfig()
+	config, err := app.LoadConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Создаем приложение
 	application := app.New(config)
