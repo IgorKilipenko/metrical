@@ -1,5 +1,7 @@
 package models
 
+import "fmt"
+
 const (
 	Counter = "counter"
 	Gauge   = "gauge"
@@ -20,4 +22,21 @@ type Metrics struct {
 	Delta *int64   `json:"delta,omitempty"`
 	Value *float64 `json:"value,omitempty"`
 	Hash  string   `json:"hash,omitempty"`
+}
+
+// ValidationError представляет ошибку валидации метрики
+type ValidationError struct {
+	Field   string
+	Value   string
+	Message string
+}
+
+func (e ValidationError) Error() string {
+	return fmt.Sprintf("validation error for field '%s' with value '%s': %s", e.Field, e.Value, e.Message)
+}
+
+// IsValidationError проверяет, является ли ошибка ошибкой валидации
+func IsValidationError(err error) bool {
+	_, ok := err.(ValidationError)
+	return ok
 }

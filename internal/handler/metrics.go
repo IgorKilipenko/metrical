@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	models "github.com/IgorKilipenko/metrical/internal/model"
 	"github.com/IgorKilipenko/metrical/internal/service"
 	"github.com/IgorKilipenko/metrical/internal/template"
 	"github.com/go-chi/chi/v5"
@@ -41,7 +42,14 @@ func (h *MetricsHandler) UpdateMetric(w http.ResponseWriter, r *http.Request) {
 
 	err := h.service.UpdateMetric(metricType, metricName, metricValue)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		// Проверяем, является ли ошибка ошибкой валидации
+		if models.IsValidationError(err) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		} else {
+			// Для других ошибок (например, ошибки репозитория) используем 500
+			log.Printf("Error updating metric: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		}
 		return
 	}
 

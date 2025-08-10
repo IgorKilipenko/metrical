@@ -3,6 +3,7 @@ package service
 import (
 	"testing"
 
+	models "github.com/IgorKilipenko/metrical/internal/model"
 	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -183,4 +184,165 @@ func TestMetricsService_GetAllCounters(t *testing.T) {
 	assert.Len(t, counters, 2, "Should have 2 counter metrics")
 	assert.Equal(t, int64(100), counters["req1"], "First counter value should match")
 	assert.Equal(t, int64(200), counters["req2"], "Second counter value should match")
+}
+
+func TestMetricsService_ValidateMetricValue(t *testing.T) {
+	// Создаем реальный репозиторий
+	repo := repository.NewInMemoryMetricsRepository()
+	service := NewMetricsService(repo)
+
+	tests := []struct {
+		name        string
+		metricType  string
+		metricName  string
+		metricValue string
+		wantErr     bool
+		errType     string
+	}{
+		{
+			name:        "Valid gauge metric",
+			metricType:  "gauge",
+			metricName:  "memory_usage",
+			metricValue: "85.7",
+			wantErr:     false,
+		},
+		{
+			name:        "Valid counter metric",
+			metricType:  "counter",
+			metricName:  "request_count",
+			metricValue: "123",
+			wantErr:     false,
+		},
+		{
+			name:        "Invalid metric type",
+			metricType:  "unknown",
+			metricName:  "test",
+			metricValue: "123",
+			wantErr:     true,
+			errType:     "validation",
+		},
+		{
+			name:        "Empty metric name",
+			metricType:  "gauge",
+			metricName:  "",
+			metricValue: "123.45",
+			wantErr:     true,
+			errType:     "validation",
+		},
+		{
+			name:        "Invalid gauge value",
+			metricType:  "gauge",
+			metricName:  "test",
+			metricValue: "abc",
+			wantErr:     true,
+			errType:     "validation",
+		},
+		{
+			name:        "Invalid counter value",
+			metricType:  "counter",
+			metricName:  "test",
+			metricValue: "123.45",
+			wantErr:     true,
+			errType:     "validation",
+		},
+		{
+			name:        "Empty value",
+			metricType:  "gauge",
+			metricName:  "test",
+			metricValue: "",
+			wantErr:     true,
+			errType:     "validation",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := service.validateMetricValue(tt.metricType, tt.metricName, tt.metricValue)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errType == "validation" {
+					assert.True(t, models.IsValidationError(err))
+
+					// Проверяем, что это именно ValidationError
+					var validationErr models.ValidationError
+					assert.ErrorAs(t, err, &validationErr)
+
+					// Проверяем, что сообщение об ошибке информативное
+					assert.Contains(t, err.Error(), "validation error")
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestMetricsService_UpdateMetric_WithValidation(t *testing.T) {
+	// Создаем реальный репозиторий
+	repo := repository.NewInMemoryMetricsRepository()
+	service := NewMetricsService(repo)
+
+	tests := []struct {
+		name        string
+		metricType  string
+		metricName  string
+		metricValue string
+		wantErr     bool
+		errType     string
+	}{
+		{
+			name:        "Valid gauge metric - success",
+			metricType:  "gauge",
+			metricName:  "memory_usage",
+			metricValue: "85.7",
+			wantErr:     false,
+		},
+		{
+			name:        "Valid counter metric - success",
+			metricType:  "counter",
+			metricName:  "request_count",
+			metricValue: "123",
+			wantErr:     false,
+		},
+		{
+			name:        "Invalid metric type - validation error",
+			metricType:  "unknown",
+			metricName:  "test",
+			metricValue: "123",
+			wantErr:     true,
+			errType:     "validation",
+		},
+		{
+			name:        "Invalid gauge value - validation error",
+			metricType:  "gauge",
+			metricName:  "test",
+			metricValue: "abc",
+			wantErr:     true,
+			errType:     "validation",
+		},
+		{
+			name:        "Empty metric name - validation error",
+			metricType:  "gauge",
+			metricName:  "",
+			metricValue: "123.45",
+			wantErr:     true,
+			errType:     "validation",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := service.UpdateMetric(tt.metricType, tt.metricName, tt.metricValue)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errType == "validation" {
+					assert.True(t, models.IsValidationError(err))
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }
