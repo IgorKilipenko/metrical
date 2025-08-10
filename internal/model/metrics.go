@@ -5,6 +5,10 @@ const (
 	Gauge   = "gauge"
 )
 
+// Типы-алиасы для улучшения читаемости
+type GaugeMetrics map[string]float64
+type CounterMetrics map[string]int64
+
 // NOTE: Не усложняем пример, вводя иерархическую вложенность структур.
 // Органичиваясь плоской моделью.
 // Delta и Value объявлены через указатели,
