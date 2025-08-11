@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 
 	models "github.com/IgorKilipenko/metrical/internal/model"
@@ -15,26 +16,30 @@ type MetricsService struct {
 
 // NewMetricsService создает новый экземпляр MetricsService
 func NewMetricsService(repository repository.MetricsRepository) *MetricsService {
+	if repository == nil {
+		panic("repository cannot be nil")
+	}
+
 	return &MetricsService{
 		repository: repository,
 	}
 }
 
 // UpdateMetric обновляет метрику с готовыми валидированными данными
-func (s *MetricsService) UpdateMetric(req *validation.MetricRequest) error {
+func (s *MetricsService) UpdateMetric(ctx context.Context, req *validation.MetricRequest) error {
 	// Только бизнес-логика
 	switch req.Type {
 	case models.Gauge:
-		return s.updateGaugeMetric(req.Name, req.Value.(float64))
+		return s.updateGaugeMetric(ctx, req.Name, req.Value.(float64))
 	case models.Counter:
-		return s.updateCounterMetric(req.Name, req.Value.(int64))
+		return s.updateCounterMetric(ctx, req.Name, req.Value.(int64))
 	default:
 		return fmt.Errorf("unsupported metric type: %s", req.Type)
 	}
 }
 
 // updateGaugeMetric содержит бизнес-логику для обновления gauge метрик
-func (s *MetricsService) updateGaugeMetric(name string, value float64) error {
+func (s *MetricsService) updateGaugeMetric(ctx context.Context, name string, value float64) error {
 	// Здесь может быть бизнес-логика:
 	// - Проверка лимитов
 	// - Валидация бизнес-правил
@@ -43,11 +48,11 @@ func (s *MetricsService) updateGaugeMetric(name string, value float64) error {
 	// - Аудит операций
 
 	// Пока просто делегируем в репозиторий
-	return s.repository.UpdateGauge(name, value)
+	return s.repository.UpdateGauge(ctx, name, value)
 }
 
 // updateCounterMetric содержит бизнес-логику для обновления counter метрик
-func (s *MetricsService) updateCounterMetric(name string, value int64) error {
+func (s *MetricsService) updateCounterMetric(ctx context.Context, name string, value int64) error {
 	// Здесь может быть бизнес-логика:
 	// - Проверка лимитов счетчиков
 	// - Валидация бизнес-правил
@@ -55,25 +60,25 @@ func (s *MetricsService) updateCounterMetric(name string, value int64) error {
 	// - Уведомления при превышении порогов
 
 	// Пока просто делегируем в репозиторий
-	return s.repository.UpdateCounter(name, value)
+	return s.repository.UpdateCounter(ctx, name, value)
 }
 
 // GetGauge возвращает значение gauge метрики
-func (s *MetricsService) GetGauge(name string) (float64, bool, error) {
-	return s.repository.GetGauge(name)
+func (s *MetricsService) GetGauge(ctx context.Context, name string) (float64, bool, error) {
+	return s.repository.GetGauge(ctx, name)
 }
 
 // GetCounter возвращает значение counter метрики
-func (s *MetricsService) GetCounter(name string) (int64, bool, error) {
-	return s.repository.GetCounter(name)
+func (s *MetricsService) GetCounter(ctx context.Context, name string) (int64, bool, error) {
+	return s.repository.GetCounter(ctx, name)
 }
 
 // GetAllGauges возвращает все gauge метрики
-func (s *MetricsService) GetAllGauges() (models.GaugeMetrics, error) {
-	return s.repository.GetAllGauges()
+func (s *MetricsService) GetAllGauges(ctx context.Context) (models.GaugeMetrics, error) {
+	return s.repository.GetAllGauges(ctx)
 }
 
 // GetAllCounters возвращает все counter метрики
-func (s *MetricsService) GetAllCounters() (models.CounterMetrics, error) {
-	return s.repository.GetAllCounters()
+func (s *MetricsService) GetAllCounters(ctx context.Context) (models.CounterMetrics, error) {
+	return s.repository.GetAllCounters(ctx)
 }

@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"sync"
 
 	models "github.com/IgorKilipenko/metrical/internal/model"
@@ -22,7 +23,14 @@ func NewInMemoryMetricsRepository() *InMemoryMetricsRepository {
 }
 
 // UpdateGauge обновляет значение gauge метрики
-func (r *InMemoryMetricsRepository) UpdateGauge(name string, value float64) error {
+func (r *InMemoryMetricsRepository) UpdateGauge(ctx context.Context, name string, value float64) error {
+	// Проверяем отмену контекста
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.Gauges[name] = value
@@ -30,7 +38,14 @@ func (r *InMemoryMetricsRepository) UpdateGauge(name string, value float64) erro
 }
 
 // UpdateCounter добавляет значение к counter метрике
-func (r *InMemoryMetricsRepository) UpdateCounter(name string, value int64) error {
+func (r *InMemoryMetricsRepository) UpdateCounter(ctx context.Context, name string, value int64) error {
+	// Проверяем отмену контекста
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.Counters[name] += value
@@ -38,7 +53,14 @@ func (r *InMemoryMetricsRepository) UpdateCounter(name string, value int64) erro
 }
 
 // GetGauge возвращает значение gauge метрики
-func (r *InMemoryMetricsRepository) GetGauge(name string) (float64, bool, error) {
+func (r *InMemoryMetricsRepository) GetGauge(ctx context.Context, name string) (float64, bool, error) {
+	// Проверяем отмену контекста
+	select {
+	case <-ctx.Done():
+		return 0, false, ctx.Err()
+	default:
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	value, exists := r.Gauges[name]
@@ -46,7 +68,14 @@ func (r *InMemoryMetricsRepository) GetGauge(name string) (float64, bool, error)
 }
 
 // GetCounter возвращает значение counter метрики
-func (r *InMemoryMetricsRepository) GetCounter(name string) (int64, bool, error) {
+func (r *InMemoryMetricsRepository) GetCounter(ctx context.Context, name string) (int64, bool, error) {
+	// Проверяем отмену контекста
+	select {
+	case <-ctx.Done():
+		return 0, false, ctx.Err()
+	default:
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	value, exists := r.Counters[name]
@@ -54,7 +83,14 @@ func (r *InMemoryMetricsRepository) GetCounter(name string) (int64, bool, error)
 }
 
 // GetAllGauges возвращает все gauge метрики
-func (r *InMemoryMetricsRepository) GetAllGauges() (models.GaugeMetrics, error) {
+func (r *InMemoryMetricsRepository) GetAllGauges(ctx context.Context) (models.GaugeMetrics, error) {
+	// Проверяем отмену контекста
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -67,7 +103,14 @@ func (r *InMemoryMetricsRepository) GetAllGauges() (models.GaugeMetrics, error) 
 }
 
 // GetAllCounters возвращает все counter метрики
-func (r *InMemoryMetricsRepository) GetAllCounters() (models.CounterMetrics, error) {
+func (r *InMemoryMetricsRepository) GetAllCounters(ctx context.Context) (models.CounterMetrics, error) {
+	// Проверяем отмену контекста
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

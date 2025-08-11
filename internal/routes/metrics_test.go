@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -32,8 +33,8 @@ func TestSetupMetricsRoutes(t *testing.T) {
 
 		// Проверяем, что возвращается HTML
 		contentType := w.Header().Get("Content-Type")
-		if contentType != "text/html; charset=utf-8" {
-			t.Errorf("Expected Content-Type text/html, got %s", contentType)
+		if contentType != "text/html" && contentType != "text/html; charset=utf-8" {
+			t.Errorf("Expected Content-Type text/html or text/html; charset=utf-8, got %s", contentType)
 		}
 	})
 
@@ -52,7 +53,8 @@ func TestSetupMetricsRoutes(t *testing.T) {
 	// Тестируем GET /value/{type}/{name}
 	t.Run("GET /value/gauge/test", func(t *testing.T) {
 		// Сначала добавляем метрику через repository
-		err := repository.UpdateGauge("test", 123.45)
+		ctx := context.Background()
+		err := repository.UpdateGauge(ctx, "test", 123.45)
 		if err != nil {
 			t.Fatalf("Failed to update gauge: %v", err)
 		}

@@ -1,7 +1,9 @@
 package service
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/IgorKilipenko/metrical/internal/validation"
@@ -12,6 +14,7 @@ import (
 func TestMetricsService_UpdateMetric(t *testing.T) {
 	repository := repository.NewInMemoryMetricsRepository()
 	service := NewMetricsService(repository)
+	ctx := context.Background()
 
 	tests := []struct {
 		name        string
@@ -49,7 +52,7 @@ func TestMetricsService_UpdateMetric(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := service.UpdateMetric(tt.metricReq)
+			err := service.UpdateMetric(ctx, tt.metricReq)
 
 			if tt.expectError {
 				assert.Error(t, err, "Expected error, got nil")
@@ -63,16 +66,17 @@ func TestMetricsService_UpdateMetric(t *testing.T) {
 func TestMetricsService_UpdateMetric_GaugeReplacement(t *testing.T) {
 	repository := repository.NewInMemoryMetricsRepository()
 	service := NewMetricsService(repository)
+	ctx := context.Background()
 
 	// Обновляем gauge метрику дважды
-	err := service.UpdateMetric(&validation.MetricRequest{
+	err := service.UpdateMetric(ctx, &validation.MetricRequest{
 		Type:  "gauge",
 		Name:  "temperature",
 		Value: 23.5,
 	})
 	require.NoError(t, err, "Failed to update gauge metric")
 
-	err = service.UpdateMetric(&validation.MetricRequest{
+	err = service.UpdateMetric(ctx, &validation.MetricRequest{
 		Type:  "gauge",
 		Name:  "temperature",
 		Value: 25.0,
@@ -80,7 +84,7 @@ func TestMetricsService_UpdateMetric_GaugeReplacement(t *testing.T) {
 	require.NoError(t, err, "Failed to update gauge metric")
 
 	// Проверяем, что значение заменилось
-	value, exists, err := service.GetGauge("temperature")
+	value, exists, err := service.GetGauge(ctx, "temperature")
 	require.NoError(t, err, "Failed to get gauge metric")
 	assert.True(t, exists, "Gauge metric should exist")
 	assert.Equal(t, 25.0, value, "Gauge value should be replaced")
@@ -89,16 +93,17 @@ func TestMetricsService_UpdateMetric_GaugeReplacement(t *testing.T) {
 func TestMetricsService_UpdateMetric_CounterAccumulation(t *testing.T) {
 	repository := repository.NewInMemoryMetricsRepository()
 	service := NewMetricsService(repository)
+	ctx := context.Background()
 
 	// Обновляем counter метрику дважды
-	err := service.UpdateMetric(&validation.MetricRequest{
+	err := service.UpdateMetric(ctx, &validation.MetricRequest{
 		Type:  "counter",
 		Name:  "requests",
 		Value: int64(100),
 	})
 	require.NoError(t, err, "Failed to update counter metric")
 
-	err = service.UpdateMetric(&validation.MetricRequest{
+	err = service.UpdateMetric(ctx, &validation.MetricRequest{
 		Type:  "counter",
 		Name:  "requests",
 		Value: int64(50),
@@ -106,7 +111,7 @@ func TestMetricsService_UpdateMetric_CounterAccumulation(t *testing.T) {
 	require.NoError(t, err, "Failed to update counter metric")
 
 	// Проверяем, что значения накапливаются
-	value, exists, err := service.GetCounter("requests")
+	value, exists, err := service.GetCounter(ctx, "requests")
 	require.NoError(t, err, "Failed to get counter metric")
 	assert.True(t, exists, "Counter metric should exist")
 	assert.Equal(t, int64(150), value, "Counter value should accumulate")
@@ -115,9 +120,10 @@ func TestMetricsService_UpdateMetric_CounterAccumulation(t *testing.T) {
 func TestMetricsService_GetGauge(t *testing.T) {
 	repository := repository.NewInMemoryMetricsRepository()
 	service := NewMetricsService(repository)
+	ctx := context.Background()
 
 	// Добавляем тестовую метрику
-	err := service.UpdateMetric(&validation.MetricRequest{
+	err := service.UpdateMetric(ctx, &validation.MetricRequest{
 		Type:  "gauge",
 		Name:  "temperature",
 		Value: 23.5,
@@ -125,13 +131,13 @@ func TestMetricsService_GetGauge(t *testing.T) {
 	require.NoError(t, err, "Failed to update gauge metric")
 
 	// Получаем значение
-	value, exists, err := service.GetGauge("temperature")
+	value, exists, err := service.GetGauge(ctx, "temperature")
 	require.NoError(t, err, "Failed to get gauge metric")
 	assert.True(t, exists, "Gauge metric should exist")
 	assert.Equal(t, 23.5, value, "Gauge value should match")
 
 	// Проверяем несуществующую метрику
-	_, exists, err = service.GetGauge("nonexistent")
+	_, exists, err = service.GetGauge(ctx, "nonexistent")
 	require.NoError(t, err, "Should not error for nonexistent metric")
 	assert.False(t, exists, "Nonexistent metric should not exist")
 }
@@ -139,9 +145,10 @@ func TestMetricsService_GetGauge(t *testing.T) {
 func TestMetricsService_GetCounter(t *testing.T) {
 	repository := repository.NewInMemoryMetricsRepository()
 	service := NewMetricsService(repository)
+	ctx := context.Background()
 
 	// Добавляем тестовую метрику
-	err := service.UpdateMetric(&validation.MetricRequest{
+	err := service.UpdateMetric(ctx, &validation.MetricRequest{
 		Type:  "counter",
 		Name:  "requests",
 		Value: int64(100),
@@ -149,13 +156,13 @@ func TestMetricsService_GetCounter(t *testing.T) {
 	require.NoError(t, err, "Failed to update counter metric")
 
 	// Получаем значение
-	value, exists, err := service.GetCounter("requests")
+	value, exists, err := service.GetCounter(ctx, "requests")
 	require.NoError(t, err, "Failed to get counter metric")
 	assert.True(t, exists, "Counter metric should exist")
 	assert.Equal(t, int64(100), value, "Counter value should match")
 
 	// Проверяем несуществующую метрику
-	_, exists, err = service.GetCounter("nonexistent")
+	_, exists, err = service.GetCounter(ctx, "nonexistent")
 	require.NoError(t, err, "Should not error for nonexistent metric")
 	assert.False(t, exists, "Nonexistent metric should not exist")
 }
@@ -163,16 +170,17 @@ func TestMetricsService_GetCounter(t *testing.T) {
 func TestMetricsService_GetAllGauges(t *testing.T) {
 	repository := repository.NewInMemoryMetricsRepository()
 	service := NewMetricsService(repository)
+	ctx := context.Background()
 
 	// Добавляем несколько gauge метрик
-	err := service.UpdateMetric(&validation.MetricRequest{
+	err := service.UpdateMetric(ctx, &validation.MetricRequest{
 		Type:  "gauge",
 		Name:  "temp1",
 		Value: 20.0,
 	})
 	require.NoError(t, err, "Failed to update gauge metric")
 
-	err = service.UpdateMetric(&validation.MetricRequest{
+	err = service.UpdateMetric(ctx, &validation.MetricRequest{
 		Type:  "gauge",
 		Name:  "temp2",
 		Value: 25.5,
@@ -180,7 +188,7 @@ func TestMetricsService_GetAllGauges(t *testing.T) {
 	require.NoError(t, err, "Failed to update gauge metric")
 
 	// Получаем все gauge метрики
-	gauges, err := service.GetAllGauges()
+	gauges, err := service.GetAllGauges(ctx)
 	require.NoError(t, err, "Failed to get all gauges")
 	assert.Len(t, gauges, 2, "Should have 2 gauge metrics")
 	assert.Equal(t, 20.0, gauges["temp1"], "First gauge value should match")
@@ -190,16 +198,17 @@ func TestMetricsService_GetAllGauges(t *testing.T) {
 func TestMetricsService_GetAllCounters(t *testing.T) {
 	repository := repository.NewInMemoryMetricsRepository()
 	service := NewMetricsService(repository)
+	ctx := context.Background()
 
 	// Добавляем несколько counter метрик
-	err := service.UpdateMetric(&validation.MetricRequest{
+	err := service.UpdateMetric(ctx, &validation.MetricRequest{
 		Type:  "counter",
 		Name:  "req1",
 		Value: int64(100),
 	})
 	require.NoError(t, err, "Failed to update counter metric")
 
-	err = service.UpdateMetric(&validation.MetricRequest{
+	err = service.UpdateMetric(ctx, &validation.MetricRequest{
 		Type:  "counter",
 		Name:  "req2",
 		Value: int64(200),
@@ -207,17 +216,106 @@ func TestMetricsService_GetAllCounters(t *testing.T) {
 	require.NoError(t, err, "Failed to update counter metric")
 
 	// Получаем все counter метрики
-	counters, err := service.GetAllCounters()
+	counters, err := service.GetAllCounters(ctx)
 	require.NoError(t, err, "Failed to get all counters")
 	assert.Len(t, counters, 2, "Should have 2 counter metrics")
 	assert.Equal(t, int64(100), counters["req1"], "First counter value should match")
 	assert.Equal(t, int64(200), counters["req2"], "Second counter value should match")
 }
 
+// Тесты на отмену контекста
+func TestMetricsService_ContextCancellation(t *testing.T) {
+	repository := repository.NewInMemoryMetricsRepository()
+	service := NewMetricsService(repository)
+
+	tests := []struct {
+		name string
+		test func(context.Context) error
+	}{
+		{
+			name: "UpdateMetric with cancelled context",
+			test: func(ctx context.Context) error {
+				return service.UpdateMetric(ctx, &validation.MetricRequest{
+					Type:  "gauge",
+					Name:  "test",
+					Value: 42.0,
+				})
+			},
+		},
+		{
+			name: "GetGauge with cancelled context",
+			test: func(ctx context.Context) error {
+				_, _, err := service.GetGauge(ctx, "test")
+				return err
+			},
+		},
+		{
+			name: "GetCounter with cancelled context",
+			test: func(ctx context.Context) error {
+				_, _, err := service.GetCounter(ctx, "test")
+				return err
+			},
+		},
+		{
+			name: "GetAllGauges with cancelled context",
+			test: func(ctx context.Context) error {
+				_, err := service.GetAllGauges(ctx)
+				return err
+			},
+		},
+		{
+			name: "GetAllCounters with cancelled context",
+			test: func(ctx context.Context) error {
+				_, err := service.GetAllCounters(ctx)
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Создаем контекст с отменой
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel() // Немедленно отменяем
+
+			// Выполняем операцию с отмененным контекстом
+			err := tt.test(ctx)
+
+			// Проверяем, что получили ошибку отмены контекста
+			assert.Error(t, err)
+			assert.Equal(t, context.Canceled, err)
+		})
+	}
+}
+
+func TestMetricsService_ContextTimeout(t *testing.T) {
+	repository := repository.NewInMemoryMetricsRepository()
+	service := NewMetricsService(repository)
+
+	// Создаем контекст с таймаутом
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+	defer cancel()
+
+	// Ждем, пока контекст истечет
+	time.Sleep(1 * time.Millisecond)
+
+	// Пытаемся выполнить операцию с истекшим контекстом
+	err := service.UpdateMetric(ctx, &validation.MetricRequest{
+		Type:  "gauge",
+		Name:  "test",
+		Value: 42.0,
+	})
+
+	// Проверяем, что получили ошибку таймаута
+	assert.Error(t, err)
+	assert.Equal(t, context.DeadlineExceeded, err)
+}
+
 func TestMetricsService_UpdateMetric_WithValidation(t *testing.T) {
 	// Создаем реальный репозиторий
 	repo := repository.NewInMemoryMetricsRepository()
 	service := NewMetricsService(repo)
+	ctx := context.Background()
 
 	tests := []struct {
 		name      string
@@ -257,7 +355,7 @@ func TestMetricsService_UpdateMetric_WithValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := service.UpdateMetric(tt.metricReq)
+			err := service.UpdateMetric(ctx, tt.metricReq)
 
 			if tt.wantErr {
 				assert.Error(t, err)

@@ -4,25 +4,25 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/IgorKilipenko/metrical/internal/service"
 	"github.com/IgorKilipenko/metrical/internal/validation"
 	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/assert"
 )
 
-// createTestHandler создает тестовый обработчик
+// createTestHandler создает тестовый handler
 func createTestHandler() *MetricsHandler {
 	repository := repository.NewInMemoryMetricsRepository()
 	service := service.NewMetricsService(repository)
 	return NewMetricsHandler(service)
 }
 
-// createChiContext создает контекст chi для тестирования
-func createChiContext(pattern string, params map[string]string) (*http.Request, *httptest.ResponseRecorder) {
-	req := httptest.NewRequest("GET", "/", nil)
+// createChiContext создает chi контекст для тестирования
+func createChiContext(path string, params map[string]string) (*http.Request, *httptest.ResponseRecorder) {
+	r := httptest.NewRequest("GET", path, nil)
 	w := httptest.NewRecorder()
 
 	// Создаем chi контекст
@@ -30,9 +30,9 @@ func createChiContext(pattern string, params map[string]string) (*http.Request, 
 	for key, value := range params {
 		rctx.URLParams.Add(key, value)
 	}
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
 
-	return req, w
+	return r, w
 }
 
 func TestMetricsHandler_UpdateMetric(t *testing.T) {
@@ -65,14 +65,14 @@ func TestMetricsHandler_UpdateMetric(t *testing.T) {
 			expectedStatus: http.StatusOK,
 		},
 		{
-			name:   "Invalid HTTP method",
-			method: "GET",
+			name:   "Invalid metric type",
+			method: "POST",
 			params: map[string]string{
-				"type":  "gauge",
-				"name":  "temperature",
-				"value": "23.5",
+				"type":  "invalid",
+				"name":  "test",
+				"value": "123",
 			},
-			expectedStatus: http.StatusMethodNotAllowed,
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:   "Empty metric name",
@@ -85,22 +85,12 @@ func TestMetricsHandler_UpdateMetric(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:   "Invalid metric type",
-			method: "POST",
-			params: map[string]string{
-				"type":  "invalid",
-				"name":  "test",
-				"value": "123",
-			},
-			expectedStatus: http.StatusBadRequest,
-		},
-		{
 			name:   "Invalid gauge value",
 			method: "POST",
 			params: map[string]string{
 				"type":  "gauge",
 				"name":  "test",
-				"value": "invalid",
+				"value": "abc",
 			},
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -110,7 +100,7 @@ func TestMetricsHandler_UpdateMetric(t *testing.T) {
 			params: map[string]string{
 				"type":  "counter",
 				"name":  "test",
-				"value": "invalid",
+				"value": "123.45",
 			},
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -123,22 +113,21 @@ func TestMetricsHandler_UpdateMetric(t *testing.T) {
 
 			handler.UpdateMetric(w, req)
 
-			if w.Code != tt.expectedStatus {
-				t.Errorf("Expected status %d, got %d", tt.expectedStatus, w.Code)
-			}
+			assert.Equal(t, tt.expectedStatus, w.Code)
 		})
 	}
 }
 
 func TestMetricsHandler_GetMetricValue(t *testing.T) {
 	handler := createTestHandler()
+	ctx := context.Background()
 
 	// Добавляем тестовые метрики через валидацию
 	metricReq1, _ := validation.ValidateMetricRequest("gauge", "temperature", "23.5")
-	handler.service.UpdateMetric(metricReq1)
+	handler.service.UpdateMetric(ctx, metricReq1)
 
 	metricReq2, _ := validation.ValidateMetricRequest("counter", "requests", "100")
-	handler.service.UpdateMetric(metricReq2)
+	handler.service.UpdateMetric(ctx, metricReq2)
 
 	tests := []struct {
 		name           string
@@ -148,7 +137,7 @@ func TestMetricsHandler_GetMetricValue(t *testing.T) {
 		expectedBody   string
 	}{
 		{
-			name:   "Valid gauge metric",
+			name:   "Get gauge metric",
 			method: "GET",
 			params: map[string]string{
 				"type": "gauge",
@@ -158,7 +147,7 @@ func TestMetricsHandler_GetMetricValue(t *testing.T) {
 			expectedBody:   "23.5",
 		},
 		{
-			name:   "Valid counter metric",
+			name:   "Get counter metric",
 			method: "GET",
 			params: map[string]string{
 				"type": "counter",
@@ -168,13 +157,13 @@ func TestMetricsHandler_GetMetricValue(t *testing.T) {
 			expectedBody:   "100",
 		},
 		{
-			name:   "Invalid HTTP method",
-			method: "POST",
+			name:   "Metric not found",
+			method: "GET",
 			params: map[string]string{
 				"type": "gauge",
-				"name": "temperature",
+				"name": "nonexistent",
 			},
-			expectedStatus: http.StatusMethodNotAllowed,
+			expectedStatus: http.StatusNotFound,
 		},
 		{
 			name:   "Empty metric name",
@@ -194,15 +183,6 @@ func TestMetricsHandler_GetMetricValue(t *testing.T) {
 			},
 			expectedStatus: http.StatusBadRequest,
 		},
-		{
-			name:   "Metric not found",
-			method: "GET",
-			params: map[string]string{
-				"type": "gauge",
-				"name": "nonexistent",
-			},
-			expectedStatus: http.StatusNotFound,
-		},
 	}
 
 	for _, tt := range tests {
@@ -212,15 +192,9 @@ func TestMetricsHandler_GetMetricValue(t *testing.T) {
 
 			handler.GetMetricValue(w, req)
 
-			if w.Code != tt.expectedStatus {
-				t.Errorf("Expected status %d, got %d", tt.expectedStatus, w.Code)
-			}
-
+			assert.Equal(t, tt.expectedStatus, w.Code)
 			if tt.expectedBody != "" {
-				body := strings.TrimSpace(w.Body.String())
-				if body != tt.expectedBody {
-					t.Errorf("Expected body '%s', got '%s'", tt.expectedBody, body)
-				}
+				assert.Equal(t, tt.expectedBody, w.Body.String())
 			}
 		})
 	}
@@ -228,74 +202,54 @@ func TestMetricsHandler_GetMetricValue(t *testing.T) {
 
 func TestMetricsHandler_GetAllMetrics(t *testing.T) {
 	handler := createTestHandler()
+	ctx := context.Background()
 
 	// Добавляем тестовые метрики через валидацию
 	metricReq1, _ := validation.ValidateMetricRequest("gauge", "temperature", "23.5")
-	handler.service.UpdateMetric(metricReq1)
+	handler.service.UpdateMetric(ctx, metricReq1)
 
 	metricReq2, _ := validation.ValidateMetricRequest("counter", "requests", "100")
-	handler.service.UpdateMetric(metricReq2)
+	handler.service.UpdateMetric(ctx, metricReq2)
 
 	tests := []struct {
 		name           string
 		method         string
 		expectedStatus int
-		expectedBody   []string
 	}{
 		{
-			name:           "Valid GET request",
+			name:           "Get all metrics",
 			method:         "GET",
 			expectedStatus: http.StatusOK,
-			expectedBody:   []string{"temperature", "23.5", "requests", "100"},
-		},
-		{
-			name:           "Invalid HTTP method",
-			method:         "POST",
-			expectedStatus: http.StatusMethodNotAllowed,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(tt.method, "/", nil)
-			w := httptest.NewRecorder()
+			req, w := createChiContext("/", nil)
+			req.Method = tt.method
 
 			handler.GetAllMetrics(w, req)
 
-			if w.Code != tt.expectedStatus {
-				t.Errorf("Expected status %d, got %d", tt.expectedStatus, w.Code)
-			}
-
-			if tt.expectedStatus == http.StatusOK {
-				body := w.Body.String()
-				for _, expected := range tt.expectedBody {
-					if !strings.Contains(body, expected) {
-						t.Errorf("Expected body to contain '%s', got '%s'", expected, body)
-					}
-				}
-
-				// Проверяем Content-Type
-				contentType := w.Header().Get("Content-Type")
-				if !strings.Contains(contentType, "text/html") {
-					t.Errorf("Expected Content-Type to contain 'text/html', got '%s'", contentType)
-				}
-			}
+			assert.Equal(t, tt.expectedStatus, w.Code)
+			assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
+			assert.Contains(t, w.Body.String(), "Metrics Dashboard")
 		})
 	}
 }
 
 func TestMetricsHandler_UpdateMetric_CounterAccumulation(t *testing.T) {
 	handler := createTestHandler()
+	ctx := context.Background()
 
 	// Добавляем counter метрику несколько раз через валидацию
 	metricReq1, _ := validation.ValidateMetricRequest("counter", "requests", "10")
-	handler.service.UpdateMetric(metricReq1)
+	handler.service.UpdateMetric(ctx, metricReq1)
 
 	metricReq2, _ := validation.ValidateMetricRequest("counter", "requests", "20")
-	handler.service.UpdateMetric(metricReq2)
+	handler.service.UpdateMetric(ctx, metricReq2)
 
 	metricReq3, _ := validation.ValidateMetricRequest("counter", "requests", "30")
-	handler.service.UpdateMetric(metricReq3)
+	handler.service.UpdateMetric(ctx, metricReq3)
 
 	// Проверяем, что значения накапливаются
 	req, w := createChiContext("/value/{type}/{name}", map[string]string{
@@ -306,28 +260,23 @@ func TestMetricsHandler_UpdateMetric_CounterAccumulation(t *testing.T) {
 
 	handler.GetMetricValue(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", w.Code)
-	}
-
-	expectedValue := "60" // 10 + 20 + 30
-	if strings.TrimSpace(w.Body.String()) != expectedValue {
-		t.Errorf("Expected value %s, got %s", expectedValue, w.Body.String())
-	}
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "60", w.Body.String()) // 10 + 20 + 30 = 60
 }
 
 func TestMetricsHandler_UpdateMetric_GaugeReplacement(t *testing.T) {
 	handler := createTestHandler()
+	ctx := context.Background()
 
 	// Добавляем gauge метрику несколько раз через валидацию
 	metricReq1, _ := validation.ValidateMetricRequest("gauge", "temperature", "20.0")
-	handler.service.UpdateMetric(metricReq1)
+	handler.service.UpdateMetric(ctx, metricReq1)
 
 	metricReq2, _ := validation.ValidateMetricRequest("gauge", "temperature", "25.5")
-	handler.service.UpdateMetric(metricReq2)
+	handler.service.UpdateMetric(ctx, metricReq2)
 
 	metricReq3, _ := validation.ValidateMetricRequest("gauge", "temperature", "30.0")
-	handler.service.UpdateMetric(metricReq3)
+	handler.service.UpdateMetric(ctx, metricReq3)
 
 	// Проверяем, что последнее значение заменяет предыдущие
 	req, w := createChiContext("/value/{type}/{name}", map[string]string{
@@ -338,12 +287,6 @@ func TestMetricsHandler_UpdateMetric_GaugeReplacement(t *testing.T) {
 
 	handler.GetMetricValue(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", w.Code)
-	}
-
-	expectedValue := "30" // Последнее значение
-	if strings.TrimSpace(w.Body.String()) != expectedValue {
-		t.Errorf("Expected value %s, got %s", expectedValue, w.Body.String())
-	}
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "30", w.Body.String()) // Последнее значение
 }

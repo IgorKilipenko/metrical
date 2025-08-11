@@ -24,22 +24,22 @@
 
 ### MetricsRepository (Интерфейс)
 
-Основной интерфейс для работы с метриками:
+Основной интерфейс для работы с метриками с поддержкой контекста:
 
 ```go
 type MetricsRepository interface {
-    UpdateGauge(name string, value float64) error
-    UpdateCounter(name string, value int64) error
-    GetGauge(name string) (float64, bool, error)
-    GetCounter(name string) (int64, bool, error)
-    GetAllGauges() (models.GaugeMetrics, error)
-    GetAllCounters() (models.CounterMetrics, error)
+    UpdateGauge(ctx context.Context, name string, value float64) error
+    UpdateCounter(ctx context.Context, name string, value int64) error
+    GetGauge(ctx context.Context, name string) (float64, bool, error)
+    GetCounter(ctx context.Context, name string) (int64, bool, error)
+    GetAllGauges(ctx context.Context) (models.GaugeMetrics, error)
+    GetAllCounters(ctx context.Context) (models.CounterMetrics, error)
 }
 ```
 
 ### InMemoryMetricsRepository (Реализация)
 
-Реализация репозитория в памяти с потокобезопасностью:
+Реализация репозитория в памяти с потокобезопасностью и поддержкой контекста:
 
 ```go
 type InMemoryMetricsRepository struct {
@@ -64,17 +64,37 @@ service := service.NewMetricsService(repo)
 ### Основные операции
 
 ```go
-// Обновление метрик
-err := repo.UpdateGauge("temperature", 23.5)
-err := repo.UpdateCounter("requests", 100)
+ctx := context.Background()
 
-// Получение метрик
-value, exists, err := repo.GetGauge("temperature")
-value, exists, err := repo.GetCounter("requests")
+// Обновление метрик с контекстом
+err := repo.UpdateGauge(ctx, "temperature", 23.5)
+err := repo.UpdateCounter(ctx, "requests", 100)
 
-// Получение всех метрик
-gauges, err := repo.GetAllGauges()
-counters, err := repo.GetAllCounters()
+// Получение метрик с контекстом
+value, exists, err := repo.GetGauge(ctx, "temperature")
+value, exists, err := repo.GetCounter(ctx, "requests")
+
+// Получение всех метрик с контекстом
+gauges, err := repo.GetAllGauges(ctx)
+counters, err := repo.GetAllCounters(ctx)
+```
+
+### Работа с таймаутами и отменой
+
+```go
+// Создание контекста с таймаутом
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+
+// Операция будет отменена через 5 секунд
+err := repo.UpdateGauge(ctx, "temperature", 23.5)
+if err != nil {
+    if err == context.DeadlineExceeded {
+        log.Println("Operation timed out")
+    } else if err == context.Canceled {
+        log.Println("Operation was canceled")
+    }
+}
 ```
 
 ## Преимущества
@@ -83,12 +103,62 @@ counters, err := repo.GetAllCounters()
 - **Легкое тестирование** - можно легко мокать репозиторий
 - **Расширяемость** - легко добавить новые реализации (PostgreSQL, Redis)
 - **Потокобезопасность** - встроенная защита от гонки данных
+- **Поддержка контекста** - отмена операций, таймауты, graceful shutdown
 - **Чистая архитектура** - четкое разделение ответственности
+
+## Особенности реализации
+
+### Обработка контекста
+
+Все методы репозитория проверяют отмену контекста:
+
+```go
+func (r *InMemoryMetricsRepository) UpdateGauge(ctx context.Context, name string, value float64) error {
+    // Проверяем отмену контекста
+    select {
+    case <-ctx.Done():
+        return ctx.Err()
+    default:
+    }
+    
+    r.mu.Lock()
+    defer r.mu.Unlock()
+    r.Gauges[name] = value
+    return nil
+}
+```
+
+### Потокобезопасность
+
+Реализация использует `sync.RWMutex` для обеспечения потокобезопасности:
+
+- Операции записи (`UpdateGauge`, `UpdateCounter`) используют `Lock()`
+- Операции чтения (`GetGauge`, `GetCounter`, `GetAllGauges`, `GetAllCounters`) используют `RLock()`
 
 ## Тестирование
 
 ```bash
 go test -v ./internal/repository
+```
+
+### Тестирование с контекстом
+
+```go
+func TestRepositoryWithContext(t *testing.T) {
+    repo := repository.NewInMemoryMetricsRepository()
+    ctx := context.Background()
+    
+    // Тест с обычным контекстом
+    err := repo.UpdateGauge(ctx, "test", 23.5)
+    assert.NoError(t, err)
+    
+    // Тест с отмененным контекстом
+    ctx, cancel := context.WithCancel(context.Background())
+    cancel()
+    
+    err = repo.UpdateGauge(ctx, "test", 23.5)
+    assert.Equal(t, context.Canceled, err)
+}
 ```
 
 ## Примеры
@@ -99,6 +169,9 @@ go test -v ./internal/repository
 package main
 
 import (
+    "context"
+    "time"
+    
     "github.com/IgorKilipenko/metrical/internal/repository"
     "github.com/IgorKilipenko/metrical/internal/service"
 )
@@ -110,11 +183,39 @@ func main() {
     // Создаем сервис
     service := service.NewMetricsService(repo)
     
-    // Используем сервис
-    err := service.UpdateMetric("gauge", "temperature", "23.5")
+    // Создаем контекст с таймаутом
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+    
+    // Используем сервис с контекстом
+    err := service.UpdateMetric(ctx, &validation.MetricRequest{
+        Type:  "gauge",
+        Name:  "temperature",
+        Value: 23.5,
+    })
     if err != nil {
         log.Fatal(err)
     }
+}
+```
+
+### Graceful Shutdown
+
+```go
+func gracefulShutdown(repo repository.MetricsRepository) {
+    // Создаем контекст для graceful shutdown
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+    
+    // Выполняем финальные операции
+    gauges, err := repo.GetAllGauges(ctx)
+    if err != nil {
+        log.Printf("Error getting final gauges: %v", err)
+        return
+    }
+    
+    // Сохраняем данные или выполняем cleanup
+    log.Printf("Final gauges: %v", gauges)
 }
 ```
 
@@ -125,14 +226,19 @@ func TestServiceWithMockRepository(t *testing.T) {
     // Создаем мок репозитория
     mockRepo := &MockMetricsRepository{}
     
-    // Настраиваем ожидания
-    mockRepo.On("UpdateGauge", "test", 23.5).Return(nil)
+    // Настраиваем ожидания с контекстом
+    mockRepo.On("UpdateGauge", mock.Anything, "test", 23.5).Return(nil)
     
     // Создаем сервис с моком
     service := service.NewMetricsService(mockRepo)
     
-    // Тестируем
-    err := service.UpdateMetric("gauge", "test", "23.5")
+    // Тестируем с контекстом
+    ctx := context.Background()
+    err := service.UpdateMetric(ctx, &validation.MetricRequest{
+        Type:  "gauge",
+        Name:  "test",
+        Value: 23.5,
+    })
     assert.NoError(t, err)
     
     // Проверяем, что мок был вызван
