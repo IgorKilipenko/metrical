@@ -79,7 +79,7 @@ func (h *MetricsHandler) GetMetricValue(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Получение значения из сервиса с контекстом
-	var value interface{}
+	var value any
 	var err error
 
 	switch metricType {
@@ -119,7 +119,7 @@ func (h *MetricsHandler) GetMetricValue(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Header().Set("Content-Type", "text/plain")
-	w.Write([]byte(fmt.Sprintf("%v", value)))
+	w.Write(fmt.Appendf(nil, "%v", value))
 }
 
 // GetAllMetrics возвращает все метрики в HTML формате
