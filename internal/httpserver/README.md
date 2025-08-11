@@ -61,22 +61,6 @@ graph TB
     CTX_MGR --> HANDLER
     CTX_MGR --> SERVICE
     CTX_MGR --> REPO
-    
-    note right of SERVER
-        Accepts handler via DI
-        Does not create dependencies
-        Follows Clean Architecture principles
-        Structured logging
-        Flexible configuration
-        Context support
-    end note
-    
-    note right of CTX_MGR
-        Timeout management
-        Operation cancellation
-        Graceful shutdown
-        Request context
-    end note
 ```
 
 ### Жизненный цикл сервера
