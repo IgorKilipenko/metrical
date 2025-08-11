@@ -1,14 +1,13 @@
 # internal/handler
 
-В этом пакете размещаются обработчики HTTP-запросов. Здесь инкапсулируется так называемая логика представления.
+Пакет для обработки HTTP-запросов. Содержит адаптеры между HTTP-транспортом и бизнес-логикой приложения.
 
-Обычно хэндлеры реализуют:
-- логику обработки запросов
-- валидацию данных
-- вызовы сервисов, в которых содержится бизнес-логика приложения
-- формирование HTTP-ответов
+## Назначение
 
-Рекомендуется разбивать хэндлеры по функциональным группам и следовать принципу, где хэндлеры являются адаптерами между HTTP-транспортом и бизнес-логикой приложения.
+- Обработка HTTP-запросов
+- Валидация входных данных через пакет `validation`
+- Вызовы сервисов с бизнес-логикой
+- Формирование HTTP-ответов
 
 ## Архитектура обработчиков
 
@@ -21,7 +20,7 @@ graph TB
     
     subgraph "Handler Layer"
         MH[MetricsHandler]
-        VAL[Validation]
+        VAL[Validation Package]
         PARSER[Request Parser]
     end
     
@@ -35,6 +34,7 @@ graph TB
     MH --> PARSER
     MH --> SERVICE
     MH --> TEMPLATE
+    VAL --> SERVICE
     SERVICE --> RESP
     TEMPLATE --> RESP
     
@@ -58,21 +58,21 @@ sequenceDiagram
     participant Response
     
     Router->>Handler: HTTP Request
-    Handler->>Validation: Validate Input
-    Validation-->>Handler: Valid/Invalid
+    Handler->>Validation: ValidateMetricRequest(type, name, value)
+    Validation-->>Handler: MetricRequest/ValidationError
     
     alt Valid Request
-        Handler->>Service: Call Business Logic
-        Service-->>Handler: Result
+        Handler->>Service: UpdateMetric(MetricRequest)
+        Service-->>Handler: Success
         Handler->>Response: Format Response
         Response-->>Router: HTTP Response
     else Invalid Request
-        Handler->>Response: Error Response
+        Handler->>Response: Error Response (400 Bad Request)
         Response-->>Router: HTTP Error
     end
     
-    Note over Handler,Validation: Валидация параметров
-    Note over Handler,Service: Адаптер между HTTP и бизнес-логикой
+    Note over Handler,Validation: Валидация через пакет validation
+    Note over Handler,Service: Передача валидированных данных
 ```
 
 ## Компоненты
@@ -83,20 +83,22 @@ sequenceDiagram
 
 ```go
 type MetricsHandler struct {
-    service *service.MetricsService
+    service  *service.MetricsService
     template *template.MetricsTemplate
 }
 ```
 
 ### Основные методы
 
-- `UpdateMetric(w, r)` - обновление метрики
+- `UpdateMetric(w, r)` - обновление метрики с валидацией
 - `GetMetricValue(w, r)` - получение значения метрики  
 - `GetAllMetrics(w, r)` - получение всех метрик (HTML)
+- `getAllMetricsData()` - приватный метод для получения данных метрик
 
 ## Принципы
 
 - **Адаптер** - преобразует HTTP в вызовы сервисов
-- **Валидация** - проверяет корректность входных данных
+- **Валидация** - использует пакет `validation` для проверки входных данных
 - **Обработка ошибок** - возвращает соответствующие HTTP коды
 - **Разделение ответственности** - только HTTP логика, без бизнес-логики
+- **Типобезопасность** - передача валидированных структур в сервисы
