@@ -2,6 +2,40 @@
 
 Сервер для сбора рантайм-метрик, принимает репорты от агентов по протоколу HTTP.
 
+## 🚀 Быстрый старт
+
+### VS Code задачи
+
+```bash
+# Сборка проекта
+Ctrl+Shift+B
+
+# Запуск всех тестов (unit + автотесты)
+Ctrl+Shift+P → "Tasks: Run Task" → "Full Test Suite"
+
+# Запуск только автотестов
+Ctrl+Shift+P → "Tasks: Run Task" → "Run Auto Tests Iteration4"
+```
+
+📖 **Подробная документация по VS Code задачам:** [.vscode/README.md](.vscode/README.md)
+
+### Ручной запуск
+
+```bash
+# Сборка
+go build -o cmd/server/server cmd/server/main.go cmd/server/cli.go cmd/server/cliutils.go
+go build -o cmd/agent/agent cmd/agent/main.go cmd/agent/cli.go
+
+# Запуск сервера
+./cmd/server/server -a=localhost:9090
+
+# Запуск агента
+./cmd/agent/agent -a=localhost:9090 -r=2s
+
+# Автотесты
+../auto-tests/metricstest -test.v -test.run=^TestIteration4$ -binary-path=cmd/server/server -agent-binary-path=cmd/agent/agent -source-path=. -server-port=9091
+```
+
 ## Архитектура
 
 Проект следует принципам чистой архитектуры с разделением на слои и включает современные практики разработки:
@@ -14,42 +48,22 @@
 - **Test-Driven Development** - полное покрытие тестами
 - **Security First** - безопасная обработка CLI аргументов
 - **Code Quality** - рефакторинг и устранение дублирования
+- **Validation Layer** - отдельный слой валидации данных
 
-### Общая архитектура системы
-
-```mermaid
-graph TB
-    subgraph "Agent"
-        A[Agent Process]
-        A --> A1[Сбор runtime метрик]
-        A --> A2[Отправка HTTP POST]
-    end
-    
-    subgraph "Server"
-        B[HTTP Server]
-        B --> B1[Прием метрик]
-        B --> B2[Хранение в памяти]
-        B --> B3[API endpoints]
-    end
-    
-    A2 -->|HTTP POST| B1
-    
-    style A fill:#e1f5fe
-    style B fill:#f3e5f5
-    style A1 fill:#fff3e0
-    style A2 fill:#fff3e0
-    style B1 fill:#e8f5e8
-    style B2 fill:#e8f5e8
-    style B3 fill:#e8f5e8
-```
-
-### Архитектура сервера (Clean Architecture)
+### Новая архитектура с валидацией
 
 ```mermaid
 graph TB
     subgraph "Transport Layer"
         H[HTTP Handler]
         R[Router]
+    end
+    
+    subgraph "Validation Layer"
+        V[Validation Package]
+        VAL[ValidateMetricRequest]
+        VNAME[ValidateMetricName]
+        VTYPE[ValidateMetricType]
     end
     
     subgraph "Business Logic Layer"
@@ -64,127 +78,71 @@ graph TB
     
     subgraph "Data Models"
         M[Models]
+        VE[ValidationError]
     end
     
-    H --> S
+    H --> V
     R --> H
+    V --> S
     S --> REPO
     REPO --> IMR
     IMR --> M
     S --> T
+    V --> VE
     
     style H fill:#e3f2fd
     style R fill:#e3f2fd
+    style V fill:#e8f5e8
     style S fill:#f3e5f5
     style T fill:#f3e5f5
     style REPO fill:#e8f5e8
     style IMR fill:#e8f5e8
     style M fill:#fff3e0
+    style VE fill:#ffebee
 ```
 
-### Поток данных
+### Поток данных с валидацией
 
 ```mermaid
 sequenceDiagram
     participant Client
     participant Handler
+    participant Validation
     participant Service
     participant Repository
     participant Models
     
     Client->>Handler: POST /update/{type}/{name}/{value}
-    Handler->>Service: UpdateMetric(type, name, value)
-    Service->>Repository: UpdateGauge/UpdateCounter
-    Repository->>Models: UpdateGauge/UpdateCounter
-    Models-->>Repository: Success
-    Repository-->>Service: Success
-    Service-->>Handler: Success
-    Handler-->>Client: 200 OK
+    Handler->>Validation: ValidateMetricRequest(type, name, value)
     
-    Note over Client,Models: Получение метрики
-    Client->>Handler: GET /value/{type}/{name}
-    Handler->>Service: GetGauge/GetCounter
-    Service->>Repository: GetGauge/GetCounter
-    Repository->>Models: GetGauge/GetCounter
-    Models-->>Repository: Value
-    Repository-->>Service: Value
-    Service-->>Handler: Value
-    Handler-->>Client: 200 OK + Value
+    alt Valid Request
+        Validation-->>Handler: MetricRequest{Type, Name, Value}
+        Handler->>Service: UpdateMetric(MetricRequest)
+        Service->>Repository: UpdateGauge/UpdateCounter
+        Repository->>Models: UpdateGauge/UpdateCounter
+        Models-->>Repository: Success
+        Repository-->>Service: Success
+        Service-->>Handler: Success
+        Handler-->>Client: 200 OK
+    else Invalid Request
+        Validation-->>Handler: ValidationError
+        Handler-->>Client: 400 Bad Request + Error Details
+    end
+    
+    Note over Handler,Validation: Валидация и парсинг в отдельном слое
+    Note over Service: Только бизнес-логика с типизированными данными
 ```
-
-### Полная архитектура системы
-
-```mermaid
-graph TB
-    subgraph "Agent Process"
-        AGENT[Agent]
-        COLLECTOR[Metrics Collector]
-        SENDER[HTTP Sender]
-        AGENT_CONFIG[Agent Config]
-    end
-    
-    subgraph "Server Process"
-        APP[App]
-        SERVER[HTTPServer]
-        ROUTER[Router/Chi]
-        HANDLER[Handler]
-        SERVICE[Service]
-        REPO[Repository Interface]
-        IMR[InMemory Repository]
-        MODELS[Models]
-        TEMPLATE[Template]
-    end
-    
-    subgraph "External"
-        RUNTIME[runtime.MemStats]
-        ENV[Environment]
-        SIGNALS[OS Signals]
-    end
-    
-    AGENT --> COLLECTOR
-    AGENT --> SENDER
-    AGENT --> AGENT_CONFIG
-    COLLECTOR --> RUNTIME
-    SENDER --> SERVER
-    
-    APP --> SERVER
-    APP --> ENV
-    APP --> SIGNALS
-    SERVER --> ROUTER
-    ROUTER --> HANDLER
-    HANDLER --> SERVICE
-    SERVICE --> REPO
-    REPO --> IMR
-    IMR --> MODELS
-    SERVICE --> TEMPLATE
-    
-    style AGENT fill:#e1f5fe
-    style SERVER fill:#f3e5f5
-    style APP fill:#e8f5e8
-    style SERVICE fill:#fff3e0
-    style REPO fill:#e8f5e8
-    style IMR fill:#e8f5e8
-    style MODELS fill:#fff3e0
-```
-
-- **`cmd/`** - точки входа в приложение (server, agent)
-- **`internal/`** - внутренняя логика приложения
-  - **`app/`** - основная логика инициализации приложения
-  - **`httpserver/`** - HTTP сервер и его логика
-  - **`router/`** - роутер (обертка над chi роутером)
-  - **`routes/`** - настройка HTTP маршрутов
-  - **`model/`** - структуры данных (только модели)
-  - **`repository/`** - интерфейсы и реализации для работы с данными
-  - **`service/`** - бизнес-логика
-  - **`handler/`** - HTTP обработчики
-  - **`template/`** - HTML шаблоны
-  - **`agent/`** - агент для сбора метрик (📖 [README](internal/agent/README.md))
-  - **`config/`** - конфигурация
 
 ## Структура проекта
 
 ```
 go-metrics/
+├── .vscode/
+│   ├── tasks.json           # VS Code задачи для сборки и тестирования
+│   ├── README.md            # Документация по VS Code задачам
+│   ├── launch.json          # Конфигурация отладки
+│   ├── extensions.json      # Рекомендуемые расширения
+│   └── settings.json        # Настройки VS Code
 ├── cmd/
 │   ├── server/
 │   │   ├── main.go          # Точка входа сервера
@@ -217,6 +175,9 @@ go-metrics/
 │   ├── service/
 │   │   ├── metrics.go       # Бизнес-логика
 │   │   └── metrics_test.go  # Тесты сервиса
+│   ├── validation/
+│   │   ├── metrics.go       # Валидация метрик
+│   │   └── metrics_test.go  # Тесты валидации
 │   ├── template/
 │   │   ├── metrics.go       # HTML шаблоны
 │   │   ├── metrics_test.go  # Тесты шаблонов
@@ -273,6 +234,11 @@ curl -X POST "http://localhost:8080/update/gauge/temperature/23.5" \
 # Counter метрика
 curl -X POST "http://localhost:8080/update/counter/requests/100" \
      -H "Content-Type: text/plain"
+
+# Попытка добавить некорректную метрику
+curl -X POST "http://localhost:8080/update/gauge/temperature/abc"
+# Ответ: 400 Bad Request
+# validation error for field 'value' with value 'abc': must be a valid float number
 ```
 
 #### Получение значения метрики
@@ -311,58 +277,33 @@ curl "http://localhost:8080/"
 #### Коды ответов
 
 - `200 OK` - запрос выполнен успешно
-- `400 Bad Request` - некорректный тип метрики или значение
+- `400 Bad Request` - некорректный тип метрики или значение (с детальным описанием ошибки)
 - `404 Not Found` - метрика не найдена или отсутствует имя метрики
 - `405 Method Not Allowed` - неподдерживаемый HTTP метод
-
-### Агент для сбора метрик
-
-📖 **Подробная документация:** [cmd/agent/README.md](cmd/agent/README.md)
-
-Агент автоматически собирает метрики из пакета `runtime` и отправляет их на сервер:
-
-#### Собираемые метрики
-
-**Gauge метрики из runtime:**
-- Alloc, BuckHashSys, Frees, GCCPUFraction, GCSys
-- HeapAlloc, HeapIdle, HeapInuse, HeapObjects, HeapReleased
-- HeapSys, LastGC, Lookups, MCacheInuse, MCacheSys
-- MSpanInuse, MSpanSys, Mallocs, NextGC, NumForcedGC
-- NumGC, OtherSys, PauseTotalNs, StackInuse, StackSys
-- Sys, TotalAlloc
-
-**Дополнительные метрики:**
-- RandomValue (gauge) - случайное значение от 0 до 1
-- PollCount (counter) - счетчик обновлений метрик
-
-**Всего собирается 29 метрик:**
-- 27 runtime метрик из `runtime.MemStats`
-- 1 дополнительная метрика (RandomValue)
-- 1 counter метрика (PollCount)
-
-#### Конфигурация агента
-
-- **PollInterval**: 2 секунды - частота сбора метрик (настраивается)
-- **ReportInterval**: 10 секунд - частота отправки метрик (настраивается)
-- **ServerURL**: http://localhost:8080 (настраивается)
-- **VerboseLogging**: false - подробное логирование (настраивается)
-- **Version**: dev - версия приложения (настраивается через ldflags)
-
-## Зависимости
-
-### Внешние пакеты
-
-- **`github.com/go-chi/chi/v5`** - HTTP роутер для маршрутизации запросов
-- **`github.com/stretchr/testify/assert`** - библиотека для тестирования (в некоторых тестах)
-- **`github.com/spf13/cobra`** - CLI фреймворк для агента
-
-### Стандартные пакеты
-
-- **`sync`** - потокобезопасность (RWMutex)
-- **`net/http`** - HTTP сервер и клиент
-- **`text/template`** - HTML шаблоны
+- `500 Internal Server Error` - внутренняя ошибка сервера
 
 ## 🚀 Запуск
+
+### VS Code задачи (рекомендуется)
+
+📖 **Подробная документация:** [.vscode/README.md](.vscode/README.md)
+
+```bash
+# Сборка проекта
+Ctrl+Shift+B
+
+# Запуск всех тестов (unit + автотесты)
+Ctrl+Shift+P → "Tasks: Run Task" → "Full Test Suite"
+
+# Запуск только автотестов
+Ctrl+Shift+P → "Tasks: Run Task" → "Run Auto Tests Iteration4"
+
+# Запуск сервера
+Ctrl+Shift+P → "Tasks: Run Task" → "Run Server"
+
+# Запуск агента
+Ctrl+Shift+P → "Tasks: Run Task" → "Run Agent"
+```
 
 ### Сервер
 
@@ -370,32 +311,18 @@ curl "http://localhost:8080/"
 
 ```bash
 # Запуск с адресом по умолчанию (localhost:8080)
-go run cmd/server/main.go
+go run cmd/server/main.go cmd/server/cli.go cmd/server/cliutils.go
 
 # Запуск с кастомным адресом
-go run cmd/server/main.go -a=localhost:9090
+go run cmd/server/main.go cmd/server/cli.go cmd/server/cliutils.go -a=localhost:9090
 
 # Запуск сбилженного сервера
-./server -a=localhost:9090
+./cmd/server/server -a=localhost:9090
 ```
 
 **Поддерживаемые флаги:**
 - `-a, --address` - адрес эндпоинта HTTP-сервера (по умолчанию: "localhost:8080")
 - `-h, --help` - показать справку по флагам
-
-Сервер запустится на указанном адресе (по умолчанию localhost:8080).
-
-#### Graceful Shutdown
-
-Сервер корректно обрабатывает сигналы завершения:
-
-```bash
-# Остановка Ctrl+C
-^C
-2025/08/08 09:11:02 Received signal: terminated
-2025/08/08 09:11:02 Shutting down server gracefully...
-2025/08/08 09:11:02 Server shutdown complete
-```
 
 ### Агент
 
@@ -403,19 +330,19 @@ go run cmd/server/main.go -a=localhost:9090
 
 ```bash
 # Запуск агента
-go run cmd/agent/main.go
+go run cmd/agent/main.go cmd/agent/cli.go
 
 # Компиляция в бинарный файл
-go build -o agent ./cmd/agent/
+go build -o cmd/agent/agent ./cmd/agent/
 
 # Компиляция с версией
-go build -ldflags "-X main.Version=1.0.0" -o agent ./cmd/agent/
+go build -ldflags "-X main.Version=1.0.0" -o cmd/agent/agent ./cmd/agent/
 
 # Запуск с кастомными настройками
-./agent -a http://example.com:9090 -p 5 -r 15 -v
+./cmd/agent/agent -a http://example.com:9090 -p 5 -r 15 -v
 
 # Только verbose логирование
-./agent -v
+./cmd/agent/agent -v
 ```
 
 **Поддерживаемые флаги:**
@@ -425,54 +352,35 @@ go build -ldflags "-X main.Version=1.0.0" -o agent ./cmd/agent/
 - `-v, --v` - Enable verbose logging (по умолчанию: `false`)
 - `-h, --help` - Show help
 
-Агент начнет собирать и отправлять метрики автоматически.
-
 ## Тестирование
 
-### Запуск всех тестов
+### VS Code задачи (рекомендуется)
 
 ```bash
-go test ./...
+# Полный набор тестов
+Ctrl+Shift+P → "Tasks: Run Task" → "Full Test Suite"
+
+# Только unit тесты
+Ctrl+Shift+P → "Tasks: Run Task" → "Run All Tests"
+
+# Тесты с покрытием
+Ctrl+Shift+P → "Tasks: Run Task" → "Run Tests with Coverage"
+
+# Автотесты
+Ctrl+Shift+P → "Tasks: Run Task" → "Run Auto Tests Iteration4"
 ```
 
-### Запуск тестов по пакетам
+### Ручной запуск тестов
 
 ```bash
-# Тесты приложения
-go test ./internal/app/... -v
+# Все тесты
+go test ./... -v
 
-# Тесты HTTP сервера
-go test ./internal/httpserver/... -v
+# Тесты с покрытием
+go test ./... -v -cover
 
-# Тесты роутера
-go test ./internal/router/... -v
-
-# Тесты хендлеров
-go test ./internal/handler/... -v
-
-# Тесты сервиса
-go test ./internal/service/... -v
-
-# Тесты репозитория
-go test ./internal/repository/... -v
-
-# Тесты модели
-go test ./internal/model/... -v
-
-# Тесты агента
-go test ./internal/agent/... -v
-
-# Тесты CLI агента
-go test ./cmd/agent/... -v
-
-# Тесты CLI сервера
-go test ./cmd/server/... -v
-
-# Тесты шаблонов
-go test ./internal/template/... -v
-
-# Тесты маршрутов
-go test ./internal/routes/... -v
+# Автотесты
+../auto-tests/metricstest -test.v -test.run=^TestIteration4$ -binary-path=cmd/server/server -agent-binary-path=cmd/agent/agent -source-path=. -server-port=9091
 ```
 
 ### Покрытие тестами
@@ -484,22 +392,18 @@ go test ./internal/routes/... -v
 - ✅ **Роутер** - тестирование маршрутизации
 - ✅ **HTTP хендлеры** - тестирование API endpoints
 - ✅ **Сервисный слой** - тестирование бизнес-логики
+- ✅ **Валидация** - тестирование валидации данных (100% покрытие)
 - ✅ **Репозиторий** - тестирование работы с данными
-- ✅ **Модели данных** - тестирование структур и интерфейсов (включая потокобезопасность)
+- ✅ **Модели данных** - тестирование структур и интерфейсов
 - ✅ **Агент** - тестирование сбора метрик (100% покрытие)
-- ✅ **CLI агента** - тестирование парсинга флагов и обработки ошибок
+- ✅ **CLI** - тестирование парсинга флагов и обработки ошибок
 - ✅ **Шаблоны** - тестирование генерации HTML
 - ✅ **Маршруты** - тестирование настройки HTTP endpoints
-- ✅ **CLI** - тестирование парсинга флагов и обработки ошибок
-- ✅ **Валидация** - тестирование обработки ошибок с кастомными типами
-- ✅ **Потокобезопасность** - тестирование конкурентного доступа
-- ✅ **Edge cases** - тестирование граничных случаев и ошибок
+- ✅ **Автотесты** - интеграционные тесты агента и сервера
 
 ## Структура данных
 
 ### Модели (internal/model)
-
-Структуры данных для метрик:
 
 ```go
 // Константы типов метрик
@@ -512,333 +416,105 @@ const (
 type GaugeMetrics map[string]float64
 type CounterMetrics map[string]int64
 
-// Структура метрики
-type Metrics struct {
-    ID    string   `json:"id"`
-    MType string   `json:"type"`
-    Delta *int64   `json:"delta,omitempty"`
-    Value *float64 `json:"value,omitempty"`
-    Hash  string   `json:"hash,omitempty"`
+// Кастомная ошибка валидации
+type ValidationError struct {
+    Field   string
+    Value   string
+    Message string
+}
+
+func (e ValidationError) Error() string {
+    return fmt.Sprintf("validation error for field '%s' with value '%s': %s", e.Field, e.Value, e.Message)
+}
+
+// Предикат для проверки типа ошибки
+func IsValidationError(err error) bool {
+    _, ok := err.(ValidationError)
+    return ok
 }
 ```
 
-### Репозиторий (internal/repository)
-
-Интерфейс для работы с данными:
+### Валидация (internal/validation) 🆕
 
 ```go
-type MetricsRepository interface {
-    UpdateGauge(name string, value float64) error
-    UpdateCounter(name string, value int64) error
-    GetGauge(name string) (float64, bool, error)
-    GetCounter(name string) (int64, bool, error)
-    GetAllGauges() (models.GaugeMetrics, error)
-    GetAllCounters() (models.CounterMetrics, error)
+// Типизированная структура запроса
+type MetricRequest struct {
+    Type  string
+    Name  string
+    Value any // float64 для gauge, int64 для counter
+}
+
+// Валидация и парсинг запроса
+func ValidateMetricRequest(metricType, name, value string) (*MetricRequest, error)
+
+// Валидация отдельных полей
+func ValidateMetricName(name string) error
+func ValidateMetricType(metricType string) error
+```
+
+### Сервис (internal/service)
+
+```go
+type MetricsService struct {
+    repository repository.MetricsRepository
+}
+
+// Обновление метрики с готовыми валидированными данными
+func (s *MetricsService) UpdateMetric(req *validation.MetricRequest) error
+
+// Бизнес-логика для разных типов метрик
+func (s *MetricsService) updateGaugeMetric(name string, value float64) error
+func (s *MetricsService) updateCounterMetric(name string, value int64) error
+```
+
+### Обработчики (internal/handler)
+
+```go
+type MetricsHandler struct {
+    service *service.MetricsService
+}
+
+// Обновление метрики с валидацией
+func (h *MetricsHandler) UpdateMetric(w http.ResponseWriter, r *http.Request) {
+    // Валидация и парсинг
+    metricReq, err := validation.ValidateMetricRequest(metricType, metricName, metricValue)
+    if err != nil {
+        if models.IsValidationError(err) {
+            http.Error(w, err.Error(), http.StatusBadRequest)
+        } else {
+            http.Error(w, "Internal server error", http.StatusInternalServerError)
+        }
+        return
+    }
+    
+    // Вызов сервиса с готовыми данными
+    err = h.service.UpdateMetric(metricReq)
 }
 ```
-
-**InMemoryRepository** - потокобезопасная реализация в памяти:
-
-```go
-type InMemoryMetricsRepository struct {
-    Gauges   models.GaugeMetrics
-    Counters models.CounterMetrics
-    mu       sync.RWMutex
-}
-```
-
-**Особенности:**
-- **Потокобезопасность** - все операции защищены RWMutex
-- **Абстракция данных** - сервис не зависит от конкретной реализации
-- **Легкое тестирование** - можно мокать интерфейс
-- **Расширяемость** - легко добавить PostgreSQL, Redis и т.д.
-
-### Metrics
-
-Структура для представления метрики:
-
-```go
-type Metrics struct {
-    ID    string   `json:"id"`
-    MType string   `json:"type"`
-    Delta *int64   `json:"delta,omitempty"`
-    Value *float64 `json:"value,omitempty"`
-    Hash  string   `json:"hash,omitempty"`
-}
-```
-
-### MetricsData
-
-Структура для передачи данных в HTML шаблон:
-
-```go
-type MetricsData struct {
-    Gauges       models.GaugeMetrics  // Gauge метрики
-    Counters     models.CounterMetrics // Counter метрики
-    GaugeCount   int                  // Количество gauge метрик
-    CounterCount int                  // Количество counter метрик
-}
-```
-
-### Routes
-
-Функции для настройки HTTP маршрутов:
-
-```go
-// Настройка маршрутов метрик
-func SetupMetricsRoutes(handler *handler.MetricsHandler) *chi.Mux
-
-// Настройка маршрутов health check
-func SetupHealthRoutes() *chi.Mux
-```
-
-**Настраиваемые маршруты:**
-- `GET /` - отображение всех метрик (HTML)
-- `POST /update/{type}/{name}/{value}` - обновление метрики
-- `GET /value/{type}/{name}` - получение значения метрики
-- `GET /health` - проверка состояния сервиса
-
-## 🏗️ Архитектурные решения
-
-### Разделение ответственности
-
-- **`cmd/server/main.go`** - точка входа, инициализация приложения, централизованная обработка ошибок
-- **`cmd/server/cli.go`** - CLI логика и парсинг флагов с безопасной обработкой
-- **`cmd/server/cliutils.go`** - кастомные типы ошибок и функции валидации
-- **`cmd/server/main_test.go`** - тесты обработки ошибок и интеграционные тесты
-- **`cmd/server/cli_test.go`** - тесты парсинга флагов и валидации
-- **`cmd/server/cliutils_test.go`** - тесты кастомных типов ошибок
-- **`internal/httpserver/`** - инкапсуляция всей логики HTTP сервера с graceful shutdown
-- **`internal/router/`** - абстракция над `chi` роутером для будущей расширяемости
-- **`internal/handler/`** - HTTP обработчики, только парсинг запросов и валидация
-- **`internal/service/`** - бизнес-логика, работа с метриками
-- **`internal/template/`** - HTML шаблоны для отображения метрик
-- **`internal/routes/`** - настройка HTTP маршрутов и их группировка
-- **`internal/model/`** - структуры данных (только модели)
-- **`internal/repository/`** - абстракция над источниками данных
-
-## Отладка
-
-Настроена конфигурация VS Code для отладки:
-
-- **Debug Server** - отладка сервера
-- **Debug Agent** - отладка агента
-
-## Пример работы
-
-### Запуск сервера
-
-📖 **Подробная документация:** [cmd/server/README.md](cmd/server/README.md)
-
-```bash
-# Запуск с адресом по умолчанию (localhost:8080)
-go run cmd/server/main.go
-
-# Запуск с кастомным портом (localhost:9090)
-go run cmd/server/main.go -a=9090
-
-# Запуск с кастомным адресом и портом
-go run cmd/server/main.go -a=127.0.0.1:9090
-
-# Запуск сбилженного сервера
-./server -a=localhost:9090
-```
-
-**Поддерживаемые флаги:**
-- `-a, --address` - адрес эндпоинта HTTP-сервера (по умолчанию: "localhost:8080")
-- `-h, --help` - показать справку по флагам
-
-**Форматы адреса:**
-- `localhost:8080` - полный адрес (хост:порт)
-- `9090` - только порт (хост по умолчанию: localhost)
-- `127.0.0.1:9090` - IP адрес с портом
-- `:8080` - все интерфейсы на указанном порту
-
-Сервер запустится на указанном адресе и будет доступен по соответствующему URL.
-
-### Тестирование API
-
-#### 1. Обновление метрик
-
-```bash
-# Добавить gauge метрику
-curl -X POST "http://localhost:8080/update/gauge/temperature/23.5"
-
-# Добавить counter метрику
-curl -X POST "http://localhost:8080/update/counter/requests/100"
-```
-
-#### 2. Получение значений метрик
-
-```bash
-# Получить значение gauge метрики
-curl "http://localhost:8080/value/gauge/temperature"
-# Ответ: 23.5
-
-# Получить значение counter метрики
-curl "http://localhost:8080/value/counter/requests"
-# Ответ: 100
-```
-
-#### 3. Просмотр всех метрик
-
-```bash
-# Открыть в браузере
-open http://localhost:8080/
-
-# Или получить HTML через curl
-curl "http://localhost:8080/"
-```
-
-### Запуск агента
-
-📖 **Подробная документация:** [cmd/agent/README.md](cmd/agent/README.md)
-
-```bash
-# Базовый запуск
-go run cmd/agent/main.go
-
-# С кастомными настройками
-go run cmd/agent/main.go -a http://example.com:9090 -p 5 -r 15 -v
-
-# Запуск сбилженного агента
-./agent -v
-```
-
-Агент будет автоматически:
-- Собирать 29 метрик из runtime каждые 2 секунды (настраивается)
-- Отправлять их на сервер каждые 10 секунд (настраивается)
-- Логировать все операции (с verbose режимом)
-- Поддерживать graceful shutdown
-
-### Полный цикл работы
-
-1. **Запустите сервер:** `go run cmd/server/main.go`
-2. **Запустите агент:** `go run cmd/agent/main.go -v`
-3. **Откройте браузер:** `http://localhost:8080/`
-4. **Наблюдайте** как метрики обновляются в реальном времени
-
-**Пример логов агента:**
-```bash
-2025/08/09 18:57:45 Starting metrics agent vdev
-2025/08/09 18:57:45 Agent configuration: server=http://localhost:8080, poll=2s, report=10s, verbose=true
-2025/08/09 18:57:45 Collected 29 metrics (gauges: 28, counters: 1)
-2025/08/09 18:57:47 Collected 29 metrics (gauges: 28, counters: 1)
-2025/08/09 18:57:55 Successfully sent 29 metrics
-```
-
-Все запросы возвращают статус 200 OK при успешном выполнении.
 
 ## Примеры использования
 
-### Инициализация приложения
+### Работа с валидацией
 
 ```go
-package main
-
-import (
-    "log"
-    "github.com/IgorKilipenko/metrical/internal/app"
-)
-
-func main() {
-    // Парсим флаги командной строки
-    addr, err := parseFlags()
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    // Создаем конфигурацию
-    config, err := app.NewConfig(addr)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    // Создаем приложение
-    application := app.New(config)
-    
-    // Запускаем приложение с graceful shutdown
-    if err := application.Run(); err != nil {
-        log.Fatal(err)
-    }
-}
-```
-
-### Создание HTTP сервера
-
-```go
-// Создание сервера с валидацией
-server, err := httpserver.NewServer(":8080")
+// Валидация и парсинг запроса
+metricReq, err := validation.ValidateMetricRequest(metricType, metricName, metricValue)
 if err != nil {
-    log.Fatalf("Failed to create server: %v", err)
+    if models.IsValidationError(err) {
+        // Обработка ошибки валидации
+        http.Error(w, err.Error(), http.StatusBadRequest)
+    } else {
+        // Обработка других ошибок
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+    }
+    return
 }
 
-// Запуск сервера
-if err := server.Start(); err != nil {
-    log.Printf("Server error: %v", err)
-}
-
-// Graceful shutdown
-ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-defer cancel()
-if err := server.Shutdown(ctx); err != nil {
-    log.Printf("Shutdown error: %v", err)
-}
+// Использование типизированных данных
+err = service.UpdateMetric(metricReq)
 ```
 
-### Работа с моделями
-
-```go
-// Создание метрики
-metric := models.Metrics{
-    ID:    "temperature",
-    MType: models.Gauge,
-    Value: &value,
-}
-
-// Работа с типами-алиасами
-gauges := models.GaugeMetrics{"temp": 23.5}
-counters := models.CounterMetrics{"requests": 100}
-
-// Проверка типов метрик
-if metric.MType == models.Gauge {
-    // обработка gauge метрики
-}
-```
-
-### Работа с репозиторием
-
-```go
-// Создание репозитория
-repo := repository.NewInMemoryMetricsRepository()
-
-// Обновление метрик
-err := repo.UpdateGauge("temperature", 23.5)
-err = repo.UpdateCounter("requests", 100)
-
-// Получение метрик
-value, exists, err := repo.GetGauge("temperature")
-value, exists, err := repo.GetCounter("requests")
-
-// Получение всех метрик
-gauges, err := repo.GetAllGauges()
-counters, err := repo.GetAllCounters()
-```
-
-### Настройка маршрутов
-
-```go
-// Создание хендлера
-handler := handler.NewMetricsHandler(service)
-
-// Настройка маршрутов через пакет routes
-router := routes.SetupMetricsRoutes(handler)
-
-// Добавление health check маршрутов
-healthRouter := routes.SetupHealthRoutes()
-```
-
-### Работа с кастомными типами ошибок
+### Кастомные типы ошибок
 
 ```go
 // Кастомные типы ошибок
@@ -847,17 +523,16 @@ type InvalidAddressError struct {
     Address string
     Reason  string
 }
+type ValidationError struct {
+    Field   string
+    Value   string
+    Message string
+}
 
 // Функции-предикаты для проверки типов ошибок
-func IsHelpRequested(err error) bool {
-    _, ok := err.(HelpRequestedError)
-    return ok
-}
-
-func IsInvalidAddress(err error) bool {
-    _, ok := err.(InvalidAddressError)
-    return ok
-}
+func IsHelpRequested(err error) bool
+func IsInvalidAddress(err error) bool
+func IsValidationError(err error) bool
 
 // Централизованная обработка ошибок
 func handleError(err error) {
