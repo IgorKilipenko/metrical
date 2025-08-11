@@ -2,10 +2,10 @@ package service
 
 import (
 	"fmt"
-	"strconv"
 
 	models "github.com/IgorKilipenko/metrical/internal/model"
 	"github.com/IgorKilipenko/metrical/internal/repository"
+	"github.com/IgorKilipenko/metrical/internal/validation"
 )
 
 // MetricsService сервис для работы с метриками
@@ -20,70 +20,42 @@ func NewMetricsService(repository repository.MetricsRepository) *MetricsService 
 	}
 }
 
-// validateMetricValue валидирует значение метрики в зависимости от типа
-func (s *MetricsService) validateMetricValue(metricType, name, value string) error {
-	// Валидация типа метрики
-	if metricType != models.Gauge && metricType != models.Counter {
-		return models.ValidationError{
-			Field:   "type",
-			Value:   metricType,
-			Message: "must be 'gauge' or 'counter'",
-		}
-	}
-
-	// Валидация имени метрики
-	if name == "" {
-		return models.ValidationError{
-			Field:   "name",
-			Value:   name,
-			Message: "cannot be empty",
-		}
-	}
-
-	// Валидация значения в зависимости от типа
-	switch metricType {
+// UpdateMetric обновляет метрику с готовыми валидированными данными
+func (s *MetricsService) UpdateMetric(req *validation.MetricRequest) error {
+	// Только бизнес-логика
+	switch req.Type {
 	case models.Gauge:
-		if _, err := strconv.ParseFloat(value, 64); err != nil {
-			return models.ValidationError{
-				Field:   "value",
-				Value:   value,
-				Message: "must be a valid float number",
-			}
-		}
+		return s.updateGaugeMetric(req.Name, req.Value.(float64))
 	case models.Counter:
-		if _, err := strconv.ParseInt(value, 10, 64); err != nil {
-			return models.ValidationError{
-				Field:   "value",
-				Value:   value,
-				Message: "must be a valid integer number",
-			}
-		}
+		return s.updateCounterMetric(req.Name, req.Value.(int64))
+	default:
+		return fmt.Errorf("unsupported metric type: %s", req.Type)
 	}
-
-	return nil
 }
 
-// UpdateMetric обновляет метрику по типу, имени и значению
-func (s *MetricsService) UpdateMetric(metricType, name, value string) error {
-	// Сначала валидируем входные данные
-	if err := s.validateMetricValue(metricType, name, value); err != nil {
-		return err
-	}
+// updateGaugeMetric содержит бизнес-логику для обновления gauge метрик
+func (s *MetricsService) updateGaugeMetric(name string, value float64) error {
+	// Здесь может быть бизнес-логика:
+	// - Проверка лимитов
+	// - Валидация бизнес-правил
+	// - Агрегация данных
+	// - Уведомления
+	// - Аудит операций
 
-	// Если валидация прошла успешно, обновляем метрику
-	switch metricType {
-	case models.Gauge:
-		val, _ := strconv.ParseFloat(value, 64) // Ошибка уже проверена в валидации
-		return s.repository.UpdateGauge(name, val)
+	// Пока просто делегируем в репозиторий
+	return s.repository.UpdateGauge(name, value)
+}
 
-	case models.Counter:
-		val, _ := strconv.ParseInt(value, 10, 64) // Ошибка уже проверена в валидации
-		return s.repository.UpdateCounter(name, val)
+// updateCounterMetric содержит бизнес-логику для обновления counter метрик
+func (s *MetricsService) updateCounterMetric(name string, value int64) error {
+	// Здесь может быть бизнес-логика:
+	// - Проверка лимитов счетчиков
+	// - Валидация бизнес-правил
+	// - Агрегация данных
+	// - Уведомления при превышении порогов
 
-	default:
-		// Этот случай не должен произойти после валидации, но на всякий случай
-		return fmt.Errorf("unknown metric type: %s", metricType)
-	}
+	// Пока просто делегируем в репозиторий
+	return s.repository.UpdateCounter(name, value)
 }
 
 // GetGauge возвращает значение gauge метрики

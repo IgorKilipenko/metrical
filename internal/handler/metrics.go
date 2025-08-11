@@ -8,6 +8,7 @@ import (
 	models "github.com/IgorKilipenko/metrical/internal/model"
 	"github.com/IgorKilipenko/metrical/internal/service"
 	"github.com/IgorKilipenko/metrical/internal/template"
+	"github.com/IgorKilipenko/metrical/internal/validation"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -35,21 +36,23 @@ func (h *MetricsHandler) UpdateMetric(w http.ResponseWriter, r *http.Request) {
 	metricName := chi.URLParam(r, "name")
 	metricValue := chi.URLParam(r, "value")
 
-	if metricName == "" {
-		http.Error(w, "Metric name is required", http.StatusNotFound)
-		return
-	}
-
-	err := h.service.UpdateMetric(metricType, metricName, metricValue)
+	// Валидация и парсинг в handler
+	metricReq, err := validation.ValidateMetricRequest(metricType, metricName, metricValue)
 	if err != nil {
-		// Проверяем, является ли ошибка ошибкой валидации
 		if models.IsValidationError(err) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		} else {
-			// Для других ошибок (например, ошибки репозитория) используем 500
-			log.Printf("Error updating metric: %v", err)
+			log.Printf("Error validating metric request: %v", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 		}
+		return
+	}
+
+	// Вызов сервиса с готовыми валидированными данными
+	err = h.service.UpdateMetric(metricReq)
+	if err != nil {
+		log.Printf("Error updating metric: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -67,39 +70,22 @@ func (h *MetricsHandler) GetMetricValue(w http.ResponseWriter, r *http.Request) 
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "name")
 
-	if metricName == "" {
-		http.Error(w, "Metric name is required", http.StatusNotFound)
+	// Валидация параметров
+	if err := validation.ValidateMetricName(metricName); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
-	var value string
-	var found bool
+	if err := validation.ValidateMetricType(metricType); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
-	switch metricType {
-	case "gauge":
-		var gaugeValue float64
-		var err error
-		gaugeValue, found, err = h.service.GetGauge(metricName)
-		if err != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		if found {
-			value = strconv.FormatFloat(gaugeValue, 'f', -1, 64)
-		}
-	case "counter":
-		var counterValue int64
-		var err error
-		counterValue, found, err = h.service.GetCounter(metricName)
-		if err != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		if found {
-			value = strconv.FormatInt(counterValue, 10)
-		}
-	default:
-		http.Error(w, "Invalid metric type", http.StatusBadRequest)
+	// Получаем значение метрики
+	value, found, err := h.getMetricValue(metricType, metricName)
+	if err != nil {
+		log.Printf("Error getting metric value: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -113,6 +99,32 @@ func (h *MetricsHandler) GetMetricValue(w http.ResponseWriter, r *http.Request) 
 	w.Write([]byte(value))
 }
 
+// getMetricValue получает значение метрики по типу и имени
+func (h *MetricsHandler) getMetricValue(metricType, metricName string) (string, bool, error) {
+	switch metricType {
+	case models.Gauge:
+		value, found, err := h.service.GetGauge(metricName)
+		if err != nil {
+			return "", false, err
+		}
+		if found {
+			return strconv.FormatFloat(value, 'f', -1, 64), true, nil
+		}
+		return "", false, nil
+	case models.Counter:
+		value, found, err := h.service.GetCounter(metricName)
+		if err != nil {
+			return "", false, err
+		}
+		if found {
+			return strconv.FormatInt(value, 10), true, nil
+		}
+		return "", false, nil
+	default:
+		return "", false, nil
+	}
+}
+
 // GetAllMetrics обрабатывает GET запросы для отображения всех метрик
 func (h *MetricsHandler) GetAllMetrics(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -120,16 +132,10 @@ func (h *MetricsHandler) GetAllMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	gauges, err := h.service.GetAllGauges()
+	// Получаем данные метрик
+	metricsData, err := h.getAllMetricsData()
 	if err != nil {
-		log.Printf("Error getting gauges: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	counters, err := h.service.GetAllCounters()
-	if err != nil {
-		log.Printf("Error getting counters: %v", err)
+		log.Printf("Error getting metrics data: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -142,16 +148,8 @@ func (h *MetricsHandler) GetAllMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Подготавливаем данные для шаблона
-	data := template.MetricsData{
-		Gauges:       gauges,
-		Counters:     counters,
-		GaugeCount:   len(gauges),
-		CounterCount: len(counters),
-	}
-
 	// Выполняем шаблон
-	htmlBytes, err := mt.Execute(data)
+	htmlBytes, err := mt.Execute(*metricsData)
 	if err != nil {
 		log.Printf("Error executing template: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -161,4 +159,24 @@ func (h *MetricsHandler) GetAllMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	w.Write(htmlBytes)
+}
+
+// getAllMetricsData получает все данные метрик
+func (h *MetricsHandler) getAllMetricsData() (*template.MetricsData, error) {
+	gauges, err := h.service.GetAllGauges()
+	if err != nil {
+		return nil, err
+	}
+
+	counters, err := h.service.GetAllCounters()
+	if err != nil {
+		return nil, err
+	}
+
+	return &template.MetricsData{
+		Gauges:       gauges,
+		Counters:     counters,
+		GaugeCount:   len(gauges),
+		CounterCount: len(counters),
+	}, nil
 }

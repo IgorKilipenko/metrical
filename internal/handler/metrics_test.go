@@ -9,6 +9,7 @@ import (
 
 	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/IgorKilipenko/metrical/internal/service"
+	"github.com/IgorKilipenko/metrical/internal/validation"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -81,7 +82,7 @@ func TestMetricsHandler_UpdateMetric(t *testing.T) {
 				"name":  "",
 				"value": "23.5",
 			},
-			expectedStatus: http.StatusNotFound,
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:   "Invalid metric type",
@@ -132,9 +133,12 @@ func TestMetricsHandler_UpdateMetric(t *testing.T) {
 func TestMetricsHandler_GetMetricValue(t *testing.T) {
 	handler := createTestHandler()
 
-	// Добавляем тестовые метрики
-	handler.service.UpdateMetric("gauge", "temperature", "23.5")
-	handler.service.UpdateMetric("counter", "requests", "100")
+	// Добавляем тестовые метрики через валидацию
+	metricReq1, _ := validation.ValidateMetricRequest("gauge", "temperature", "23.5")
+	handler.service.UpdateMetric(metricReq1)
+
+	metricReq2, _ := validation.ValidateMetricRequest("counter", "requests", "100")
+	handler.service.UpdateMetric(metricReq2)
 
 	tests := []struct {
 		name           string
@@ -225,9 +229,12 @@ func TestMetricsHandler_GetMetricValue(t *testing.T) {
 func TestMetricsHandler_GetAllMetrics(t *testing.T) {
 	handler := createTestHandler()
 
-	// Добавляем тестовые метрики
-	handler.service.UpdateMetric("gauge", "temperature", "23.5")
-	handler.service.UpdateMetric("counter", "requests", "100")
+	// Добавляем тестовые метрики через валидацию
+	metricReq1, _ := validation.ValidateMetricRequest("gauge", "temperature", "23.5")
+	handler.service.UpdateMetric(metricReq1)
+
+	metricReq2, _ := validation.ValidateMetricRequest("counter", "requests", "100")
+	handler.service.UpdateMetric(metricReq2)
 
 	tests := []struct {
 		name           string
@@ -280,10 +287,15 @@ func TestMetricsHandler_GetAllMetrics(t *testing.T) {
 func TestMetricsHandler_UpdateMetric_CounterAccumulation(t *testing.T) {
 	handler := createTestHandler()
 
-	// Добавляем counter метрику несколько раз
-	handler.service.UpdateMetric("counter", "requests", "10")
-	handler.service.UpdateMetric("counter", "requests", "20")
-	handler.service.UpdateMetric("counter", "requests", "30")
+	// Добавляем counter метрику несколько раз через валидацию
+	metricReq1, _ := validation.ValidateMetricRequest("counter", "requests", "10")
+	handler.service.UpdateMetric(metricReq1)
+
+	metricReq2, _ := validation.ValidateMetricRequest("counter", "requests", "20")
+	handler.service.UpdateMetric(metricReq2)
+
+	metricReq3, _ := validation.ValidateMetricRequest("counter", "requests", "30")
+	handler.service.UpdateMetric(metricReq3)
 
 	// Проверяем, что значения накапливаются
 	req, w := createChiContext("/value/{type}/{name}", map[string]string{
@@ -307,10 +319,15 @@ func TestMetricsHandler_UpdateMetric_CounterAccumulation(t *testing.T) {
 func TestMetricsHandler_UpdateMetric_GaugeReplacement(t *testing.T) {
 	handler := createTestHandler()
 
-	// Добавляем gauge метрику несколько раз
-	handler.service.UpdateMetric("gauge", "temperature", "20.0")
-	handler.service.UpdateMetric("gauge", "temperature", "25.5")
-	handler.service.UpdateMetric("gauge", "temperature", "30.0")
+	// Добавляем gauge метрику несколько раз через валидацию
+	metricReq1, _ := validation.ValidateMetricRequest("gauge", "temperature", "20.0")
+	handler.service.UpdateMetric(metricReq1)
+
+	metricReq2, _ := validation.ValidateMetricRequest("gauge", "temperature", "25.5")
+	handler.service.UpdateMetric(metricReq2)
+
+	metricReq3, _ := validation.ValidateMetricRequest("gauge", "temperature", "30.0")
+	handler.service.UpdateMetric(metricReq3)
 
 	// Проверяем, что последнее значение заменяет предыдущие
 	req, w := createChiContext("/value/{type}/{name}", map[string]string{
