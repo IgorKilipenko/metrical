@@ -62,18 +62,6 @@ graph TB
     CTX_MGR --> SERVICE
     CTX_MGR --> REPO
     
-    style SERVER fill:#f3e5f5
-    style HANDLER fill:#e3f2fd
-    style ROUTER fill:#e3f2fd
-    style CONFIG fill:#fff3e0
-    style CTX_MGR fill:#e8f5e8
-    style SERVICE fill:#e8f5e8
-    style REPO fill:#fff3e0
-    style IMR fill:#fff3e0
-    style MODELS fill:#e1f5fe
-    style TEMPLATE fill:#fff3e0
-    style REQ_CTX fill:#e3f2fd
-    
     note right of SERVER
         Принимает handler через DI
         Не создает зависимости
