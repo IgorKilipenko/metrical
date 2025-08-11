@@ -75,19 +75,19 @@ graph TB
     style REQ_CTX fill:#e3f2fd
     
     note right of SERVER
-        • Принимает handler через DI
-        • Не создает зависимости
-        • Следует принципам Clean Architecture
-        • Структурированное логирование
-        • Гибкая конфигурация
-        • Поддержка контекста
+        Принимает handler через DI
+        Не создает зависимости
+        Следует принципам Clean Architecture
+        Структурированное логирование
+        Гибкая конфигурация
+        Поддержка контекста
     end note
     
     note right of CTX_MGR
-        • Управление таймаутами
-        • Отмена операций
-        • Graceful shutdown
-        • Контекст запросов
+        Управление таймаутами
+        Отмена операций
+        Graceful shutdown
+        Контекст запросов
     end note
 ```
 
@@ -111,32 +111,32 @@ stateDiagram-v2
     Stopped --> [*]
     
     note right of Configure
-        • Create Router
-        • Setup Routes
-        • Initialize Dependencies
-        • Apply Server Config
-        • Setup Context Management
+        Create Router
+        Setup Routes
+        Initialize Dependencies
+        Apply Server Config
+        Setup Context Management
     end note
     
     note right of HandleRequest
-        • Parse Request
-        • Extract Request Context
-        • Create Timeout Context
-        • Route to Handler
+        Parse Request
+        Extract Request Context
+        Create Timeout Context
+        Route to Handler
     end note
     
     note right of ProcessRequest
-        • Process Business Logic
-        • Check Context Cancellation
-        • Handle Timeouts
-        • Return Response
+        Process Business Logic
+        Check Context Cancellation
+        Handle Timeouts
+        Return Response
     end note
     
     note right of GracefulShutdown
-        • Cancel All Contexts
-        • Wait for Active Requests
-        • Close Connections
-        • Release Resources
+        Cancel All Contexts
+        Wait for Active Requests
+        Close Connections
+        Release Resources
     end note
 ```
 
