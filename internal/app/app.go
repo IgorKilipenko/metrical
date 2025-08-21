@@ -44,7 +44,7 @@ func (a *App) Run() error {
 
 	// Создаем зависимости (Dependency Injection)
 	repository := repository.NewInMemoryMetricsRepository(appLogger)
-	service := service.NewMetricsService(repository)
+	service := service.NewMetricsService(repository, appLogger)
 	handler := handler.NewMetricsHandler(service)
 
 	// Создаем сервер с переданными зависимостями
