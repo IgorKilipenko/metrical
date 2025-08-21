@@ -44,6 +44,7 @@ go build -o cmd/agent/agent cmd/agent/main.go cmd/agent/cli.go
 - **Clean Architecture** - четкое разделение слоев
 - **Dependency Injection** - инверсия зависимостей
 - **Validation Layer** - отдельный слой валидации данных
+- **Logger Abstraction** - абстракция логирования через все слои
 - **Error Handling** - детальная обработка ошибок
 - **Test-Driven Development** - полное покрытие тестами
 
@@ -70,12 +71,20 @@ graph TB
         IMR[InMemory Repository]
     end
     
+    subgraph "Cross-Cutting Concerns"
+        L[Logger Abstraction]
+    end
+    
     H --> V
     R --> H
     V --> S
     S --> REPO
     REPO --> IMR
     S --> T
+    
+    H -.-> L
+    S -.-> L
+    REPO -.-> L
     
     style H fill:#e3f2fd
     style R fill:#e3f2fd
@@ -84,6 +93,7 @@ graph TB
     style T fill:#f3e5f5
     style REPO fill:#e8f5e8
     style IMR fill:#e8f5e8
+    style L fill:#fff3e0
 ```
 
 ## Структура проекта
@@ -104,6 +114,7 @@ go-metrics/
 │   ├── routes/             # HTTP маршруты
 │   ├── model/              # Структуры данных
 │   ├── repository/         # Работа с данными
+│   ├── logger/             # Абстракция логирования
 │   └── agent/              # Логика агента
 ├── migrations/             # Миграции БД
 ├── pkg/                    # Публичные пакеты
@@ -181,3 +192,4 @@ go test ./... -v -cover
 - 📖 **Маршруты:** [internal/routes/README.md](internal/routes/README.md)
 - 📖 **Модели:** [internal/model/README.md](internal/model/README.md)
 - 📖 **Репозиторий:** [internal/repository/README.md](internal/repository/README.md)
+- 📖 **Логгер:** [internal/logger/README.md](internal/logger/README.md)

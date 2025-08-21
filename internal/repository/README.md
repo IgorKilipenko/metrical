@@ -39,13 +39,14 @@ type MetricsRepository interface {
 
 ### InMemoryMetricsRepository (Реализация)
 
-Реализация репозитория в памяти с потокобезопасностью и поддержкой контекста:
+Реализация репозитория в памяти с потокобезопасностью, поддержкой контекста и логированием:
 
 ```go
 type InMemoryMetricsRepository struct {
     Gauges   models.GaugeMetrics
     Counters models.CounterMetrics
     mu       sync.RWMutex
+    logger   logger.Logger
 }
 ```
 
@@ -54,11 +55,14 @@ type InMemoryMetricsRepository struct {
 ### Создание репозитория
 
 ```go
-// Создаем репозиторий в памяти
-repo := repository.NewInMemoryMetricsRepository()
+// Создаем логгер
+appLogger := logger.NewSlogLogger()
 
-// Создаем сервис с репозиторием
-service := service.NewMetricsService(repo)
+// Создаем репозиторий в памяти с логгером
+repo := repository.NewInMemoryMetricsRepository(appLogger)
+
+// Создаем сервис с репозиторием и логгером
+service := service.NewMetricsService(repo, appLogger)
 ```
 
 ### Основные операции
@@ -96,6 +100,31 @@ if err != nil {
     }
 }
 ```
+
+## Логирование
+
+Репозиторий интегрирован с системой логирования для отслеживания операций:
+
+```go
+// Логирование операций обновления
+repo.UpdateGauge(ctx, "temperature", 23.5)
+// Логи: "Updating gauge metric" name=temperature value=23.5
+
+// Логирование операций получения
+value, exists, err := repo.GetGauge(ctx, "temperature")
+// Логи: "Retrieved gauge metric" name=temperature value=23.5 exists=true
+
+// Логирование ошибок контекста
+if err == context.Canceled {
+    // Логи: "Context canceled during operation" operation=UpdateGauge
+}
+```
+
+### Уровни логирования
+
+- **Debug**: Детальная информация об операциях
+- **Info**: Основные операции (создание, обновление, получение)
+- **Error**: Ошибки операций и отмены контекста
 
 ## Преимущества
 
@@ -177,11 +206,14 @@ import (
 )
 
 func main() {
-    // Создаем репозиторий
-    repo := repository.NewInMemoryMetricsRepository()
+    // Создаем логгер
+    appLogger := logger.NewSlogLogger()
     
-    // Создаем сервис
-    service := service.NewMetricsService(repo)
+    // Создаем репозиторий с логгером
+    repo := repository.NewInMemoryMetricsRepository(appLogger)
+    
+    // Создаем сервис с логгером
+    service := service.NewMetricsService(repo, appLogger)
     
     // Создаем контекст с таймаутом
     ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -229,8 +261,11 @@ func TestServiceWithMockRepository(t *testing.T) {
     // Настраиваем ожидания с контекстом
     mockRepo.On("UpdateGauge", mock.Anything, "test", 23.5).Return(nil)
     
-    // Создаем сервис с моком
-    service := service.NewMetricsService(mockRepo)
+    // Создаем мок логгера
+    mockLogger := &MockLogger{}
+    
+    // Создаем сервис с моком и логгером
+    service := service.NewMetricsService(mockRepo, mockLogger)
     
     // Тестируем с контекстом
     ctx := context.Background()

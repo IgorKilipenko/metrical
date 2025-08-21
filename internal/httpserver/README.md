@@ -9,7 +9,7 @@
 - Настройку маршрутов HTTP
 - Запуск сервера с graceful shutdown
 - Обработку ошибок и валидацию входных параметров
-- Структурированное логирование с использованием `slog`
+- Структурированное логирование с использованием logger абстракции
 - Гибкую конфигурацию сервера
 
 ### Архитектура HTTP сервера (Clean Architecture)
@@ -173,11 +173,12 @@ server, err := httpserver.NewServerWithConfig(config, handler)
 
 ```go
 // Создание test handler для тестов
-repository := repository.NewInMemoryMetricsRepository()
-service := service.NewMetricsService(repository)
-handler := handler.NewMetricsHandler(service)
+mockLogger := &MockLogger{}
+repository := repository.NewInMemoryMetricsRepository(mockLogger)
+service := service.NewMetricsService(repository, mockLogger)
+handler := handler.NewMetricsHandler(service, mockLogger)
 
-server, err := httpserver.NewServer(":8080", handler)
+server, err := httpserver.NewServer(":8080", handler, mockLogger)
 if err != nil {
     t.Fatalf("Failed to create server: %v", err)
 }
@@ -346,15 +347,51 @@ Gracefully останавливает сервер с использование
 - ✅ **Инкапсуляция** - скрывает детали реализации
 
 ### Structured Logging
-- ✅ **Структурированные логи** - использование `slog` для лучшей читаемости
+- ✅ **Структурированные логи** - использование logger абстракции для лучшей читаемости
 - ✅ **Контекстная информация** - логи содержат адрес сервера и ошибки
 - ✅ **Уровни логирования** - Info для нормальных событий, Error для ошибок
+- ✅ **Абстракция логирования** - независимость от конкретной реализации логгера
 
 ### Context Management
 - ✅ **Поддержка контекста** - все операции поддерживают context.Context
 - ✅ **Таймауты** - настраиваемые таймауты для операций
 - ✅ **Отмена операций** - корректная обработка отмены через контекст
 - ✅ **Graceful shutdown** - завершение всех операций при остановке сервера
+
+### Logging Integration
+- ✅ **Logger абстракция** - использование logger.Logger интерфейса
+- ✅ **События сервера** - логирование запуска, остановки и ошибок сервера
+- ✅ **Конфигурация** - логирование параметров конфигурации сервера
+- ✅ **Graceful shutdown** - детальное логирование процесса остановки
+
+## Логирование
+
+HTTPServer интегрирован с системой логирования для отслеживания событий сервера:
+
+```go
+// Логирование запуска сервера
+server.Start()
+// Логи: "Starting HTTP server" addr=:8080 read_timeout=30s write_timeout=30s
+
+// Логирование конфигурации
+// Логи: "Server configuration" addr=:8080 read_timeout=30s write_timeout=30s idle_timeout=60s
+
+// Логирование graceful shutdown
+server.Shutdown(ctx)
+// Логи: "Starting graceful shutdown" timeout=30s
+// Логи: "Server shutdown completed successfully"
+
+// Логирование ошибок
+if err != nil {
+    // Логи: "Server error" error="address already in use"
+}
+```
+
+### Уровни логирования
+
+- **Info**: События жизненного цикла сервера (запуск, остановка, конфигурация)
+- **Warn**: Предупреждения (долгий shutdown, нестандартная конфигурация)
+- **Error**: Ошибки сервера (не удалось запустить, ошибки shutdown)
 
 ## Маршруты
 

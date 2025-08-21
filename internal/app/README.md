@@ -126,9 +126,13 @@ package main
 import (
     "log"
     "github.com/IgorKilipenko/metrical/internal/app"
+    "github.com/IgorKilipenko/metrical/internal/logger"
 )
 
 func main() {
+    // Создаем логгер
+    appLogger := logger.NewSlogLogger()
+    
     // Создаем конфигурацию из строки адреса
     config, err := app.NewConfig("localhost:8080")
     if err != nil {
@@ -144,6 +148,30 @@ func main() {
     }
 }
 ```
+
+## Логирование
+
+Приложение интегрировано с системой логирования через Dependency Injection:
+
+```go
+// Создание логгера и внедрение во все слои
+appLogger := logger.NewSlogLogger()
+
+// Создание зависимостей с логгером
+repository := repository.NewInMemoryMetricsRepository(appLogger)
+service := service.NewMetricsService(repository, appLogger)
+handler := handler.NewMetricsHandler(service, appLogger)
+server := httpserver.NewServer(addr, handler, appLogger)
+
+// Логирование событий приложения
+// Логи: "Starting metrics server on localhost:8080"
+// Логи: "Server shutdown completed successfully"
+```
+
+### Уровни логирования
+
+- **Info**: События жизненного цикла приложения (запуск, остановка)
+- **Error**: Ошибки инициализации и выполнения
 
 ## Graceful Shutdown
 

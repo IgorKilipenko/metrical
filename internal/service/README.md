@@ -15,11 +15,12 @@
 
 ### MetricsService
 
-Сервис для работы с метриками с поддержкой контекста:
+Сервис для работы с метриками с поддержкой контекста и логирования:
 
 ```go
 type MetricsService struct {
     repository repository.MetricsRepository
+    logger     logger.Logger
 }
 ```
 
@@ -149,9 +150,12 @@ func (s *MetricsService) GetAllCounters(ctx context.Context) (models.CounterMetr
 
 ### С валидацией и контекстом (рекомендуемый способ)
 ```go
-// Создание сервиса
-repo := repository.NewInMemoryMetricsRepository()
-service := service.NewMetricsService(repo)
+// Создание логгера
+appLogger := logger.NewSlogLogger()
+
+// Создание сервиса с логгером
+repo := repository.NewInMemoryMetricsRepository(appLogger)
+service := service.NewMetricsService(repo, appLogger)
 
 // Создание контекста с таймаутом
 ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -253,6 +257,38 @@ func gracefulShutdown(service *service.MetricsService) {
 }
 ```
 
+## Логирование
+
+Сервис интегрирован с системой логирования для отслеживания бизнес-операций:
+
+```go
+// Логирование обновления метрик
+service.UpdateMetric(ctx, metricReq)
+// Логи: "Updating metric" type=gauge name=temperature value=23.5
+
+// Логирование получения метрик
+value, exists, err := service.GetGauge(ctx, "temperature")
+// Логи: "Retrieved gauge metric" name=temperature value=23.5 exists=true
+
+// Логирование ошибок валидации
+if err != nil {
+    // Логи: "Validation failed" error="invalid metric type"
+}
+
+// Логирование ошибок контекста
+if err == context.Canceled {
+    // Логи: "Context canceled during operation" operation=UpdateMetric
+}
+```
+
+### Уровни логирования
+
+- **Debug**: Детальная информация о бизнес-операциях
+- **Info**: Основные операции (обновление, получение метрик)
+- **Warn**: Предупреждения (неудачные валидации)
+- **Error**: Ошибки операций и отмены контекста
+```
+
 ## Преимущества новой архитектуры
 
 1. **Разделение ответственности** - валидация вынесена в отдельный пакет
@@ -274,8 +310,9 @@ go test -v ./internal/service
 
 ```go
 func TestServiceWithContext(t *testing.T) {
-    repo := repository.NewInMemoryMetricsRepository()
-    service := service.NewMetricsService(repo)
+    mockLogger := &MockLogger{}
+    repo := repository.NewInMemoryMetricsRepository(mockLogger)
+    service := service.NewMetricsService(repo, mockLogger)
     
     ctx := context.Background()
     

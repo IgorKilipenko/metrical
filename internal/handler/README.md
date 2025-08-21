@@ -95,12 +95,13 @@ sequenceDiagram
 
 ### MetricsHandler
 
-Основной обработчик для работы с метриками с поддержкой контекста:
+Основной обработчик для работы с метриками с поддержкой контекста и логирования:
 
 ```go
 type MetricsHandler struct {
     service  *service.MetricsService
     template *template.MetricsTemplate
+    logger   logger.Logger
 }
 ```
 
@@ -186,6 +187,36 @@ func handleContextError(err error, w http.ResponseWriter) {
 }
 ```
 
+## Логирование
+
+Handler интегрирован с системой логирования для отслеживания HTTP запросов:
+
+```go
+// Логирование входящих запросов
+handler.UpdateMetric(w, r)
+// Логи: "Processing HTTP request" method=POST path=/update/gauge/temperature/23.5
+
+// Логирование валидации
+if err != nil {
+    // Логи: "Validation failed" error="invalid metric type" status=400
+}
+
+// Логирование успешных операций
+// Логи: "Request processed successfully" status=200 duration=15ms
+
+// Логирование ошибок контекста
+if err == context.DeadlineExceeded {
+    // Логи: "Request timeout" status=408 duration=5000ms
+}
+```
+
+### Уровни логирования
+
+- **Debug**: Детальная информация о запросах
+- **Info**: Основные HTTP операции (входящие запросы, успешные ответы)
+- **Warn**: Предупреждения (валидационные ошибки, таймауты)
+- **Error**: Ошибки обработки запросов
+
 ## Преимущества использования контекста
 
 1. **Таймауты** - предотвращение зависания операций
@@ -205,12 +236,14 @@ go test -v ./internal/handler
 
 ```go
 func TestMetricsHandler_UpdateMetric_WithContext(t *testing.T) {
-    // Создаем мок сервиса
+    // Создаем мок сервиса и логгера
     mockService := &MockMetricsService{}
+    mockLogger := &MockLogger{}
     
     // Создаем хендлер
     handler := &MetricsHandler{
         service: mockService,
+        logger:  mockLogger,
     }
     
     // Создаем запрос с контекстом
