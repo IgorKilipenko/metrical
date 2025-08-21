@@ -9,19 +9,39 @@ import (
 	"time"
 
 	"github.com/IgorKilipenko/metrical/internal/handler"
+	"github.com/IgorKilipenko/metrical/internal/logger"
 	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/IgorKilipenko/metrical/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// MockLogger для тестирования
+type MockLogger struct {
+	logs []string
+}
+
+func (m *MockLogger) SetLevel(level logger.LogLevel)                 {}
+func (m *MockLogger) Debug(msg string, args ...any)                  {}
+func (m *MockLogger) Info(msg string, args ...any)                   {}
+func (m *MockLogger) Warn(msg string, args ...any)                   {}
+func (m *MockLogger) Error(msg string, args ...any)                  {}
+func (m *MockLogger) WithContext(ctx context.Context) logger.Logger  { return m }
+func (m *MockLogger) WithFields(fields map[string]any) logger.Logger { return m }
+func (m *MockLogger) Sync() error                                    { return nil }
+
+func newMockLogger() logger.Logger {
+	return &MockLogger{}
+}
+
 // Test helpers
 
 // createTestHandler creates a test handler
 func createTestHandler() *handler.MetricsHandler {
-	repository := repository.NewInMemoryMetricsRepository()
-	service := service.NewMetricsService(repository)
-	return handler.NewMetricsHandler(service)
+	mockLogger := newMockLogger()
+	repository := repository.NewInMemoryMetricsRepository(mockLogger)
+	service := service.NewMetricsService(repository, mockLogger)
+	return handler.NewMetricsHandler(service, mockLogger)
 }
 
 // createTestServer creates a test server with default configuration
