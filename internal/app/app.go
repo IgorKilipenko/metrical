@@ -11,6 +11,7 @@ import (
 
 	"github.com/IgorKilipenko/metrical/internal/handler"
 	"github.com/IgorKilipenko/metrical/internal/httpserver"
+	"github.com/IgorKilipenko/metrical/internal/logger"
 	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/IgorKilipenko/metrical/internal/service"
 )
@@ -38,8 +39,11 @@ func New(config Config) *App {
 func (a *App) Run() error {
 	log.Printf("Starting metrics server on %s", a.addr)
 
+	// Создаем логгер
+	appLogger := logger.NewSlogLogger()
+
 	// Создаем зависимости (Dependency Injection)
-	repository := repository.NewInMemoryMetricsRepository()
+	repository := repository.NewInMemoryMetricsRepository(appLogger)
 	service := service.NewMetricsService(repository)
 	handler := handler.NewMetricsHandler(service)
 
