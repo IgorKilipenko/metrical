@@ -1,10 +1,10 @@
 package main
 
 import (
-	"log/slog"
 	"os"
 
 	"github.com/IgorKilipenko/metrical/internal/app"
+	"github.com/IgorKilipenko/metrical/internal/logger"
 )
 
 // Version приложения (можно установить при сборке через ldflags)
@@ -12,6 +12,9 @@ var Version = "dev"
 
 // osExit - переменная для подмены os.Exit в тестах
 var osExit = os.Exit
+
+// mainLogger - глобальный логгер для main функции
+var mainLogger = logger.NewSlogLogger()
 
 // handleError обрабатывает ошибки и завершает программу с соответствующим кодом выхода
 func handleError(err error) {
@@ -31,18 +34,18 @@ func handleError(err error) {
 
 	// Если это ошибка валидации адреса, выводим сообщение и выходим с кодом 1
 	if IsInvalidAddress(err) {
-		slog.Error("configuration error", "error", err)
+		mainLogger.Error("configuration error", "error", err)
 		osExit(1)
 		return
 	}
 
 	// Для всех остальных ошибок используем log.Fatal
-	slog.Error("fatal error", "error", err)
+	mainLogger.Error("fatal error", "error", err)
 	osExit(1)
 }
 
 func main() {
-	slog.Info("starting metrics server", "version", Version)
+	mainLogger.Info("starting metrics server", "version", Version)
 
 	addr, err := parseFlags()
 	handleError(err)
@@ -53,9 +56,9 @@ func main() {
 	application := app.New(config)
 
 	if err := application.Run(); err != nil {
-		slog.Error("application error", "error", err)
+		mainLogger.Error("application error", "error", err)
 		osExit(1)
 	}
 
-	slog.Info("server shutdown completed successfully")
+	mainLogger.Info("server shutdown completed successfully")
 }
