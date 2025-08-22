@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -22,6 +23,34 @@ var (
 	verboseLogging bool
 )
 
+// getEnvOrDefault получает значение из переменной окружения или возвращает значение по умолчанию
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+// getEnvIntOrDefault получает целочисленное значение из переменной окружения или возвращает значение по умолчанию
+func getEnvIntOrDefault(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intValue, err := strconv.Atoi(value); err == nil {
+			return intValue
+		}
+	}
+	return defaultValue
+}
+
+// getDefaultValues получает значения по умолчанию с учетом переменных окружения
+func getDefaultValues() (string, int, int) {
+	// Получаем значения из переменных окружения или используем дефолтные
+	envServerURL := getEnvOrDefault("ADDRESS", agent.DefaultServerURL)
+	envPollInterval := getEnvIntOrDefault("POLL_INTERVAL", int(agent.DefaultPollInterval.Seconds()))
+	envReportInterval := getEnvIntOrDefault("REPORT_INTERVAL", int(agent.DefaultReportInterval.Seconds()))
+
+	return envServerURL, envPollInterval, envReportInterval
+}
+
 // rootCmd представляет корневую команду приложения
 var rootCmd = &cobra.Command{
 	Use:   "agent",
@@ -31,15 +60,23 @@ var rootCmd = &cobra.Command{
 Supported flags:
   -a: HTTP server endpoint address (default: localhost:8080)
   -p: Poll interval in seconds (default: 2)
-  -r: Report interval in seconds (default: 10)`,
+  -r: Report interval in seconds (default: 10)
+
+Environment variables:
+  ADDRESS: HTTP server endpoint address
+  POLL_INTERVAL: Poll interval in seconds
+  REPORT_INTERVAL: Report interval in seconds`,
 	RunE: runAgent,
 }
 
 // init инициализирует флаги командной строки
 func init() {
-	rootCmd.Flags().StringVarP(&serverURL, "a", "a", agent.DefaultServerURL, "HTTP server endpoint address")
-	rootCmd.Flags().IntVarP(&pollInterval, "p", "p", int(agent.DefaultPollInterval.Seconds()), "Poll interval in seconds")
-	rootCmd.Flags().IntVarP(&reportInterval, "r", "r", int(agent.DefaultReportInterval.Seconds()), "Report interval in seconds")
+	// Получаем значения по умолчанию с учетом переменных окружения
+	defaultServerURL, defaultPollInterval, defaultReportInterval := getDefaultValues()
+
+	rootCmd.Flags().StringVarP(&serverURL, "a", "a", defaultServerURL, "HTTP server endpoint address")
+	rootCmd.Flags().IntVarP(&pollInterval, "p", "p", defaultPollInterval, "Poll interval in seconds")
+	rootCmd.Flags().IntVarP(&reportInterval, "r", "r", defaultReportInterval, "Report interval in seconds")
 	rootCmd.Flags().BoolVarP(&verboseLogging, "v", "v", false, "Enable verbose logging")
 
 	// Отключаем автоматическое использование флага help, так как Cobra его добавляет автоматически
@@ -53,11 +90,20 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown arguments: %v", args)
 	}
 
-	// Создаем конфигурацию из флагов
+	// Определяем финальные значения с учетом приоритета:
+	// 1. Переменные окружения
+	// 2. Флаги командной строки
+	// 3. Значения по умолчанию
+
+	finalServerURL := getEnvOrDefault("ADDRESS", serverURL)
+	finalPollInterval := getEnvIntOrDefault("POLL_INTERVAL", pollInterval)
+	finalReportInterval := getEnvIntOrDefault("REPORT_INTERVAL", reportInterval)
+
+	// Создаем конфигурацию с учетом приоритета параметров
 	config := &agent.Config{
-		ServerURL:      serverURL,
-		PollInterval:   time.Duration(pollInterval) * time.Second,
-		ReportInterval: time.Duration(reportInterval) * time.Second,
+		ServerURL:      finalServerURL,
+		PollInterval:   time.Duration(finalPollInterval) * time.Second,
+		ReportInterval: time.Duration(finalReportInterval) * time.Second,
 		VerboseLogging: verboseLogging,
 	}
 

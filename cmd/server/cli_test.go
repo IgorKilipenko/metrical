@@ -319,3 +319,72 @@ func TestVersionVariable(t *testing.T) {
 	assert.NotEmpty(t, Version, "Version should not be empty")
 	assert.Contains(t, Version, "dev", "Version should contain 'dev' by default")
 }
+
+func TestGetEnvOrDefault(t *testing.T) {
+	// Тест с установленной переменной окружения
+	os.Setenv("TEST_VAR", "test_value")
+	defer os.Unsetenv("TEST_VAR")
+
+	result := getEnvOrDefault("TEST_VAR", "default_value")
+	assert.Equal(t, "test_value", result)
+
+	// Тест без установленной переменной окружения
+	result = getEnvOrDefault("NONEXISTENT_VAR", "default_value")
+	assert.Equal(t, "default_value", result)
+}
+
+func TestEnvironmentVariablePriority(t *testing.T) {
+	// Сохраняем оригинальное значение переменной окружения
+	originalAddress := os.Getenv("ADDRESS")
+
+	// Восстанавливаем оригинальное значение после теста
+	defer func() {
+		if originalAddress != "" {
+			os.Setenv("ADDRESS", originalAddress)
+		} else {
+			os.Unsetenv("ADDRESS")
+		}
+	}()
+
+	// Устанавливаем переменную окружения
+	os.Setenv("ADDRESS", "env-server:9090")
+
+	// Симулируем значение флага командной строки
+	flagValue := "flag-server:8080"
+
+	// Проверяем, что переменная окружения имеет приоритет
+	finalAddr := getEnvOrDefault("ADDRESS", flagValue)
+	assert.Equal(t, "env-server:9090", finalAddr)
+
+	// Убираем переменную окружения и проверяем, что используется флаг
+	os.Unsetenv("ADDRESS")
+
+	finalAddr = getEnvOrDefault("ADDRESS", flagValue)
+	assert.Equal(t, "flag-server:8080", finalAddr)
+}
+
+func TestDefaultAddressWithEnvironment(t *testing.T) {
+	// Сохраняем оригинальное значение переменной окружения
+	originalAddress := os.Getenv("ADDRESS")
+
+	// Восстанавливаем оригинальное значение после теста
+	defer func() {
+		if originalAddress != "" {
+			os.Setenv("ADDRESS", originalAddress)
+		} else {
+			os.Unsetenv("ADDRESS")
+		}
+	}()
+
+	// Тест с установленной переменной окружения
+	os.Setenv("ADDRESS", "custom-server:9090")
+
+	defaultAddr := getEnvOrDefault("ADDRESS", "localhost:8080")
+	assert.Equal(t, "custom-server:9090", defaultAddr)
+
+	// Тест без установленной переменной окружения
+	os.Unsetenv("ADDRESS")
+
+	defaultAddr = getEnvOrDefault("ADDRESS", "localhost:8080")
+	assert.Equal(t, "localhost:8080", defaultAddr)
+}
