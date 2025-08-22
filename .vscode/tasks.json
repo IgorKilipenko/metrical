@@ -111,6 +111,31 @@
             "dependsOn": "Build All"
         },
         {
+            "label": "Run Auto Tests Iteration5",
+            "type": "shell",
+            "command": "../auto-tests/metricstest",
+            "args": [
+                "-test.v",
+                "-test.run=^TestIteration5$",
+                "-binary-path=cmd/server/server",
+                "-agent-binary-path=cmd/agent/agent",
+                "-source-path=.",
+                "-server-port=9091"
+            ],
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": [],
+            "detail": "Запуск автотестов для Iteration5",
+            "dependsOn": "Build All"
+        },
+        {
             "label": "Run All Auto Tests",
             "type": "shell",
             "command": "../auto-tests/metricstest",
