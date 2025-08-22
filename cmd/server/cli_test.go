@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/IgorKilipenko/metrical/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -320,20 +321,7 @@ func TestVersionVariable(t *testing.T) {
 	assert.Contains(t, Version, "dev", "Version should contain 'dev' by default")
 }
 
-func TestGetEnvOrDefault(t *testing.T) {
-	// Тест с установленной переменной окружения
-	os.Setenv("TEST_VAR", "test_value")
-	defer os.Unsetenv("TEST_VAR")
-
-	result := getEnvOrDefault("TEST_VAR", "default_value")
-	assert.Equal(t, "test_value", result)
-
-	// Тест без установленной переменной окружения
-	result = getEnvOrDefault("NONEXISTENT_VAR", "default_value")
-	assert.Equal(t, "default_value", result)
-}
-
-func TestEnvironmentVariablePriority(t *testing.T) {
+func TestViperIntegration(t *testing.T) {
 	// Сохраняем оригинальное значение переменной окружения
 	originalAddress := os.Getenv("ADDRESS")
 
@@ -346,45 +334,25 @@ func TestEnvironmentVariablePriority(t *testing.T) {
 		}
 	}()
 
-	// Устанавливаем переменную окружения
-	os.Setenv("ADDRESS", "env-server:9090")
+	t.Run("default value", func(t *testing.T) {
+		// Очищаем переменную окружения
+		os.Unsetenv("ADDRESS")
 
-	// Симулируем значение флага командной строки
-	flagValue := "flag-server:8080"
+		// Тестируем загрузку конфигурации с значением по умолчанию
+		config, err := config.LoadServerConfig()
+		require.NoError(t, err)
 
-	// Проверяем, что переменная окружения имеет приоритет
-	finalAddr := getEnvOrDefault("ADDRESS", flagValue)
-	assert.Equal(t, "env-server:9090", finalAddr)
+		assert.Equal(t, "localhost:8080", config.Address)
+	})
 
-	// Убираем переменную окружения и проверяем, что используется флаг
-	os.Unsetenv("ADDRESS")
+	t.Run("with environment variable", func(t *testing.T) {
+		// Устанавливаем переменную окружения
+		os.Setenv("ADDRESS", "test-server:9090")
 
-	finalAddr = getEnvOrDefault("ADDRESS", flagValue)
-	assert.Equal(t, "flag-server:8080", finalAddr)
-}
+		// Тестируем загрузку конфигурации с переменной окружения
+		config, err := config.LoadServerConfig()
+		require.NoError(t, err)
 
-func TestDefaultAddressWithEnvironment(t *testing.T) {
-	// Сохраняем оригинальное значение переменной окружения
-	originalAddress := os.Getenv("ADDRESS")
-
-	// Восстанавливаем оригинальное значение после теста
-	defer func() {
-		if originalAddress != "" {
-			os.Setenv("ADDRESS", originalAddress)
-		} else {
-			os.Unsetenv("ADDRESS")
-		}
-	}()
-
-	// Тест с установленной переменной окружения
-	os.Setenv("ADDRESS", "custom-server:9090")
-
-	defaultAddr := getEnvOrDefault("ADDRESS", "localhost:8080")
-	assert.Equal(t, "custom-server:9090", defaultAddr)
-
-	// Тест без установленной переменной окружения
-	os.Unsetenv("ADDRESS")
-
-	defaultAddr = getEnvOrDefault("ADDRESS", "localhost:8080")
-	assert.Equal(t, "localhost:8080", defaultAddr)
+		assert.Equal(t, "test-server:9090", config.Address)
+	})
 }

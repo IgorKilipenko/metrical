@@ -6,13 +6,15 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/IgorKilipenko/metrical/internal/agent"
+	"github.com/IgorKilipenko/metrical/internal/config"
 	"github.com/IgorKilipenko/metrical/internal/logger"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -22,34 +24,6 @@ var (
 	reportInterval int
 	verboseLogging bool
 )
-
-// getEnvOrDefault получает значение из переменной окружения или возвращает значение по умолчанию
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-// getEnvIntOrDefault получает целочисленное значение из переменной окружения или возвращает значение по умолчанию
-func getEnvIntOrDefault(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intValue, err := strconv.Atoi(value); err == nil {
-			return intValue
-		}
-	}
-	return defaultValue
-}
-
-// getDefaultValues получает значения по умолчанию с учетом переменных окружения
-func getDefaultValues() (string, int, int) {
-	// Получаем значения из переменных окружения или используем дефолтные
-	envServerURL := getEnvOrDefault("ADDRESS", agent.DefaultServerURL)
-	envPollInterval := getEnvIntOrDefault("POLL_INTERVAL", int(agent.DefaultPollInterval.Seconds()))
-	envReportInterval := getEnvIntOrDefault("REPORT_INTERVAL", int(agent.DefaultReportInterval.Seconds()))
-
-	return envServerURL, envPollInterval, envReportInterval
-}
 
 // rootCmd представляет корневую команду приложения
 var rootCmd = &cobra.Command{
@@ -71,8 +45,25 @@ Environment variables:
 
 // init инициализирует флаги командной строки
 func init() {
+	// Настраиваем Viper для работы с переменными окружения
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.SetEnvPrefix("")
+	viper.AutomaticEnv()
+
+	// Привязываем переменные окружения к ключам конфигурации
+	viper.BindEnv("server_url", "ADDRESS")
+	viper.BindEnv("poll_interval", "POLL_INTERVAL")
+	viper.BindEnv("report_interval", "REPORT_INTERVAL")
+
+	// Устанавливаем значения по умолчанию
+	viper.SetDefault("server_url", agent.DefaultServerURL)
+	viper.SetDefault("poll_interval", int(agent.DefaultPollInterval.Seconds()))
+	viper.SetDefault("report_interval", int(agent.DefaultReportInterval.Seconds()))
+
 	// Получаем значения по умолчанию с учетом переменных окружения
-	defaultServerURL, defaultPollInterval, defaultReportInterval := getDefaultValues()
+	defaultServerURL := viper.GetString("server_url")
+	defaultPollInterval := viper.GetInt("poll_interval")
+	defaultReportInterval := viper.GetInt("report_interval")
 
 	rootCmd.Flags().StringVarP(&serverURL, "a", "a", defaultServerURL, "HTTP server endpoint address")
 	rootCmd.Flags().IntVarP(&pollInterval, "p", "p", defaultPollInterval, "Poll interval in seconds")
@@ -81,6 +72,12 @@ func init() {
 
 	// Отключаем автоматическое использование флага help, так как Cobra его добавляет автоматически
 	rootCmd.Flags().BoolP("help", "h", false, "Show help")
+
+	// Привязываем флаги к Viper
+	viper.BindPFlag("server_url", rootCmd.Flags().Lookup("a"))
+	viper.BindPFlag("poll_interval", rootCmd.Flags().Lookup("p"))
+	viper.BindPFlag("report_interval", rootCmd.Flags().Lookup("r"))
+	viper.BindPFlag("verbose_logging", rootCmd.Flags().Lookup("v"))
 }
 
 // runAgent запускает агент с заданной конфигурацией
@@ -90,26 +87,18 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown arguments: %v", args)
 	}
 
-	// Определяем финальные значения с учетом приоритета:
-	// 1. Переменные окружения
-	// 2. Флаги командной строки
-	// 3. Значения по умолчанию
-
-	finalServerURL := getEnvOrDefault("ADDRESS", serverURL)
-	finalPollInterval := getEnvIntOrDefault("POLL_INTERVAL", pollInterval)
-	finalReportInterval := getEnvIntOrDefault("REPORT_INTERVAL", reportInterval)
-
-	// Создаем конфигурацию с учетом приоритета параметров
-	config := &agent.Config{
-		ServerURL:      finalServerURL,
-		PollInterval:   time.Duration(finalPollInterval) * time.Second,
-		ReportInterval: time.Duration(finalReportInterval) * time.Second,
-		VerboseLogging: verboseLogging,
+	// Загружаем конфигурацию с помощью Viper
+	agentConfig, err := config.LoadAgentConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	// Валидируем конфигурацию
-	if err := config.Validate(); err != nil {
-		return fmt.Errorf("invalid configuration: %w", err)
+	// Создаем конфигурацию агента
+	config := &agent.Config{
+		ServerURL:      agentConfig.ServerURL,
+		PollInterval:   agentConfig.PollInterval,
+		ReportInterval: agentConfig.ReportInterval,
+		VerboseLogging: agentConfig.VerboseLogging,
 	}
 
 	// Логируем конфигурацию при запуске

@@ -2,25 +2,30 @@ package main
 
 import (
 	"fmt"
-	"os"
+	"strings"
 
+	"github.com/IgorKilipenko/metrical/internal/config"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
-
-// getEnvOrDefault получает значение из переменной окружения или возвращает значение по умолчанию
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
 
 // parseFlags парсит флаги командной строки
 func parseFlags() (string, error) {
 	var addr string
 
+	// Настраиваем Viper для работы с переменными окружения
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.SetEnvPrefix("")
+	viper.AutomaticEnv()
+
+	// Привязываем переменную окружения к ключу конфигурации
+	viper.BindEnv("address", "ADDRESS")
+
+	// Устанавливаем значение по умолчанию
+	viper.SetDefault("address", "localhost:8080")
+
 	// Получаем значение по умолчанию с учетом переменной окружения
-	defaultAddr := getEnvOrDefault("ADDRESS", "localhost:8080")
+	defaultAddr := viper.GetString("address")
 
 	cmd := &cobra.Command{
 		Use:   "server",
@@ -36,14 +41,14 @@ Environment variables:
 				return fmt.Errorf("неизвестные аргументы: %v", args)
 			}
 
-			// Определяем финальный адрес с учетом приоритета:
-			// 1. Переменная окружения ADDRESS
-			// 2. Флаг командной строки
-			// 3. Значение по умолчанию
-			finalAddr := getEnvOrDefault("ADDRESS", addr)
+			// Загружаем конфигурацию с помощью Viper
+			serverConfig, err := config.LoadServerConfig()
+			if err != nil {
+				return fmt.Errorf("failed to load configuration: %w", err)
+			}
 
 			// Валидируем адрес
-			if err := validateAddress(finalAddr); err != nil {
+			if err := validateAddress(serverConfig.Address); err != nil {
 				return err
 			}
 
@@ -53,6 +58,9 @@ Environment variables:
 
 	// Добавляем флаг для адреса
 	cmd.Flags().StringVarP(&addr, "address", "a", defaultAddr, "адрес эндпоинта HTTP-сервера")
+
+	// Привязываем флаг к Viper
+	viper.BindPFlag("address", cmd.Flags().Lookup("address"))
 
 	// Парсим аргументы
 	if err := cmd.Execute(); err != nil {
@@ -69,6 +77,6 @@ Environment variables:
 		return "", VersionRequestedError{}
 	}
 
-	// Возвращаем финальный адрес с учетом приоритета
-	return getEnvOrDefault("ADDRESS", addr), nil
+	// Возвращаем финальный адрес из конфигурации
+	return viper.GetString("address"), nil
 }

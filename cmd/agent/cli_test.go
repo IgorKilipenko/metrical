@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/IgorKilipenko/metrical/internal/agent"
+	"github.com/IgorKilipenko/metrical/internal/config"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRootCmdFlags(t *testing.T) {
@@ -177,40 +179,7 @@ func TestVersion(t *testing.T) {
 	assert.Contains(t, Version, "dev", "Version should contain 'dev' by default")
 }
 
-func TestGetEnvOrDefault(t *testing.T) {
-	// Тест с установленной переменной окружения
-	os.Setenv("TEST_VAR", "test_value")
-	defer os.Unsetenv("TEST_VAR")
-
-	result := getEnvOrDefault("TEST_VAR", "default_value")
-	assert.Equal(t, "test_value", result)
-
-	// Тест без установленной переменной окружения
-	result = getEnvOrDefault("NONEXISTENT_VAR", "default_value")
-	assert.Equal(t, "default_value", result)
-}
-
-func TestGetEnvIntOrDefault(t *testing.T) {
-	// Тест с корректной числовой переменной окружения
-	os.Setenv("TEST_INT", "42")
-	defer os.Unsetenv("TEST_INT")
-
-	result := getEnvIntOrDefault("TEST_INT", 10)
-	assert.Equal(t, 42, result)
-
-	// Тест с некорректной числовой переменной окружения
-	os.Setenv("TEST_INVALID", "not_a_number")
-	defer os.Unsetenv("TEST_INVALID")
-
-	result = getEnvIntOrDefault("TEST_INVALID", 10)
-	assert.Equal(t, 10, result)
-
-	// Тест без установленной переменной окружения
-	result = getEnvIntOrDefault("NONEXISTENT_INT", 10)
-	assert.Equal(t, 10, result)
-}
-
-func TestGetDefaultValues(t *testing.T) {
+func TestViperIntegration(t *testing.T) {
 	// Сохраняем оригинальные значения переменных окружения
 	originalAddress := os.Getenv("ADDRESS")
 	originalPollInterval := os.Getenv("POLL_INTERVAL")
@@ -235,83 +204,35 @@ func TestGetDefaultValues(t *testing.T) {
 		}
 	}()
 
-	// Тест с установленными переменными окружения
-	os.Setenv("ADDRESS", "http://test-server:9090")
-	os.Setenv("POLL_INTERVAL", "5")
-	os.Setenv("REPORT_INTERVAL", "15")
+	t.Run("default values", func(t *testing.T) {
+		// Очищаем переменные окружения
+		os.Unsetenv("ADDRESS")
+		os.Unsetenv("POLL_INTERVAL")
+		os.Unsetenv("REPORT_INTERVAL")
 
-	serverURL, pollInterval, reportInterval := getDefaultValues()
+		// Тестируем загрузку конфигурации с значениями по умолчанию
+		config, err := config.LoadAgentConfig()
+		require.NoError(t, err)
 
-	assert.Equal(t, "http://test-server:9090", serverURL)
-	assert.Equal(t, 5, pollInterval)
-	assert.Equal(t, 15, reportInterval)
+		assert.Equal(t, "http://localhost:8080", config.ServerURL)
+		assert.Equal(t, 2*time.Second, config.PollInterval)
+		assert.Equal(t, 10*time.Second, config.ReportInterval)
+		assert.False(t, config.VerboseLogging)
+	})
 
-	// Тест без установленных переменных окружения
-	os.Unsetenv("ADDRESS")
-	os.Unsetenv("POLL_INTERVAL")
-	os.Unsetenv("REPORT_INTERVAL")
+	t.Run("with environment variables", func(t *testing.T) {
+		// Устанавливаем переменные окружения
+		os.Setenv("ADDRESS", "http://test-server:9090")
+		os.Setenv("POLL_INTERVAL", "5")
+		os.Setenv("REPORT_INTERVAL", "15")
 
-	serverURL, pollInterval, reportInterval = getDefaultValues()
+		// Тестируем загрузку конфигурации с переменными окружения
+		config, err := config.LoadAgentConfig()
+		require.NoError(t, err)
 
-	assert.Equal(t, agent.DefaultServerURL, serverURL)
-	assert.Equal(t, int(agent.DefaultPollInterval.Seconds()), pollInterval)
-	assert.Equal(t, int(agent.DefaultReportInterval.Seconds()), reportInterval)
-}
-
-func TestEnvironmentVariablePriority(t *testing.T) {
-	// Сохраняем оригинальные значения переменных окружения
-	originalAddress := os.Getenv("ADDRESS")
-	originalPollInterval := os.Getenv("POLL_INTERVAL")
-	originalReportInterval := os.Getenv("REPORT_INTERVAL")
-
-	// Восстанавливаем оригинальные значения после теста
-	defer func() {
-		if originalAddress != "" {
-			os.Setenv("ADDRESS", originalAddress)
-		} else {
-			os.Unsetenv("ADDRESS")
-		}
-		if originalPollInterval != "" {
-			os.Setenv("POLL_INTERVAL", originalPollInterval)
-		} else {
-			os.Unsetenv("POLL_INTERVAL")
-		}
-		if originalReportInterval != "" {
-			os.Setenv("REPORT_INTERVAL", originalReportInterval)
-		} else {
-			os.Unsetenv("REPORT_INTERVAL")
-		}
-	}()
-
-	// Устанавливаем переменные окружения
-	os.Setenv("ADDRESS", "http://env-server:9090")
-	os.Setenv("POLL_INTERVAL", "3")
-	os.Setenv("REPORT_INTERVAL", "12")
-
-	// Устанавливаем значения флагов (симулируем флаги командной строки)
-	serverURL = "http://flag-server:8080"
-	pollInterval = 2
-	reportInterval = 10
-
-	// Проверяем, что переменные окружения имеют приоритет
-	finalServerURL := getEnvOrDefault("ADDRESS", serverURL)
-	finalPollInterval := getEnvIntOrDefault("POLL_INTERVAL", pollInterval)
-	finalReportInterval := getEnvIntOrDefault("REPORT_INTERVAL", reportInterval)
-
-	assert.Equal(t, "http://env-server:9090", finalServerURL)
-	assert.Equal(t, 3, finalPollInterval)
-	assert.Equal(t, 12, finalReportInterval)
-
-	// Убираем переменные окружения и проверяем, что используются флаги
-	os.Unsetenv("ADDRESS")
-	os.Unsetenv("POLL_INTERVAL")
-	os.Unsetenv("REPORT_INTERVAL")
-
-	finalServerURL = getEnvOrDefault("ADDRESS", serverURL)
-	finalPollInterval = getEnvIntOrDefault("POLL_INTERVAL", pollInterval)
-	finalReportInterval = getEnvIntOrDefault("REPORT_INTERVAL", reportInterval)
-
-	assert.Equal(t, "http://flag-server:8080", finalServerURL)
-	assert.Equal(t, 2, finalPollInterval)
-	assert.Equal(t, 10, finalReportInterval)
+		assert.Equal(t, "http://test-server:9090", config.ServerURL)
+		assert.Equal(t, 5*time.Second, config.PollInterval)
+		assert.Equal(t, 15*time.Second, config.ReportInterval)
+		assert.False(t, config.VerboseLogging)
+	})
 }
