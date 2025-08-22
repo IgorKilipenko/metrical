@@ -9,36 +9,18 @@ import (
 	"time"
 
 	"github.com/IgorKilipenko/metrical/internal/handler"
-	"github.com/IgorKilipenko/metrical/internal/logger"
 	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/IgorKilipenko/metrical/internal/service"
+	"github.com/IgorKilipenko/metrical/internal/testutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// MockLogger для тестирования
-type MockLogger struct {
-	logs []string
-}
-
-func (m *MockLogger) SetLevel(level logger.LogLevel)                 {}
-func (m *MockLogger) Debug(msg string, args ...any)                  {}
-func (m *MockLogger) Info(msg string, args ...any)                   {}
-func (m *MockLogger) Warn(msg string, args ...any)                   {}
-func (m *MockLogger) Error(msg string, args ...any)                  {}
-func (m *MockLogger) WithContext(ctx context.Context) logger.Logger  { return m }
-func (m *MockLogger) WithFields(fields map[string]any) logger.Logger { return m }
-func (m *MockLogger) Sync() error                                    { return nil }
-
-func newMockLogger() logger.Logger {
-	return &MockLogger{}
-}
 
 // Test helpers
 
 // createTestHandler creates a test handler
 func createTestHandler() *handler.MetricsHandler {
-	mockLogger := newMockLogger()
+	mockLogger := testutils.NewMockLogger()
 	repository := repository.NewInMemoryMetricsRepository(mockLogger)
 	service := service.NewMetricsService(repository, mockLogger)
 	return handler.NewMetricsHandler(service, mockLogger)
@@ -47,7 +29,7 @@ func createTestHandler() *handler.MetricsHandler {
 // createTestServer creates a test server with default configuration
 func createTestServer(t *testing.T) *Server {
 	handler := createTestHandler()
-	mockLogger := newMockLogger()
+	mockLogger := testutils.NewMockLogger()
 	srv, err := NewServer(":8080", handler, mockLogger)
 	require.NoError(t, err)
 	return srv
@@ -56,7 +38,7 @@ func createTestServer(t *testing.T) *Server {
 // createTestServerWithConfig creates a test server with custom configuration
 func createTestServerWithConfig(t *testing.T, config *ServerConfig) *Server {
 	handler := createTestHandler()
-	mockLogger := newMockLogger()
+	mockLogger := testutils.NewMockLogger()
 	srv, err := NewServerWithConfig(config, handler, mockLogger)
 	require.NoError(t, err)
 	return srv
@@ -81,7 +63,7 @@ func assertHTTPResponse(t *testing.T, w *httptest.ResponseRecorder, expectedStat
 
 func TestNewServer(t *testing.T) {
 	handler := createTestHandler()
-	mockLogger := newMockLogger()
+	mockLogger := testutils.NewMockLogger()
 
 	srv, err := NewServer(":8080", handler, mockLogger)
 
@@ -93,7 +75,7 @@ func TestNewServer(t *testing.T) {
 
 func TestNewServerWithEmptyAddr(t *testing.T) {
 	handler := createTestHandler()
-	mockLogger := newMockLogger()
+	mockLogger := testutils.NewMockLogger()
 
 	srv, err := NewServer("", handler, mockLogger)
 
@@ -103,7 +85,7 @@ func TestNewServerWithEmptyAddr(t *testing.T) {
 }
 
 func TestNewServerWithNilHandler(t *testing.T) {
-	mockLogger := newMockLogger()
+	mockLogger := testutils.NewMockLogger()
 	srv, err := NewServer(":8080", nil, mockLogger)
 
 	assert.Error(t, err)
@@ -113,7 +95,7 @@ func TestNewServerWithNilHandler(t *testing.T) {
 
 func TestServerIntegration(t *testing.T) {
 	handler := createTestHandler()
-	mockLogger := newMockLogger()
+	mockLogger := testutils.NewMockLogger()
 	srv, err := NewServer(":8080", handler, mockLogger)
 	require.NoError(t, err)
 
@@ -192,7 +174,7 @@ func TestServerIntegration(t *testing.T) {
 
 func TestServerEndToEnd(t *testing.T) {
 	handler := createTestHandler()
-	mockLogger := newMockLogger()
+	mockLogger := testutils.NewMockLogger()
 	srv, err := NewServer(":8080", handler, mockLogger)
 	require.NoError(t, err)
 
@@ -246,7 +228,7 @@ func TestServerBasicFunctionality(t *testing.T) {
 
 func TestServerRedirects(t *testing.T) {
 	handler := createTestHandler()
-	mockLogger := newMockLogger()
+	mockLogger := testutils.NewMockLogger()
 	srv, err := NewServer(":8080", handler, mockLogger)
 	require.NoError(t, err)
 
@@ -304,7 +286,7 @@ func TestServerRedirects(t *testing.T) {
 
 func TestServerShutdownWithNilServer(t *testing.T) {
 	handler := createTestHandler()
-	mockLogger := newMockLogger()
+	mockLogger := testutils.NewMockLogger()
 	srv, err := NewServer(":8080", handler, mockLogger)
 	require.NoError(t, err)
 
@@ -349,7 +331,7 @@ func TestNewServerWithConfig(t *testing.T) {
 
 func TestNewServerWithNilConfig(t *testing.T) {
 	handler := createTestHandler()
-	mockLogger := newMockLogger()
+	mockLogger := testutils.NewMockLogger()
 
 	srv, err := NewServerWithConfig(nil, handler, mockLogger)
 
@@ -399,7 +381,7 @@ func TestServerConfigValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler := createTestHandler()
-			mockLogger := newMockLogger()
+			mockLogger := testutils.NewMockLogger()
 
 			srv, err := NewServerWithConfig(tt.config, handler, mockLogger)
 
@@ -419,7 +401,7 @@ func TestServerConfigValidation(t *testing.T) {
 
 func TestServerHTTPMethods(t *testing.T) {
 	handler := createTestHandler()
-	mockLogger := newMockLogger()
+	mockLogger := testutils.NewMockLogger()
 	srv, err := NewServer(":8080", handler, mockLogger)
 	require.NoError(t, err)
 
@@ -452,7 +434,7 @@ func TestServerHTTPMethods(t *testing.T) {
 
 func TestServerConcurrentRequests(t *testing.T) {
 	handler := createTestHandler()
-	mockLogger := newMockLogger()
+	mockLogger := testutils.NewMockLogger()
 	srv, err := NewServer(":8080", handler, mockLogger)
 	require.NoError(t, err)
 

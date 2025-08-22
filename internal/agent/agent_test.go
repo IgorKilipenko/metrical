@@ -1,29 +1,12 @@
 package agent
 
 import (
-	"context"
 	"testing"
 	"time"
 
-	"github.com/IgorKilipenko/metrical/internal/logger"
+	"github.com/IgorKilipenko/metrical/internal/testutils"
 	"github.com/stretchr/testify/assert"
 )
-
-// MockLogger - мок логгера для тестов
-type MockLogger struct{}
-
-func (m *MockLogger) SetLevel(level logger.LogLevel)                 {}
-func (m *MockLogger) Debug(msg string, args ...any)                  {}
-func (m *MockLogger) Info(msg string, args ...any)                   {}
-func (m *MockLogger) Warn(msg string, args ...any)                   {}
-func (m *MockLogger) Error(msg string, args ...any)                  {}
-func (m *MockLogger) WithContext(ctx context.Context) logger.Logger  { return m }
-func (m *MockLogger) WithFields(fields map[string]any) logger.Logger { return m }
-func (m *MockLogger) Sync() error                                    { return nil }
-
-func newMockLogger() logger.Logger {
-	return &MockLogger{}
-}
 
 func TestNewAgent(t *testing.T) {
 	tests := []struct {
@@ -42,7 +25,7 @@ func TestNewAgent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockLogger := newMockLogger()
+			mockLogger := testutils.NewMockLogger()
 			agent := NewAgent(tt.config, mockLogger)
 
 			assert.Equal(t, tt.config, agent.config, "Agent config should match provided config")
@@ -56,7 +39,7 @@ func TestNewAgent(t *testing.T) {
 }
 
 func TestAgent_PrepareMetricInfo(t *testing.T) {
-	mockLogger := newMockLogger()
+	mockLogger := testutils.NewMockLogger()
 	agent := NewAgent(NewConfig(), mockLogger)
 
 	tests := []struct {
@@ -134,7 +117,7 @@ func TestAgent_PrepareMetricInfo(t *testing.T) {
 }
 
 func TestAgent_PrepareMetricInfo_URLHandling(t *testing.T) {
-	mockLogger := newMockLogger()
+	mockLogger := testutils.NewMockLogger()
 	agent := NewAgent(NewConfig(), mockLogger)
 
 	tests := []struct {
@@ -205,7 +188,7 @@ func TestAgent_CollectMetrics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockLogger := newMockLogger()
+			mockLogger := testutils.NewMockLogger()
 			agent := NewAgent(tt.config, mockLogger)
 
 			// Собираем метрики
@@ -260,7 +243,7 @@ func TestAgent_CollectMetrics_ThreadSafety(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockLogger := newMockLogger()
+			mockLogger := testutils.NewMockLogger()
 			agent := NewAgent(tt.config, mockLogger)
 
 			// Запускаем несколько горутин для тестирования потокобезопасности
@@ -291,7 +274,7 @@ func TestAgent_GracefulShutdown(t *testing.T) {
 	config.PollInterval = 100 * time.Millisecond
 	config.ReportInterval = 200 * time.Millisecond
 
-	mockLogger := newMockLogger()
+	mockLogger := testutils.NewMockLogger()
 	agent := NewAgent(config, mockLogger)
 
 	// Запускаем агент в горутине

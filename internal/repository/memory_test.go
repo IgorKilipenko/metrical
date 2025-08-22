@@ -5,31 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/IgorKilipenko/metrical/internal/logger"
+	"github.com/IgorKilipenko/metrical/internal/testutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// MockLogger для тестирования
-type MockLogger struct {
-	logs []string
-}
-
-func (m *MockLogger) SetLevel(level logger.LogLevel)                 {}
-func (m *MockLogger) Debug(msg string, args ...any)                  {}
-func (m *MockLogger) Info(msg string, args ...any)                   {}
-func (m *MockLogger) Warn(msg string, args ...any)                   {}
-func (m *MockLogger) Error(msg string, args ...any)                  {}
-func (m *MockLogger) WithContext(ctx context.Context) logger.Logger  { return m }
-func (m *MockLogger) WithFields(fields map[string]any) logger.Logger { return m }
-func (m *MockLogger) Sync() error                                    { return nil }
-
-func newMockLogger() logger.Logger {
-	return &MockLogger{}
-}
-
 func TestInMemoryMetricsRepository_UpdateGauge(t *testing.T) {
-	repo := NewInMemoryMetricsRepository(newMockLogger())
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger())
 	ctx := context.Background()
 
 	// Обновляем gauge метрику
@@ -44,7 +26,7 @@ func TestInMemoryMetricsRepository_UpdateGauge(t *testing.T) {
 }
 
 func TestInMemoryMetricsRepository_UpdateCounter(t *testing.T) {
-	repo := NewInMemoryMetricsRepository(newMockLogger())
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger())
 	ctx := context.Background()
 
 	// Обновляем counter метрику
@@ -59,7 +41,7 @@ func TestInMemoryMetricsRepository_UpdateCounter(t *testing.T) {
 }
 
 func TestInMemoryMetricsRepository_GetGauge_NotExists(t *testing.T) {
-	repo := NewInMemoryMetricsRepository(newMockLogger())
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger())
 	ctx := context.Background()
 
 	// Проверяем несуществующую метрику
@@ -70,7 +52,7 @@ func TestInMemoryMetricsRepository_GetGauge_NotExists(t *testing.T) {
 }
 
 func TestInMemoryMetricsRepository_GetCounter_NotExists(t *testing.T) {
-	repo := NewInMemoryMetricsRepository(newMockLogger())
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger())
 	ctx := context.Background()
 
 	// Проверяем несуществующую метрику
@@ -81,7 +63,7 @@ func TestInMemoryMetricsRepository_GetCounter_NotExists(t *testing.T) {
 }
 
 func TestInMemoryMetricsRepository_GetAllGauges(t *testing.T) {
-	repo := NewInMemoryMetricsRepository(newMockLogger())
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger())
 	ctx := context.Background()
 
 	// Добавляем несколько gauge метрик
@@ -100,7 +82,7 @@ func TestInMemoryMetricsRepository_GetAllGauges(t *testing.T) {
 }
 
 func TestInMemoryMetricsRepository_GetAllCounters(t *testing.T) {
-	repo := NewInMemoryMetricsRepository(newMockLogger())
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger())
 	ctx := context.Background()
 
 	// Добавляем несколько counter метрик
@@ -120,7 +102,7 @@ func TestInMemoryMetricsRepository_GetAllCounters(t *testing.T) {
 
 // Тесты на отмену контекста
 func TestInMemoryMetricsRepository_ContextCancellation(t *testing.T) {
-	repo := NewInMemoryMetricsRepository(newMockLogger())
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger())
 
 	tests := []struct {
 		name string
@@ -185,7 +167,7 @@ func TestInMemoryMetricsRepository_ContextCancellation(t *testing.T) {
 }
 
 func TestInMemoryMetricsRepository_ContextTimeout(t *testing.T) {
-	repo := NewInMemoryMetricsRepository(newMockLogger())
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger())
 
 	// Создаем контекст с таймаутом
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
@@ -203,7 +185,7 @@ func TestInMemoryMetricsRepository_ContextTimeout(t *testing.T) {
 }
 
 func TestInMemoryMetricsRepository_ConcurrencyWithContext(t *testing.T) {
-	repo := NewInMemoryMetricsRepository(newMockLogger())
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger())
 	ctx := context.Background()
 
 	// Тестируем конкурентные операции с контекстом

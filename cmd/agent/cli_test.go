@@ -1,28 +1,14 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/IgorKilipenko/metrical/internal/agent"
-	"github.com/IgorKilipenko/metrical/internal/logger"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 )
-
-// MockLogger - мок логгера для тестов CLI
-type MockLogger struct{}
-
-func (m *MockLogger) SetLevel(level logger.LogLevel)                 {}
-func (m *MockLogger) Debug(msg string, args ...any)                  {}
-func (m *MockLogger) Info(msg string, args ...any)                   {}
-func (m *MockLogger) Warn(msg string, args ...any)                   {}
-func (m *MockLogger) Error(msg string, args ...any)                  {}
-func (m *MockLogger) WithContext(ctx context.Context) logger.Logger  { return m }
-func (m *MockLogger) WithFields(fields map[string]any) logger.Logger { return m }
-func (m *MockLogger) Sync() error                                    { return nil }
 
 func TestRootCmdFlags(t *testing.T) {
 	tests := []struct {
