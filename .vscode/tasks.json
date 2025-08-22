@@ -8,9 +8,8 @@
             "args": [
                 "build",
                 "-o",
-                "cmd/agent/agent",
-                "cmd/agent/main.go",
-                "cmd/agent/cli.go"
+                "bin/agent",
+                "./cmd/agent"
             ],
             "group": "build",
             "presentation": {
@@ -33,10 +32,8 @@
             "args": [
                 "build",
                 "-o",
-                "cmd/server/server",
-                "cmd/server/main.go",
-                "cmd/server/cli.go",
-                "cmd/server/cliutils.go"
+                "bin/server",
+                "./cmd/server"
             ],
             "group": "build",
             "presentation": {
@@ -55,13 +52,9 @@
         {
             "label": "Build All",
             "type": "shell",
-            "command": "go",
+            "command": "echo",
             "args": [
-                "build",
-                "-o",
-                "cmd/agent/agent",
-                "cmd/agent/main.go",
-                "cmd/agent/cli.go"
+                "Building agent and server..."
             ],
             "group": {
                 "kind": "build",
@@ -75,9 +68,7 @@
                 "showReuseMessage": true,
                 "clear": false
             },
-            "problemMatcher": [
-                "$go"
-            ],
+            "problemMatcher": [],
             "detail": "Сборка агента и сервера",
             "dependsOrder": "sequence",
             "dependsOn": [
@@ -86,14 +77,114 @@
             ]
         },
         {
+            "label": "Run Auto Tests Iteration1",
+            "type": "shell",
+            "command": "../auto-tests/metricstest",
+            "args": [
+                "-test.v",
+                "-test.run=^TestIteration1$",
+                "-binary-path=bin/server",
+                "-agent-binary-path=bin/agent",
+                "-source-path=.",
+                "-server-port=9091"
+            ],
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": [],
+            "detail": "Запуск автотестов для Iteration1",
+            "dependsOn": "Build All"
+        },
+        {
+            "label": "Run Auto Tests Iteration2A",
+            "type": "shell",
+            "command": "../auto-tests/metricstest",
+            "args": [
+                "-test.v",
+                "-test.run=^TestIteration2A$",
+                "-binary-path=bin/server",
+                "-agent-binary-path=bin/agent",
+                "-source-path=.",
+                "-server-port=9091"
+            ],
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": [],
+            "detail": "Запуск автотестов для Iteration2A",
+            "dependsOn": "Build All"
+        },
+        {
+            "label": "Run Auto Tests Iteration2B",
+            "type": "shell",
+            "command": "../auto-tests/metricstest",
+            "args": [
+                "-test.v",
+                "-test.run=^TestIteration2B$",
+                "-binary-path=bin/server",
+                "-agent-binary-path=bin/agent",
+                "-source-path=.",
+                "-server-port=9091"
+            ],
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": [],
+            "detail": "Запуск автотестов для Iteration2B",
+            "dependsOn": "Build All"
+        },
+        {
+            "label": "Run Auto Tests Iteration3",
+            "type": "shell",
+            "command": "../auto-tests/metricstest",
+            "args": [
+                "-test.v",
+                "-test.run=^TestIteration3$",
+                "-binary-path=bin/server",
+                "-agent-binary-path=bin/agent",
+                "-source-path=.",
+                "-server-port=9091"
+            ],
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": [],
+            "detail": "Запуск автотестов для Iteration3",
+            "dependsOn": "Build All"
+        },
+        {
             "label": "Run Auto Tests Iteration4",
             "type": "shell",
             "command": "../auto-tests/metricstest",
             "args": [
                 "-test.v",
                 "-test.run=^TestIteration4$",
-                "-binary-path=cmd/server/server",
-                "-agent-binary-path=cmd/agent/agent",
+                "-binary-path=bin/server",
+                "-agent-binary-path=bin/agent",
                 "-source-path=.",
                 "-server-port=9091"
             ],
@@ -117,8 +208,8 @@
             "args": [
                 "-test.v",
                 "-test.run=^TestIteration5$",
-                "-binary-path=cmd/server/server",
-                "-agent-binary-path=cmd/agent/agent",
+                "-binary-path=bin/server",
+                "-agent-binary-path=bin/agent",
                 "-source-path=.",
                 "-server-port=9091"
             ],
@@ -141,8 +232,8 @@
             "command": "../auto-tests/metricstest",
             "args": [
                 "-test.v",
-                "-binary-path=cmd/server/server",
-                "-agent-binary-path=cmd/agent/agent",
+                "-binary-path=bin/server",
+                "-agent-binary-path=bin/agent",
                 "-source-path=.",
                 "-server-port=9091"
             ],
@@ -207,6 +298,34 @@
             "detail": "Запуск тестов с покрытием"
         },
         {
+            "label": "Run All Iterations (1-5)",
+            "type": "shell",
+            "command": "echo",
+            "args": [
+                "Running all iterations from 1 to 5..."
+            ],
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": [],
+            "detail": "Запуск всех итераций с 1-й по 5-ю",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "Run Auto Tests Iteration1",
+                "Run Auto Tests Iteration2A",
+                "Run Auto Tests Iteration2B",
+                "Run Auto Tests Iteration3",
+                "Run Auto Tests Iteration4",
+                "Run Auto Tests Iteration5"
+            ]
+        },
+        {
             "label": "Full Test Suite",
             "type": "shell",
             "command": "echo",
@@ -230,7 +349,7 @@
             "dependsOrder": "sequence",
             "dependsOn": [
                 "Run All Tests",
-                "Run Auto Tests"
+                "Run All Auto Tests"
             ]
         },
         {
@@ -250,12 +369,57 @@
                 "clear": false
             },
             "problemMatcher": [],
-            "detail": "Очистка сборки"
+            "detail": "Очистка кэша сборки Go"
+        },
+        {
+            "label": "Clean All",
+            "type": "shell",
+            "command": "echo",
+            "args": [
+                "Cleaning build cache and binaries..."
+            ],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": [],
+            "detail": "Очистка кэша сборки и бинарников",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "Clean Build",
+                "Clean Binaries"
+            ]
+        },
+        {
+            "label": "Clean Binaries",
+            "type": "shell",
+            "command": "rm",
+            "args": [
+                "-f",
+                "bin/agent",
+                "bin/server"
+            ],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": [],
+            "detail": "Удаление бинарных файлов"
         },
         {
             "label": "Run Server",
             "type": "shell",
-            "command": "cmd/server/server",
+            "command": "bin/server",
             "args": [
                 "-a=localhost:9090"
             ],
@@ -275,7 +439,7 @@
         {
             "label": "Run Agent",
             "type": "shell",
-            "command": "cmd/agent/agent",
+            "command": "bin/agent",
             "args": [
                 "-a=localhost:8080",
                 "-r=2s"
