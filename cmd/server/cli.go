@@ -11,9 +11,6 @@ import (
 func parseFlags() (string, error) {
 	var addr string
 
-	// Получаем значение по умолчанию с учетом переменной окружения
-	defaultAddr := getEnvOrDefault("ADDRESS", "localhost:8080")
-
 	cmd := &cobra.Command{
 		Use:   "server",
 		Short: "HTTP сервер для сбора метрик",
@@ -28,17 +25,12 @@ Environment variables:
 				return fmt.Errorf("неизвестные аргументы: %v", args)
 			}
 
-			// Валидируем адрес
-			if err := validateAddress(addr); err != nil {
-				return err
-			}
-
 			return nil
 		},
 	}
 
-	// Добавляем флаг для адреса
-	cmd.Flags().StringVarP(&addr, "address", "a", defaultAddr, "адрес эндпоинта HTTP-сервера")
+	// Добавляем флаг для адреса с обычным значением по умолчанию
+	cmd.Flags().StringVarP(&addr, "address", "a", "localhost:8080", "адрес эндпоинта HTTP-сервера")
 
 	// Парсим аргументы
 	if err := cmd.Execute(); err != nil {
@@ -64,14 +56,6 @@ Environment variables:
 	}
 
 	return finalAddr, nil
-}
-
-// getEnvOrDefault возвращает значение переменной окружения или значение по умолчанию
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
 }
 
 // getFinalValue возвращает финальное значение с учетом приоритета
