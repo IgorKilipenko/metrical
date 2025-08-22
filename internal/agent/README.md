@@ -81,11 +81,12 @@ sequenceDiagram
 - **Graceful shutdown**: Корректное завершение работы
 - **Потокобезопасность**: Использование `sync.RWMutex`
 - **Конфигурация**: Гибкие настройки через структуру Config
+- **Логирование**: Структурированное логирование через logger абстракцию
 
 ### ✅ Обработка ошибок
 - **Retry логика**: 2 попытки с задержкой 100ms
 - **Детальная диагностика**: Чтение тела ответа при ошибках
-- **Логирование ошибок**: Опциональное подробное логирование
+- **Структурированное логирование**: Детальное логирование операций и ошибок
 
 ### ✅ Конфигурация
 - **Валидация**: Проверка корректности настроек
@@ -133,3 +134,38 @@ DefaultHTTPTimeout    = 10 * time.Second
 DefaultMaxRetries     = 2
 DefaultRetryDelay     = 100 * time.Millisecond
 ```
+
+## Логирование
+
+Агент использует структурированное логирование для отслеживания всех операций:
+
+```go
+// Создание агента с логгером
+agentLogger := logger.NewSlogLogger()
+agent := agent.NewAgent(config, agentLogger)
+
+// Логирование сбора метрик
+agent.collectMetrics()
+// Логи: "collected metrics" total=29 gauges=28 counters=1
+
+// Логирование отправки метрик
+agent.sendMetrics()
+// Логи: "successfully sent metrics" count=29
+
+// Логирование ошибок (при verbose режиме)
+// Логи: "error sending metric" name=Alloc error="connection refused"
+
+// Логирование graceful shutdown
+agent.Stop()
+// Логи: "stopping agent"
+// Логи: "polling stopped"  
+// Логи: "reporting stopped"
+// Логи: "agent stopped gracefully"
+```
+
+### Уровни логирования
+
+- **Debug**: Детальная информация о метриках (при verbose режиме)
+- **Info**: Основные события (сбор метрик, отправка, остановка)
+- **Warn**: Предупреждения (частичные ошибки отправки)
+- **Error**: Ошибки отправки метрик (при verbose режиме)

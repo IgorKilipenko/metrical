@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/IgorKilipenko/metrical/internal/agent"
+	"github.com/IgorKilipenko/metrical/internal/logger"
 	"github.com/spf13/cobra"
 )
 
@@ -69,8 +70,11 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	log.Printf("Agent configuration: server=%s, poll=%v, report=%v, verbose=%v",
 		config.ServerURL, config.PollInterval, config.ReportInterval, config.VerboseLogging)
 
+	// Создаем логгер
+	agentLogger := logger.NewSlogLogger()
+
 	// Создаем и запускаем агент
-	metricsAgent := agent.NewAgent(config)
+	metricsAgent := agent.NewAgent(config, agentLogger)
 
 	// Создаем контекст с отменой для graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

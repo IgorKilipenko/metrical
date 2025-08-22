@@ -2,13 +2,14 @@ package agent
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/IgorKilipenko/metrical/internal/logger"
 )
 
 // Константы для retry логики
@@ -39,23 +40,29 @@ type Agent struct {
 	mu         sync.RWMutex
 	httpClient *http.Client
 	done       chan struct{} // Канал для graceful shutdown
+	logger     logger.Logger
 }
 
 // NewAgent создает новый экземпляр агента
-func NewAgent(config *Config) *Agent {
+func NewAgent(config *Config, agentLogger logger.Logger) *Agent {
+	if agentLogger == nil {
+		agentLogger = logger.NewSlogLogger()
+	}
+
 	return &Agent{
 		config:  config,
 		metrics: NewMetrics(),
 		httpClient: &http.Client{
 			Timeout: DefaultHTTPTimeout,
 		},
-		done: make(chan struct{}),
+		done:   make(chan struct{}),
+		logger: agentLogger,
 	}
 }
 
 // Stop останавливает агента gracefully
 func (a *Agent) Stop() {
-	log.Println("Stopping agent...")
+	a.logger.Info("stopping agent")
 	close(a.done)
 }
 
@@ -69,7 +76,7 @@ func (a *Agent) Run() {
 
 	// Ждем сигнала завершения
 	<-a.done
-	log.Println("Agent stopped gracefully")
+	a.logger.Info("agent stopped gracefully")
 }
 
 // pollMetrics собирает метрики из runtime
@@ -82,7 +89,7 @@ func (a *Agent) pollMetrics() {
 		case <-ticker.C:
 			a.collectMetrics()
 		case <-a.done:
-			log.Println("Polling stopped")
+			a.logger.Info("polling stopped")
 			return
 		}
 	}
@@ -108,10 +115,12 @@ func (a *Agent) collectMetrics() {
 
 	totalMetrics := len(a.metrics.Gauges) + len(a.metrics.Counters)
 	if a.config.VerboseLogging {
-		log.Printf("Collected %d metrics (gauges: %d, counters: %d)",
-			totalMetrics, len(a.metrics.Gauges), len(a.metrics.Counters))
+		a.logger.Info("collected metrics",
+			"total", totalMetrics,
+			"gauges", len(a.metrics.Gauges),
+			"counters", len(a.metrics.Counters))
 	} else {
-		log.Printf("Collected %d metrics", totalMetrics)
+		a.logger.Info("collected metrics", "total", totalMetrics)
 	}
 }
 
@@ -125,7 +134,7 @@ func (a *Agent) reportMetrics() {
 		case <-ticker.C:
 			a.sendMetrics()
 		case <-a.done:
-			log.Println("Reporting stopped")
+			a.logger.Info("reporting stopped")
 			return
 		}
 	}
@@ -145,7 +154,7 @@ func (a *Agent) sendMetrics() {
 			errorCount++
 			// Логируем ошибки только если включено подробное логирование
 			if a.config.VerboseLogging {
-				log.Printf("Error sending metric %s: %v", name, err)
+				a.logger.Error("error sending metric", "name", name, "error", err)
 			}
 		} else {
 			successCount++
@@ -154,9 +163,11 @@ func (a *Agent) sendMetrics() {
 
 	// Логируем итоговую статистику
 	if errorCount > 0 {
-		log.Printf("Sent %d metrics successfully, %d failed", successCount, errorCount)
+		a.logger.Warn("sent metrics with errors",
+			"successful", successCount,
+			"failed", errorCount)
 	} else {
-		log.Printf("Successfully sent %d metrics", successCount)
+		a.logger.Info("successfully sent metrics", "count", successCount)
 	}
 }
 
@@ -239,7 +250,10 @@ func (a *Agent) sendSingleMetric(name string, value interface{}) error {
 
 	// Логируем успешную отправку
 	if a.config.VerboseLogging {
-		log.Printf("Sent metric %s = %s, status: 200", metricInfo.Name, metricInfo.Value)
+		a.logger.Debug("sent metric successfully",
+			"name", metricInfo.Name,
+			"value", metricInfo.Value,
+			"status", 200)
 	}
 
 	return nil
