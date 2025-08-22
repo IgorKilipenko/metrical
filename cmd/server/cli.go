@@ -65,7 +65,8 @@ func getFinalValue(envKey, flagValue, defaultValue string) string {
 		return envValue
 	}
 	// 2. Флаг командной строки (средний приоритет)
-	if flagValue != "" && flagValue != defaultValue {
+	// Проверяем, был ли флаг установлен (даже если значение пустое)
+	if flagValue != defaultValue {
 		return flagValue
 	}
 	// 3. Значение по умолчанию (низший приоритет)
