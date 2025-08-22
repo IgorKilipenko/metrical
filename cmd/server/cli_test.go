@@ -166,6 +166,81 @@ func TestParseFlags_InvalidFlagValues(t *testing.T) {
 	}
 }
 
+func TestParseFlags_FlagPriorityAndValidation(t *testing.T) {
+	// Сохраняем оригинальные аргументы
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	testCases := []struct {
+		name        string
+		args        []string
+		envVars     map[string]string
+		expectedErr string
+		expectError bool
+	}{
+		{
+			name:        "Empty flag value should be validated",
+			args:        []string{"server", "-a", ""},
+			envVars:     nil,
+			expectedErr: "адрес не может быть пустым",
+			expectError: true,
+		},
+		{
+			name:        "Environment variable overrides empty flag",
+			args:        []string{"server", "-a", ""},
+			envVars:     map[string]string{"ADDRESS": "localhost:9090"},
+			expectedErr: "",
+			expectError: false,
+		},
+		{
+			name:        "Environment variable overrides valid flag",
+			args:        []string{"server", "-a", "localhost:8080"},
+			envVars:     map[string]string{"ADDRESS": "localhost:9090"},
+			expectedErr: "",
+			expectError: false,
+		},
+		{
+			name:        "Flag overrides default when valid",
+			args:        []string{"server", "-a", "localhost:9090"},
+			envVars:     nil,
+			expectedErr: "",
+			expectError: false,
+		},
+		{
+			name:        "Default value used when no flag or env",
+			args:        []string{"server"},
+			envVars:     nil,
+			expectedErr: "",
+			expectError: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Устанавливаем переменные окружения
+			if tc.envVars != nil {
+				for key, value := range tc.envVars {
+					os.Setenv(key, value)
+					defer os.Unsetenv(key)
+				}
+			}
+
+			os.Args = tc.args
+
+			result, err := parseFlags()
+
+			if tc.expectError {
+				require.Error(t, err, "Expected error for invalid configuration")
+				assert.True(t, IsInvalidAddress(err), "Should return InvalidAddressError")
+				assert.Contains(t, err.Error(), tc.expectedErr, "Error message should contain expected reason")
+			} else {
+				require.NoError(t, err, "Expected no error for valid configuration")
+				assert.NotEmpty(t, result, "Result should not be empty")
+			}
+		})
+	}
+}
+
 func TestParseFlags_MultipleUnknownArguments(t *testing.T) {
 	// Сохраняем оригинальные аргументы
 	originalArgs := os.Args
