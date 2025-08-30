@@ -45,13 +45,13 @@ const (
 )
 ```
 
-### SlogLogger
+### ZerologLogger
 
-Реализация логгера на основе стандартного пакета `slog`:
+Реализация логгера на основе библиотеки `github.com/rs/zerolog`:
 
 ```go
-type SlogLogger struct {
-    logger *slog.Logger
+type ZerologLogger struct {
+    logger zerolog.Logger
     level  LogLevel
 }
 ```
@@ -164,7 +164,7 @@ graph TB
     
     subgraph "Logger Package"
         LOGGER[Logger Interface]
-        SLOG[SlogLogger]
+        SLOG[ZerologLogger]
         CONFIG[LoggerConfig]
     end
     

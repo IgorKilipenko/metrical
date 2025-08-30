@@ -2,8 +2,9 @@ package logger
 
 import (
 	"context"
-	"log/slog"
 	"os"
+
+	"github.com/rs/zerolog"
 )
 
 // LogLevel представляет уровень логирования
@@ -49,33 +50,45 @@ type Logger interface {
 	Sync() error
 }
 
-// SlogLogger реализация логгера на основе slog
-type SlogLogger struct {
-	logger *slog.Logger
+// ZerologLogger реализация логгера на основе zerolog
+type ZerologLogger struct {
+	logger zerolog.Logger
 	level  LogLevel
 }
 
-// NewSlogLogger создает новый логгер на основе slog
+// NewSlogLogger создает новый логгер на основе zerolog
 func NewSlogLogger() Logger {
-	return &SlogLogger{
-		logger: slog.New(slog.NewTextHandler(os.Stdout, nil)),
+	return &ZerologLogger{
+		logger: zerolog.New(os.Stdout).With().Timestamp().Logger(),
 		level:  InfoLevel,
 	}
 }
 
-// NewSlogLoggerWithConfig создает логгер с конфигурацией
+// NewSlogLoggerWithConfig создает логгер с конфигурацией на основе zerolog
 func NewSlogLoggerWithConfig(config LoggerConfig) Logger {
-	var handler slog.Handler
+	var logger zerolog.Logger
 
 	switch config.Format {
 	case "json":
-		handler = slog.NewJSONHandler(os.Stdout, nil)
+		logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
 	default:
-		handler = slog.NewTextHandler(os.Stdout, nil)
+		logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
 	}
 
-	return &SlogLogger{
-		logger: slog.New(handler),
+	// Устанавливаем уровень логирования
+	switch config.Level {
+	case DebugLevel:
+		logger = logger.Level(zerolog.DebugLevel)
+	case InfoLevel:
+		logger = logger.Level(zerolog.InfoLevel)
+	case WarnLevel:
+		logger = logger.Level(zerolog.WarnLevel)
+	case ErrorLevel:
+		logger = logger.Level(zerolog.ErrorLevel)
+	}
+
+	return &ZerologLogger{
+		logger: logger,
 		level:  config.Level,
 	}
 }
@@ -95,61 +108,85 @@ func DefaultLoggerConfig() LoggerConfig {
 }
 
 // SetLevel устанавливает уровень логирования
-func (l *SlogLogger) SetLevel(level LogLevel) {
+func (l *ZerologLogger) SetLevel(level LogLevel) {
 	l.level = level
 }
 
 // Debug логирует сообщение на уровне DEBUG
-func (l *SlogLogger) Debug(msg string, args ...any) {
+func (l *ZerologLogger) Debug(msg string, args ...any) {
 	if l.level <= DebugLevel {
-		l.logger.Debug(msg, args...)
+		event := l.logger.Debug()
+		for i := 0; i < len(args); i += 2 {
+			if i+1 < len(args) {
+				event = event.Interface(args[i].(string), args[i+1])
+			}
+		}
+		event.Msg(msg)
 	}
 }
 
 // Info логирует сообщение на уровне INFO
-func (l *SlogLogger) Info(msg string, args ...any) {
+func (l *ZerologLogger) Info(msg string, args ...any) {
 	if l.level <= InfoLevel {
-		l.logger.Info(msg, args...)
+		event := l.logger.Info()
+		for i := 0; i < len(args); i += 2 {
+			if i+1 < len(args) {
+				event = event.Interface(args[i].(string), args[i+1])
+			}
+		}
+		event.Msg(msg)
 	}
 }
 
 // Warn логирует сообщение на уровне WARN
-func (l *SlogLogger) Warn(msg string, args ...any) {
+func (l *ZerologLogger) Warn(msg string, args ...any) {
 	if l.level <= WarnLevel {
-		l.logger.Warn(msg, args...)
+		event := l.logger.Warn()
+		for i := 0; i < len(args); i += 2 {
+			if i+1 < len(args) {
+				event = event.Interface(args[i].(string), args[i+1])
+			}
+		}
+		event.Msg(msg)
 	}
 }
 
 // Error логирует сообщение на уровне ERROR
-func (l *SlogLogger) Error(msg string, args ...any) {
+func (l *ZerologLogger) Error(msg string, args ...any) {
 	if l.level <= ErrorLevel {
-		l.logger.Error(msg, args...)
+		event := l.logger.Error()
+		for i := 0; i < len(args); i += 2 {
+			if i+1 < len(args) {
+				event = event.Interface(args[i].(string), args[i+1])
+			}
+		}
+		event.Msg(msg)
 	}
 }
 
 // WithContext создает новый логгер с контекстом
-func (l *SlogLogger) WithContext(ctx context.Context) Logger {
-	return &SlogLogger{
-		logger: l.logger.With("context", ctx),
+func (l *ZerologLogger) WithContext(ctx context.Context) Logger {
+	return &ZerologLogger{
+		logger: l.logger.With().Interface("context", ctx).Logger(),
 		level:  l.level,
 	}
 }
 
 // WithFields создает новый логгер с дополнительными полями
-func (l *SlogLogger) WithFields(fields map[string]any) Logger {
-	args := make([]any, 0, len(fields)*2)
+func (l *ZerologLogger) WithFields(fields map[string]any) Logger {
+	logger := l.logger.With()
 	for k, v := range fields {
-		args = append(args, k, v)
+		logger = logger.Interface(k, v)
 	}
 
-	return &SlogLogger{
-		logger: l.logger.With(args...),
+	return &ZerologLogger{
+		logger: logger.Logger(),
 		level:  l.level,
 	}
 }
 
 // Sync синхронизирует буферы логгера
-func (l *SlogLogger) Sync() error {
-	// slog автоматически синхронизирует буферы
+func (l *ZerologLogger) Sync() error {
+	// zerolog автоматически синхронизирует буферы
 	return nil
 }

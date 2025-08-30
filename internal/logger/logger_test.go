@@ -88,7 +88,7 @@ func TestSlogLogger_WithFields(t *testing.T) {
 }
 
 func TestSlogLogger_SetLevel(t *testing.T) {
-	logger := NewSlogLogger().(*SlogLogger)
+	logger := NewSlogLogger().(*ZerologLogger)
 
 	// Устанавливаем уровень
 	logger.SetLevel(DebugLevel)
