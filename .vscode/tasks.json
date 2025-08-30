@@ -227,6 +227,31 @@
             "dependsOn": "Build All"
         },
         {
+            "label": "Run Auto Tests Iteration6",
+            "type": "shell",
+            "command": "../auto-tests/metricstest",
+            "args": [
+                "-test.v",
+                "-test.run=^TestIteration6$",
+                "-binary-path=bin/server",
+                "-agent-binary-path=bin/agent",
+                "-source-path=.",
+                "-server-port=9091"
+            ],
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": [],
+            "detail": "Запуск автотестов для Iteration6",
+            "dependsOn": "Build All"
+        },
+        {
             "label": "Run All Auto Tests",
             "type": "shell",
             "command": "../auto-tests/metricstest",
