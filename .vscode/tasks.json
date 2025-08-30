@@ -323,11 +323,11 @@
             "detail": "Запуск тестов с покрытием"
         },
         {
-            "label": "Run All Iterations (1-5)",
+            "label": "Run All Iterations (1-6)",
             "type": "shell",
             "command": "echo",
             "args": [
-                "Running all iterations from 1 to 5..."
+                "Running all iterations from 1 to 6..."
             ],
             "group": "test",
             "presentation": {
@@ -339,7 +339,7 @@
                 "clear": false
             },
             "problemMatcher": [],
-            "detail": "Запуск всех итераций с 1-й по 5-ю",
+            "detail": "Запуск всех итераций с 1-й по 6-ю",
             "dependsOrder": "sequence",
             "dependsOn": [
                 "Run Auto Tests Iteration1",
@@ -347,7 +347,8 @@
                 "Run Auto Tests Iteration2B",
                 "Run Auto Tests Iteration3",
                 "Run Auto Tests Iteration4",
-                "Run Auto Tests Iteration5"
+                "Run Auto Tests Iteration5",
+                "Run Auto Tests Iteration6"
             ]
         },
         {
