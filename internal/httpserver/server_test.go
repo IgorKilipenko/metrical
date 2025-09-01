@@ -256,7 +256,7 @@ func TestServerRedirects(t *testing.T) {
 		{
 			name:             "Path with trailing slash",
 			path:             "/update/gauge/test/123.45/",
-			expectedStatus:   http.StatusNotFound, // Chi router doesn't redirect trailing slashes by default
+			expectedStatus:   http.StatusMethodNotAllowed, // GET request to POST endpoint with trailing slashes
 			expectedRedirect: false,
 		},
 		{
