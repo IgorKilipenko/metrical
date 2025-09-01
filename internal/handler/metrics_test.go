@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/IgorKilipenko/metrical/internal/repository"
@@ -291,4 +292,186 @@ func TestMetricsHandler_UpdateMetric_GaugeReplacement(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "30", w.Body.String()) // Последнее значение
+}
+
+func TestMetricsHandler_UpdateMetricJSON(t *testing.T) {
+	handler := createTestHandler()
+
+	tests := []struct {
+		name           string
+		requestBody    string
+		contentType    string
+		expectedStatus int
+		expectedBody   string
+	}{
+		{
+			name:           "successful gauge metric update",
+			requestBody:    `{"id": "TestMetric", "type": "gauge", "value": 42.5}`,
+			contentType:    "application/json",
+			expectedStatus: http.StatusOK,
+			expectedBody:   "",
+		},
+		{
+			name:           "successful counter metric update",
+			requestBody:    `{"id": "TestCounter", "type": "counter", "delta": 100}`,
+			contentType:    "application/json",
+			expectedStatus: http.StatusOK,
+			expectedBody:   "",
+		},
+		{
+			name:           "invalid content type",
+			requestBody:    `{"id": "TestMetric", "type": "gauge", "value": 42.5}`,
+			contentType:    "text/plain",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Content-Type must be application/json\n",
+		},
+		{
+			name:           "invalid JSON format",
+			requestBody:    `{invalid json}`,
+			contentType:    "application/json",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Invalid JSON format\n",
+		},
+		{
+			name:           "missing metric ID",
+			requestBody:    `{"type": "gauge", "value": 42.5}`,
+			contentType:    "application/json",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "metric ID is required\n",
+		},
+		{
+			name:           "missing metric type",
+			requestBody:    `{"id": "TestMetric", "value": 42.5}`,
+			contentType:    "application/json",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "metric type is required\n",
+		},
+		{
+			name:           "gauge metric without value",
+			requestBody:    `{"id": "TestMetric", "type": "gauge"}`,
+			contentType:    "application/json",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "value is required for gauge metric\n",
+		},
+		{
+			name:           "counter metric without delta",
+			requestBody:    `{"id": "TestCounter", "type": "counter"}`,
+			contentType:    "application/json",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "delta is required for counter metric\n",
+		},
+		{
+			name:           "unsupported metric type",
+			requestBody:    `{"id": "TestMetric", "type": "invalid", "value": 42.5}`,
+			contentType:    "application/json",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "unsupported metric type: invalid\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/update", strings.NewReader(tt.requestBody))
+			req.Header.Set("Content-Type", tt.contentType)
+			w := httptest.NewRecorder()
+
+			handler.UpdateMetricJSON(w, req)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
+			assert.Equal(t, tt.expectedBody, w.Body.String())
+		})
+	}
+}
+
+func TestMetricsHandler_GetMetricJSON(t *testing.T) {
+	handler := createTestHandler()
+
+	// Добавляем тестовые метрики через JSON API
+	req1 := httptest.NewRequest("POST", "/update", strings.NewReader(`{"id": "TestGauge", "type": "gauge", "value": 42.5}`))
+	req1.Header.Set("Content-Type", "application/json")
+	w1 := httptest.NewRecorder()
+	handler.UpdateMetricJSON(w1, req1)
+
+	req2 := httptest.NewRequest("POST", "/update", strings.NewReader(`{"id": "TestCounter", "type": "counter", "delta": 100}`))
+	req2.Header.Set("Content-Type", "application/json")
+	w2 := httptest.NewRecorder()
+	handler.UpdateMetricJSON(w2, req2)
+
+	tests := []struct {
+		name           string
+		requestBody    string
+		contentType    string
+		expectedStatus int
+		expectedBody   string
+	}{
+		{
+			name:           "successful gauge metric retrieval",
+			requestBody:    `{"id": "TestGauge", "type": "gauge"}`,
+			contentType:    "application/json",
+			expectedStatus: http.StatusOK,
+			expectedBody:   `{"id":"TestGauge","type":"gauge","value":42.5}` + "\n",
+		},
+		{
+			name:           "successful counter metric retrieval",
+			requestBody:    `{"id": "TestCounter", "type": "counter"}`,
+			contentType:    "application/json",
+			expectedStatus: http.StatusOK,
+			expectedBody:   `{"id":"TestCounter","type":"counter","delta":100}` + "\n",
+		},
+		{
+			name:           "invalid content type",
+			requestBody:    `{"id": "TestGauge", "type": "gauge"}`,
+			contentType:    "text/plain",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Content-Type must be application/json\n",
+		},
+		{
+			name:           "invalid JSON format",
+			requestBody:    `{invalid json}`,
+			contentType:    "application/json",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Invalid JSON format\n",
+		},
+		{
+			name:           "missing metric ID",
+			requestBody:    `{"type": "gauge"}`,
+			contentType:    "application/json",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "metric ID is required\n",
+		},
+		{
+			name:           "missing metric type",
+			requestBody:    `{"id": "TestMetric"}`,
+			contentType:    "application/json",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "metric type is required\n",
+		},
+		{
+			name:           "unsupported metric type",
+			requestBody:    `{"id": "TestMetric", "type": "invalid"}`,
+			contentType:    "application/json",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "unsupported metric type: invalid\n",
+		},
+		{
+			name:           "metric not found",
+			requestBody:    `{"id": "NonExistent", "type": "gauge"}`,
+			contentType:    "application/json",
+			expectedStatus: http.StatusNotFound,
+			expectedBody:   "gauge metric not found: NonExistent\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/value", strings.NewReader(tt.requestBody))
+			req.Header.Set("Content-Type", tt.contentType)
+			w := httptest.NewRecorder()
+
+			handler.GetMetricJSON(w, req)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
+			assert.Equal(t, tt.expectedBody, w.Body.String())
+		})
+	}
 }

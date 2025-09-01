@@ -8,6 +8,7 @@ import (
 	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/IgorKilipenko/metrical/internal/testutils"
 	"github.com/IgorKilipenko/metrical/internal/validation"
+	models "github.com/IgorKilipenko/metrical/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -365,6 +366,177 @@ func TestMetricsService_UpdateMetric_WithValidation(t *testing.T) {
 				}
 			} else {
 				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestMetricsService_UpdateMetricJSON(t *testing.T) {
+	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	service := NewMetricsService(repository, testutils.NewMockLogger())
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		metric      *models.Metrics
+		expectError bool
+	}{
+		{
+			name: "successful gauge metric update",
+			metric: &models.Metrics{
+				ID:    "TestGauge",
+				MType: "gauge",
+				Value: func() *float64 { v := 42.5; return &v }(),
+			},
+			expectError: false,
+		},
+		{
+			name: "successful counter metric update",
+			metric: &models.Metrics{
+				ID:    "TestCounter",
+				MType: "counter",
+				Delta: func() *int64 { v := int64(100); return &v }(),
+			},
+			expectError: false,
+		},
+		{
+			name: "gauge metric without value",
+			metric: &models.Metrics{
+				ID:    "TestGauge",
+				MType: "gauge",
+				Value: nil,
+			},
+			expectError: true,
+		},
+		{
+			name: "counter metric without delta",
+			metric: &models.Metrics{
+				ID:    "TestCounter",
+				MType: "counter",
+				Delta: nil,
+			},
+			expectError: true,
+		},
+		{
+			name: "unsupported metric type",
+			metric: &models.Metrics{
+				ID:    "TestMetric",
+				MType: "invalid",
+				Value: func() *float64 { v := 42.5; return &v }(),
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := service.UpdateMetricJSON(ctx, tt.metric)
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestMetricsService_GetMetricJSON(t *testing.T) {
+	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	service := NewMetricsService(repository, testutils.NewMockLogger())
+	ctx := context.Background()
+
+	// Добавляем тестовые метрики
+	gaugeMetric := &models.Metrics{
+		ID:    "TestGauge",
+		MType: "gauge",
+		Value: func() *float64 { v := 42.5; return &v }(),
+	}
+	err := service.UpdateMetricJSON(ctx, gaugeMetric)
+	require.NoError(t, err, "Failed to add test gauge metric")
+
+	counterMetric := &models.Metrics{
+		ID:    "TestCounter",
+		MType: "counter",
+		Delta: func() *int64 { v := int64(100); return &v }(),
+	}
+	err = service.UpdateMetricJSON(ctx, counterMetric)
+	require.NoError(t, err, "Failed to add test counter metric")
+
+	tests := []struct {
+		name        string
+		metric      *models.Metrics
+		expectError bool
+		expected    *models.Metrics
+	}{
+		{
+			name: "successful gauge metric retrieval",
+			metric: &models.Metrics{
+				ID:    "TestGauge",
+				MType: "gauge",
+			},
+			expectError: false,
+			expected: &models.Metrics{
+				ID:    "TestGauge",
+				MType: "gauge",
+				Value: func() *float64 { v := 42.5; return &v }(),
+			},
+		},
+		{
+			name: "successful counter metric retrieval",
+			metric: &models.Metrics{
+				ID:    "TestCounter",
+				MType: "counter",
+			},
+			expectError: false,
+			expected: &models.Metrics{
+				ID:    "TestCounter",
+				MType: "counter",
+				Delta: func() *int64 { v := int64(100); return &v }(),
+			},
+		},
+		{
+			name: "gauge metric not found",
+			metric: &models.Metrics{
+				ID:    "NonExistent",
+				MType: "gauge",
+			},
+			expectError: true,
+		},
+		{
+			name: "counter metric not found",
+			metric: &models.Metrics{
+				ID:    "NonExistent",
+				MType: "counter",
+			},
+			expectError: true,
+		},
+		{
+			name: "unsupported metric type",
+			metric: &models.Metrics{
+				ID:    "TestMetric",
+				MType: "invalid",
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := service.GetMetricJSON(ctx, tt.metric)
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected.ID, result.ID)
+				assert.Equal(t, tt.expected.MType, result.MType)
+				if tt.expected.Value != nil {
+					assert.Equal(t, *tt.expected.Value, *result.Value)
+				}
+				if tt.expected.Delta != nil {
+					assert.Equal(t, *tt.expected.Delta, *result.Delta)
+				}
 			}
 		})
 	}

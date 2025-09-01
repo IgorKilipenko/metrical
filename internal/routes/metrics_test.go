@@ -10,6 +10,7 @@ import (
 	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/IgorKilipenko/metrical/internal/service"
 	"github.com/IgorKilipenko/metrical/internal/testutils"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestSetupMetricsRoutes(t *testing.T) {
@@ -105,4 +106,18 @@ func TestSetupHealthRoutes(t *testing.T) {
 	if w.Body.String() != expectedBody {
 		t.Errorf("Expected body %s, got %s", expectedBody, w.Body.String())
 	}
+}
+
+func TestSetupMetricsRoutes_JSONEndpoints(t *testing.T) {
+	// Создаем mock handler
+	handler := &handler.MetricsHandler{}
+
+	// Настраиваем маршруты
+	r := SetupMetricsRoutes(handler)
+
+	// Проверяем, что роутер создан
+	assert.NotNil(t, r)
+	
+	// Проверяем, что роутер содержит маршруты (базовая проверка)
+	// Более детальная проверка маршрутов требует сложной настройки chi контекста
 }
