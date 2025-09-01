@@ -36,6 +36,59 @@ go build -o cmd/agent/agent cmd/agent/main.go cmd/agent/cli.go
 ./cmd/agent/agent -a=localhost:9090 -r=2s
 ```
 
+## API Endpoints
+
+### Legacy Endpoints (для обратной совместимости)
+
+- `POST /update/{type}/{name}/{value}` - обновление метрики
+- `GET /value/{type}/{name}` - получение значения метрики
+- `GET /` - HTML дашборд со всеми метриками
+
+### JSON API Endpoints
+
+#### Обновление метрики
+```http
+POST /update
+Content-Type: application/json
+
+{
+  "id": "LastGC",
+  "type": "gauge",
+  "value": 1744184459
+}
+```
+
+#### Получение метрики
+```http
+POST /value
+Content-Type: application/json
+
+{
+  "id": "LastGC",
+  "type": "gauge"
+}
+```
+
+Ответ:
+```json
+{
+  "id": "LastGC",
+  "type": "gauge",
+  "value": 1744184459
+}
+```
+
+### Структура метрики
+
+```go
+type Metrics struct {
+    ID    string   `json:"id"`              // имя метрики
+    MType string   `json:"type"`            // тип: "gauge" или "counter"
+    Delta *int64   `json:"delta,omitempty"` // значение для counter метрик
+    Value *float64 `json:"value,omitempty"` // значение для gauge метрик
+}
+```
+
 ## Архитектура
 
 Проект следует принципам чистой архитектуры с разделением на слои:

@@ -112,6 +112,13 @@ type MetricsHandler struct {
 - `GetAllMetrics(w, r)` - получение всех метрик (HTML) с контекстом
 - `getAllMetricsData(ctx)` - приватный метод для получения данных метрик с контекстом
 
+### JSON API методы
+
+- `UpdateMetricJSON(w, r)` - обновление метрики через JSON API
+- `GetMetricJSON(w, r)` - получение метрики через JSON API
+- `validateMetricJSON(metric)` - валидация JSON метрики
+- `validateMetricRequestJSON(metric)` - валидация JSON запроса
+
 ## Принципы
 
 - **Адаптер** - преобразует HTTP в вызовы сервисов

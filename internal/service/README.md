@@ -118,6 +118,26 @@ func (s *MetricsService) UpdateMetric(ctx context.Context, req *validation.Metri
 - Содержит только бизнес-логику без валидации
 - Делегирует обновление в соответствующие методы по типу метрики
 
+### JSON API методы
+
+#### UpdateMetricJSON
+Обновляет метрику через JSON структуру:
+```go
+func (s *MetricsService) UpdateMetricJSON(ctx context.Context, metric *models.Metrics) error
+```
+
+#### GetMetricJSON
+Получает метрику в JSON формате:
+```go
+func (s *MetricsService) GetMetricJSON(ctx context.Context, metric *models.Metrics) (*models.Metrics, error)
+```
+
+**Особенности JSON API:**
+- Работает с `models.Metrics` структурой
+- Поддерживает контекст для отмены и таймаутов
+- Валидирует данные перед обработкой
+- Возвращает полную структуру метрики с значениями
+
 ### updateGaugeMetric / updateCounterMetric
 Приватные методы для обновления конкретных типов метрик с контекстом:
 ```go
