@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"runtime"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"github.com/IgorKilipenko/metrical/internal/logger"
+	models "github.com/IgorKilipenko/metrical/internal/model"
 )
 
 // Константы для retry логики
@@ -150,7 +153,7 @@ func (a *Agent) sendMetrics() {
 	errorCount := 0
 
 	for name, value := range metrics {
-		if err := a.sendSingleMetric(name, value); err != nil {
+		if err := a.sendSingleMetricJSON(name, value); err != nil {
 			errorCount++
 			// Логируем ошибки только если включено подробное логирование
 			if a.config.VerboseLogging {
@@ -257,4 +260,108 @@ func (a *Agent) sendSingleMetric(name string, value interface{}) error {
 	}
 
 	return nil
+}
+
+// sendSingleMetricJSON отправляет одну метрику в JSON формате
+func (a *Agent) sendSingleMetricJSON(name string, value interface{}) error {
+	// Подготавливаем метрику в JSON формате
+	metric, err := a.prepareMetricJSON(name, value)
+	if err != nil {
+		return err
+	}
+
+	// Отправляем HTTP запрос
+	if err := a.sendJSONRequest(metric); err != nil {
+		return fmt.Errorf("failed to send metric %s: %w", name, err)
+	}
+
+	// Логируем успешную отправку
+	if a.config.VerboseLogging {
+		a.logger.Debug("sent metric successfully",
+			"name", metric.ID,
+			"type", metric.MType,
+			"status", 200)
+	}
+
+	return nil
+}
+
+// prepareMetricJSON подготавливает метрику в JSON формате
+func (a *Agent) prepareMetricJSON(name string, value interface{}) (*models.Metrics, error) {
+	var metric models.Metrics
+	metric.ID = name
+
+	switch v := value.(type) {
+	case float64:
+		metric.MType = "gauge"
+		metric.Value = &v
+	case int64:
+		metric.MType = "counter"
+		metric.Delta = &v
+	default:
+		return nil, fmt.Errorf("unknown metric type for %s: %T", name, value)
+	}
+
+	return &metric, nil
+}
+
+// sendJSONRequest отправляет JSON запрос на сервер
+func (a *Agent) sendJSONRequest(metric *models.Metrics) error {
+	// Убеждаемся, что URL содержит протокол
+	serverURL := a.config.ServerURL
+	if !strings.HasPrefix(serverURL, "http://") && !strings.HasPrefix(serverURL, "https://") {
+		serverURL = "http://" + serverURL
+	}
+	url := fmt.Sprintf("%s/update", serverURL)
+
+	// Кодируем метрику в JSON
+	jsonData, err := json.Marshal(metric)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metric: %w", err)
+	}
+
+	// Создаем запрос
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Устанавливаем заголовки
+	req.Header.Set("Content-Type", "application/json")
+
+	// Выполняем запрос с retry логикой
+	return a.sendHTTPRequestWithRetry(req)
+}
+
+// sendHTTPRequestWithRetry выполняет HTTP запрос с retry логикой
+func (a *Agent) sendHTTPRequestWithRetry(req *http.Request) error {
+	for attempt := 1; attempt <= DefaultMaxRetries; attempt++ {
+		resp, err := a.httpClient.Do(req)
+		if err != nil {
+			// Если это последняя попытка, возвращаем ошибку
+			if attempt == DefaultMaxRetries {
+				return fmt.Errorf("failed after %d attempts: %w", DefaultMaxRetries, err)
+			}
+			// Небольшая задержка перед повторной попыткой
+			time.Sleep(DefaultRetryDelay)
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		} else {
+			// Читаем тело ответа для лучшей диагностики
+			body := make([]byte, 1024)
+			n, _ := resp.Body.Read(body)
+			bodyStr := string(body[:n])
+
+			if attempt == DefaultMaxRetries {
+				return fmt.Errorf("server returned status %d: %s", resp.StatusCode, bodyStr)
+			}
+			time.Sleep(DefaultRetryDelay)
+		}
+	}
+
+	return fmt.Errorf("failed to send request after %d attempts", DefaultMaxRetries)
 }

@@ -42,7 +42,9 @@ type Server struct {
 
 // NewServer создает новый HTTP сервер с переданными зависимостями
 func NewServer(addr string, handler *handler.MetricsHandler, logger logger.Logger) (*Server, error) {
-	return NewServerWithConfig(&ServerConfig{Addr: addr}, handler, logger)
+	config := DefaultServerConfig()
+	config.Addr = addr
+	return NewServerWithConfig(config, handler, logger)
 }
 
 // NewServerWithConfig создает новый HTTP сервер с конфигурацией
@@ -60,6 +62,8 @@ func NewServerWithConfig(config *ServerConfig, handler *handler.MetricsHandler, 
 		return nil, errors.New("logger cannot be nil")
 	}
 
+	logger.Info("creating server with config", "addr", config.Addr)
+
 	srv := &Server{
 		config:  config,
 		handler: handler,
@@ -67,7 +71,9 @@ func NewServerWithConfig(config *ServerConfig, handler *handler.MetricsHandler, 
 	}
 
 	// Инициализируем роутер один раз
+	logger.Info("creating router")
 	srv.router = srv.createRouter()
+	logger.Info("router created successfully")
 
 	return srv, nil
 }

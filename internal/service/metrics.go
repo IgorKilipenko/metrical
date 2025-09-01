@@ -47,6 +47,27 @@ func (s *MetricsService) UpdateMetric(ctx context.Context, req *validation.Metri
 	}
 }
 
+// UpdateMetricJSON обновляет метрику из JSON структуры
+func (s *MetricsService) UpdateMetricJSON(ctx context.Context, metric *models.Metrics) error {
+	s.logger.Info("updating metric from JSON", "id", metric.ID, "type", metric.MType)
+
+	switch metric.MType {
+	case models.Gauge:
+		if metric.Value == nil {
+			return fmt.Errorf("value is required for gauge metric")
+		}
+		return s.updateGaugeMetric(ctx, metric.ID, *metric.Value)
+	case models.Counter:
+		if metric.Delta == nil {
+			return fmt.Errorf("delta is required for counter metric")
+		}
+		return s.updateCounterMetric(ctx, metric.ID, *metric.Delta)
+	default:
+		s.logger.Error("unsupported metric type", "type", metric.MType, "id", metric.ID)
+		return fmt.Errorf("unsupported metric type: %s", metric.MType)
+	}
+}
+
 // updateGaugeMetric содержит бизнес-логику для обновления gauge метрик
 func (s *MetricsService) updateGaugeMetric(ctx context.Context, name string, value float64) error {
 	s.logger.Debug("updating gauge metric", "name", name, "value", value)
@@ -154,4 +175,41 @@ func (s *MetricsService) GetAllCounters(ctx context.Context) (models.CounterMetr
 
 	s.logger.Debug("all counter metrics retrieved", "count", len(counters))
 	return counters, nil
+}
+
+// GetMetricJSON возвращает метрику в JSON формате
+func (s *MetricsService) GetMetricJSON(ctx context.Context, metric *models.Metrics) (*models.Metrics, error) {
+	s.logger.Info("getting metric as JSON", "id", metric.ID, "type", metric.MType)
+
+	result := &models.Metrics{
+		ID:    metric.ID,
+		MType: metric.MType,
+	}
+
+	switch metric.MType {
+	case models.Gauge:
+		value, exists, err := s.GetGauge(ctx, metric.ID)
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, fmt.Errorf("gauge metric not found: %s", metric.ID)
+		}
+		result.Value = &value
+
+	case models.Counter:
+		value, exists, err := s.GetCounter(ctx, metric.ID)
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, fmt.Errorf("counter metric not found: %s", metric.ID)
+		}
+		result.Delta = &value
+
+	default:
+		return nil, fmt.Errorf("unsupported metric type: %s", metric.MType)
+	}
+
+	return result, nil
 }
