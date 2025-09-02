@@ -33,6 +33,38 @@ func TestSomething(t *testing.T) {
 }
 ```
 
+### TestFilePaths
+
+`TestFilePaths` содержит константы с путями к тестовым файлам для избежания дублирования в тестах.
+
+#### Доступные константы:
+- `TestMetricsFile` - основной тестовый файл метрик (`/tmp/test-metrics.json`)
+- `TestSyncFile` - для тестов синхронного сохранения (`/tmp/test-sync-metrics.json`)
+- `TestEnvFile` - для тестов переменных окружения (`/tmp/test-env-metrics.json`)
+- `TestFlagFile` - для тестов CLI флагов (`/tmp/test-flag-metrics.json`)
+
+#### Функции:
+- `GetTestFilePath(name string)` - генерирует путь к тестовому файлу с произвольным именем
+
+#### Использование:
+
+```go
+import "github.com/IgorKilipenko/metrical/internal/testutils"
+
+func TestRepository(t *testing.T) {
+    // Используем готовую константу
+    repo := repository.NewInMemoryMetricsRepository(
+        testutils.NewMockLogger(), 
+        testutils.TestMetricsFile, 
+        false,
+    )
+    
+    // Или генерируем путь динамически
+    customFile := testutils.GetTestFilePath("custom")
+    // Результат: "/tmp/test-custom-metrics.json"
+}
+```
+
 ## 🎯 Преимущества
 
 1. **DRY принцип**: Избегаем дублирования кода в тестах
@@ -84,6 +116,7 @@ func TestSomething(t *testing.T) {
 internal/
 ├── testutils/
 │   ├── logger.go      # MockLogger и утилиты
+│   ├── files.go       # Константы и утилиты для тестовых файлов
 │   └── README.md      # Документация
 └── ...
 ```

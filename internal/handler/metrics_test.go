@@ -18,7 +18,7 @@ import (
 // createTestHandler создает тестовый handler
 func createTestHandler() *MetricsHandler {
 	mockLogger := testutils.NewMockLogger()
-	repository := repository.NewInMemoryMetricsRepository(mockLogger, "/tmp/test-metrics.json", false)
+	repository := repository.NewInMemoryMetricsRepository(mockLogger, testutils.TestMetricsFile, false)
 	service := service.NewMetricsService(repository, mockLogger)
 	return NewMetricsHandler(service, mockLogger)
 }

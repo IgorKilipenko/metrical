@@ -16,7 +16,7 @@ import (
 func TestSetupMetricsRoutes(t *testing.T) {
 	// Создаем мок хендлер для тестирования
 	mockLogger := testutils.NewMockLogger()
-	repository := repository.NewInMemoryMetricsRepository(mockLogger, "/tmp/test-metrics.json", false)
+	repository := repository.NewInMemoryMetricsRepository(mockLogger, testutils.TestMetricsFile, false)
 	service := service.NewMetricsService(repository, mockLogger)
 	handler := handler.NewMetricsHandler(service, mockLogger)
 
