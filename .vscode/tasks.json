@@ -102,12 +102,12 @@
             "dependsOn": "Build All"
         },
         {
-            "label": "Run Auto Tests Iteration2A",
+            "label": "Run Auto Tests Iteration2",
             "type": "shell",
             "command": "../auto-tests/metricstest",
             "args": [
                 "-test.v",
-                "-test.run=^TestIteration2A$",
+                "-test.run=^TestIteration2[AB]$",
                 "-binary-path=bin/server",
                 "-agent-binary-path=bin/agent",
                 "-source-path=.",
@@ -123,32 +123,7 @@
                 "clear": false
             },
             "problemMatcher": [],
-            "detail": "Запуск автотестов для Iteration2A",
-            "dependsOn": "Build All"
-        },
-        {
-            "label": "Run Auto Tests Iteration2B",
-            "type": "shell",
-            "command": "../auto-tests/metricstest",
-            "args": [
-                "-test.v",
-                "-test.run=^TestIteration2B$",
-                "-binary-path=bin/server",
-                "-agent-binary-path=bin/agent",
-                "-source-path=.",
-                "-server-port=9091"
-            ],
-            "group": "test",
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared",
-                "showReuseMessage": true,
-                "clear": false
-            },
-            "problemMatcher": [],
-            "detail": "Запуск автотестов для Iteration2B",
+            "detail": "Запуск автотестов для Iteration2",
             "dependsOn": "Build All"
         },
         {
@@ -157,7 +132,7 @@
             "command": "../auto-tests/metricstest",
             "args": [
                 "-test.v",
-                "-test.run=^TestIteration3$",
+                "-test.run=^TestIteration3[AB]$",
                 "-binary-path=bin/server",
                 "-agent-binary-path=bin/agent",
                 "-source-path=.",
@@ -277,6 +252,31 @@
             "dependsOn": "Build All"
         },
         {
+            "label": "Run Auto Tests Iteration8",
+            "type": "shell",
+            "command": "../auto-tests/metricstest",
+            "args": [
+                "-test.v",
+                "-test.run=^TestIteration8$",
+                "-binary-path=bin/server",
+                "-agent-binary-path=bin/agent",
+                "-source-path=.",
+                "-server-port=9091"
+            ],
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": [],
+            "detail": "Запуск автотестов для Iteration8",
+            "dependsOn": "Build All"
+        },
+        {
             "label": "Run All Auto Tests",
             "type": "shell",
             "command": "../auto-tests/metricstest",
@@ -348,11 +348,11 @@
             "detail": "Запуск тестов с покрытием"
         },
         {
-            "label": "Run All Iterations (1-7)",
+            "label": "Run All Iterations (1-8)",
             "type": "shell",
             "command": "echo",
             "args": [
-                "Running all iterations from 1 to 7..."
+                "Running all iterations from 1 to 8..."
             ],
             "group": "test",
             "presentation": {
@@ -364,17 +364,17 @@
                 "clear": false
             },
             "problemMatcher": [],
-            "detail": "Запуск всех итераций с 1-й по 7-ю",
+            "detail": "Запуск всех итераций с 1-й по 8-ю",
             "dependsOrder": "sequence",
             "dependsOn": [
                 "Run Auto Tests Iteration1",
-                "Run Auto Tests Iteration2A",
-                "Run Auto Tests Iteration2B",
+                "Run Auto Tests Iteration2",
                 "Run Auto Tests Iteration3",
                 "Run Auto Tests Iteration4",
                 "Run Auto Tests Iteration5",
                 "Run Auto Tests Iteration6",
-                "Run Auto Tests Iteration7"
+                "Run Auto Tests Iteration7",
+                "Run Auto Tests Iteration8"
             ]
         },
         {
