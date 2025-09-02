@@ -27,8 +27,11 @@ type App struct {
 
 ```go
 type Config struct {
-    Addr string // Адрес сервера (например, "localhost")
-    Port string // Порт сервера (например, "8080")
+    Addr            string // Адрес сервера (например, "localhost")
+    Port            string // Порт сервера (например, "8080")
+    StoreInterval   int    // Интервал сохранения метрик в секундах
+    FileStoragePath string // Путь к файлу для сохранения метрик
+    Restore         bool   // Загружать ли метрики при старте
 }
 ```
 
@@ -106,11 +109,16 @@ stateDiagram-v2
 
 ## Основные методы
 
-### `NewConfig(addr string) (Config, error)`
-Создает конфигурацию из строки адреса. Поддерживает различные форматы:
+### `NewConfig(addr string, storeInterval int, fileStoragePath string, restore bool) (Config, error)`
+Создает конфигурацию из строки адреса и параметров персистентности. Поддерживает различные форматы адреса:
 - `localhost:8080` - полный адрес
 - `9090` - только порт (хост по умолчанию: localhost)
 - `127.0.0.1:9090` - IP адрес с портом
+
+**Параметры персистентности:**
+- `storeInterval` - интервал сохранения метрик в секундах (0 для синхронного сохранения)
+- `fileStoragePath` - путь к файлу для сохранения метрик
+- `restore` - загружать ли метрики при старте
 
 ### `New(config Config) *App`
 Создает новое приложение с заданной конфигурацией.
@@ -133,8 +141,8 @@ func main() {
     // Создаем логгер
     appLogger := logger.NewSlogLogger()
     
-    // Создаем конфигурацию из строки адреса
-    config, err := app.NewConfig("localhost:8080")
+    // Создаем конфигурацию из строки адреса и параметров персистентности
+    config, err := app.NewConfig("localhost:8080", 300, "/tmp/metrics.json", true)
     if err != nil {
         log.Fatal(err)
     }

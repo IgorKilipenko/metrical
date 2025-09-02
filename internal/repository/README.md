@@ -34,6 +34,9 @@ type MetricsRepository interface {
     GetCounter(ctx context.Context, name string) (int64, bool, error)
     GetAllGauges(ctx context.Context) (models.GaugeMetrics, error)
     GetAllCounters(ctx context.Context) (models.CounterMetrics, error)
+    SaveToFile() error
+    LoadFromFile() error
+    SetSyncSave(sync bool)
 }
 ```
 
@@ -43,10 +46,13 @@ type MetricsRepository interface {
 
 ```go
 type InMemoryMetricsRepository struct {
-    Gauges   models.GaugeMetrics
-    Counters models.CounterMetrics
-    mu       sync.RWMutex
-    logger   logger.Logger
+    Gauges          models.GaugeMetrics
+    Counters        models.CounterMetrics
+    mu              sync.RWMutex
+    logger          logger.Logger
+    fileStoragePath string
+    restore         bool
+    syncSave        bool
 }
 ```
 
@@ -58,8 +64,12 @@ type InMemoryMetricsRepository struct {
 // Создаем логгер
 appLogger := logger.NewSlogLogger()
 
-// Создаем репозиторий в памяти с логгером
-repo := repository.NewInMemoryMetricsRepository(appLogger)
+// Создаем репозиторий в памяти с логгером и настройками персистентности
+repo := repository.NewInMemoryMetricsRepository(
+    appLogger,
+    "/tmp/metrics.json",  // путь к файлу для сохранения
+    true,                 // загружать метрики при старте
+)
 
 // Создаем сервис с репозиторием и логгером
 service := service.NewMetricsService(repo, appLogger)
@@ -188,6 +198,52 @@ func TestRepositoryWithContext(t *testing.T) {
     err = repo.UpdateGauge(ctx, "test", 23.5)
     assert.Equal(t, context.Canceled, err)
 }
+```
+
+## 💾 Персистентность метрик
+
+Репозиторий поддерживает сохранение и загрузку метрик в/из JSON файла:
+
+### Сохранение метрик
+
+```go
+// Сохранение всех метрик в файл
+err := repo.SaveToFile()
+if err != nil {
+    log.Printf("Failed to save metrics: %v", err)
+}
+```
+
+### Загрузка метрик
+
+```go
+// Загрузка метрик из файла при старте
+err := repo.LoadFromFile()
+if err != nil {
+    log.Printf("Failed to load metrics: %v", err)
+}
+```
+
+### Синхронное сохранение
+
+```go
+// Включение синхронного сохранения (каждое обновление сразу на диск)
+repo.SetSyncSave(true)
+
+// Теперь каждое обновление метрики автоматически сохраняется
+err := repo.UpdateGauge(ctx, "temperature", 23.5)
+// Метрики автоматически сохраняются в файл
+```
+
+### Формат файла
+
+Метрики сохраняются в JSON формате:
+
+```json
+[
+  {"id":"LastGC","type":"gauge","value":1257894000000000000},
+  {"id":"NumGC","type":"counter","delta":42}
+]
 ```
 
 ## Примеры
