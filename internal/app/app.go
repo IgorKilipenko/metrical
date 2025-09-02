@@ -91,14 +91,11 @@ func (a *App) startPeriodicSaving(repo repository.MetricsRepository, logger logg
 	ticker := time.NewTicker(time.Duration(a.config.StoreInterval) * time.Second)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			if err := repo.SaveToFile(); err != nil {
-				logger.Error("failed to save metrics to file", "error", err)
-			} else {
-				logger.Debug("metrics saved to file successfully")
-			}
+	for range ticker.C {
+		if err := repo.SaveToFile(); err != nil {
+			logger.Error("failed to save metrics to file", "error", err)
+		} else {
+			logger.Debug("metrics saved to file successfully")
 		}
 	}
 }
