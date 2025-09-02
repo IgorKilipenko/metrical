@@ -14,4 +14,7 @@ type MetricsRepository interface {
 	GetCounter(ctx context.Context, name string) (int64, bool, error)
 	GetAllGauges(ctx context.Context) (models.GaugeMetrics, error)
 	GetAllCounters(ctx context.Context) (models.CounterMetrics, error)
+	SaveToFile() error
+	LoadFromFile() error
+	SetSyncSave(sync bool)
 }

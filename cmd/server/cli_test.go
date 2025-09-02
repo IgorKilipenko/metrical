@@ -16,11 +16,11 @@ func TestParseFlags_DefaultAddress(t *testing.T) {
 	// Устанавливаем тестовые аргументы (только имя программы)
 	os.Args = []string{"server"}
 
-	addr, err := parseFlags()
+	config, err := parseFlags()
 	require.NoError(t, err, "parseFlags should not return error for default address")
 
 	expected := "localhost:8080"
-	assert.Equal(t, expected, addr, "Should return default address")
+	assert.Equal(t, expected, config.Address, "Should return default address")
 }
 
 func TestParseFlags_CustomAddress(t *testing.T) {
@@ -31,11 +31,11 @@ func TestParseFlags_CustomAddress(t *testing.T) {
 	// Устанавливаем тестовые аргументы с кастомным адресом
 	os.Args = []string{"server", "-a", "localhost:9090"}
 
-	addr, err := parseFlags()
+	config, err := parseFlags()
 	require.NoError(t, err, "parseFlags should not return error for valid custom address")
 
 	expected := "localhost:9090"
-	assert.Equal(t, expected, addr, "Should return custom address")
+	assert.Equal(t, expected, config.Address, "Should return custom address")
 }
 
 func TestParseFlags_InvalidAddress(t *testing.T) {
@@ -115,9 +115,9 @@ func TestParseFlags_VariousValidAddresses(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			os.Args = tc.args
 
-			addr, err := parseFlags()
+			config, err := parseFlags()
 			require.NoError(t, err, "parseFlags should not return error for valid address")
-			assert.Equal(t, tc.expected, addr, "Should return expected address")
+			assert.Equal(t, tc.expected, config.Address, "Should return expected address")
 		})
 	}
 }
@@ -360,7 +360,7 @@ func TestParseFlags_HelpFlagPanic(t *testing.T) {
 				}
 			}()
 
-			addr, err := parseFlags()
+			config, err := parseFlags()
 
 			if tc.expectError {
 				require.Error(t, err, "Expected error")
@@ -369,7 +369,7 @@ func TestParseFlags_HelpFlagPanic(t *testing.T) {
 				}
 			} else {
 				require.NoError(t, err, "Expected no error")
-				assert.Equal(t, "localhost:8080", addr, "Should return expected address")
+				assert.Equal(t, "localhost:8080", config.Address, "Should return expected address")
 			}
 		})
 	}

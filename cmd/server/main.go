@@ -47,13 +47,13 @@ func handleError(err error) {
 func main() {
 	mainLogger.Info("starting metrics server", "version", Version)
 
-	addr, err := parseFlags()
+	config, err := parseFlags()
 	handleError(err)
 
-	config, err := app.NewConfig(addr)
+	appConfig, err := app.NewConfig(config.Address, config.StoreInterval, config.FileStoragePath, config.Restore)
 	handleError(err)
 
-	application := app.New(config)
+	application := app.New(appConfig)
 
 	if err := application.Run(); err != nil {
 		mainLogger.Error("application error", "error", err)

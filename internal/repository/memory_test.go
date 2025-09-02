@@ -11,7 +11,7 @@ import (
 )
 
 func TestInMemoryMetricsRepository_UpdateGauge(t *testing.T) {
-	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	ctx := context.Background()
 
 	// Обновляем gauge метрику
@@ -26,7 +26,7 @@ func TestInMemoryMetricsRepository_UpdateGauge(t *testing.T) {
 }
 
 func TestInMemoryMetricsRepository_UpdateCounter(t *testing.T) {
-	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	ctx := context.Background()
 
 	// Обновляем counter метрику
@@ -41,7 +41,7 @@ func TestInMemoryMetricsRepository_UpdateCounter(t *testing.T) {
 }
 
 func TestInMemoryMetricsRepository_GetGauge_NotExists(t *testing.T) {
-	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	ctx := context.Background()
 
 	// Проверяем несуществующую метрику
@@ -52,7 +52,7 @@ func TestInMemoryMetricsRepository_GetGauge_NotExists(t *testing.T) {
 }
 
 func TestInMemoryMetricsRepository_GetCounter_NotExists(t *testing.T) {
-	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	ctx := context.Background()
 
 	// Проверяем несуществующую метрику
@@ -63,7 +63,7 @@ func TestInMemoryMetricsRepository_GetCounter_NotExists(t *testing.T) {
 }
 
 func TestInMemoryMetricsRepository_GetAllGauges(t *testing.T) {
-	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	ctx := context.Background()
 
 	// Добавляем несколько gauge метрик
@@ -82,7 +82,7 @@ func TestInMemoryMetricsRepository_GetAllGauges(t *testing.T) {
 }
 
 func TestInMemoryMetricsRepository_GetAllCounters(t *testing.T) {
-	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	ctx := context.Background()
 
 	// Добавляем несколько counter метрик
@@ -102,7 +102,7 @@ func TestInMemoryMetricsRepository_GetAllCounters(t *testing.T) {
 
 // Тесты на отмену контекста
 func TestInMemoryMetricsRepository_ContextCancellation(t *testing.T) {
-	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 
 	tests := []struct {
 		name string
@@ -167,7 +167,7 @@ func TestInMemoryMetricsRepository_ContextCancellation(t *testing.T) {
 }
 
 func TestInMemoryMetricsRepository_ContextTimeout(t *testing.T) {
-	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 
 	// Создаем контекст с таймаутом
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
@@ -185,7 +185,7 @@ func TestInMemoryMetricsRepository_ContextTimeout(t *testing.T) {
 }
 
 func TestInMemoryMetricsRepository_ConcurrencyWithContext(t *testing.T) {
-	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	ctx := context.Background()
 
 	// Тестируем конкурентные операции с контекстом

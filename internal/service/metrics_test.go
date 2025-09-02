@@ -5,16 +5,16 @@ import (
 	"testing"
 	"time"
 
+	models "github.com/IgorKilipenko/metrical/internal/model"
 	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/IgorKilipenko/metrical/internal/testutils"
 	"github.com/IgorKilipenko/metrical/internal/validation"
-	models "github.com/IgorKilipenko/metrical/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMetricsService_UpdateMetric(t *testing.T) {
-	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	service := NewMetricsService(repository, testutils.NewMockLogger())
 	ctx := context.Background()
 
@@ -66,7 +66,7 @@ func TestMetricsService_UpdateMetric(t *testing.T) {
 }
 
 func TestMetricsService_UpdateMetric_GaugeReplacement(t *testing.T) {
-	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	service := NewMetricsService(repository, testutils.NewMockLogger())
 	ctx := context.Background()
 
@@ -93,7 +93,7 @@ func TestMetricsService_UpdateMetric_GaugeReplacement(t *testing.T) {
 }
 
 func TestMetricsService_UpdateMetric_CounterAccumulation(t *testing.T) {
-	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	service := NewMetricsService(repository, testutils.NewMockLogger())
 	ctx := context.Background()
 
@@ -120,7 +120,7 @@ func TestMetricsService_UpdateMetric_CounterAccumulation(t *testing.T) {
 }
 
 func TestMetricsService_GetGauge(t *testing.T) {
-	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	service := NewMetricsService(repository, testutils.NewMockLogger())
 	ctx := context.Background()
 
@@ -145,7 +145,7 @@ func TestMetricsService_GetGauge(t *testing.T) {
 }
 
 func TestMetricsService_GetCounter(t *testing.T) {
-	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	service := NewMetricsService(repository, testutils.NewMockLogger())
 	ctx := context.Background()
 
@@ -170,7 +170,7 @@ func TestMetricsService_GetCounter(t *testing.T) {
 }
 
 func TestMetricsService_GetAllGauges(t *testing.T) {
-	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	service := NewMetricsService(repository, testutils.NewMockLogger())
 	ctx := context.Background()
 
@@ -198,7 +198,7 @@ func TestMetricsService_GetAllGauges(t *testing.T) {
 }
 
 func TestMetricsService_GetAllCounters(t *testing.T) {
-	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	service := NewMetricsService(repository, testutils.NewMockLogger())
 	ctx := context.Background()
 
@@ -227,7 +227,7 @@ func TestMetricsService_GetAllCounters(t *testing.T) {
 
 // Тесты на отмену контекста
 func TestMetricsService_ContextCancellation(t *testing.T) {
-	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	service := NewMetricsService(repository, testutils.NewMockLogger())
 
 	tests := []struct {
@@ -291,7 +291,7 @@ func TestMetricsService_ContextCancellation(t *testing.T) {
 }
 
 func TestMetricsService_ContextTimeout(t *testing.T) {
-	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	service := NewMetricsService(repository, testutils.NewMockLogger())
 
 	// Создаем контекст с таймаутом
@@ -315,7 +315,7 @@ func TestMetricsService_ContextTimeout(t *testing.T) {
 
 func TestMetricsService_UpdateMetric_WithValidation(t *testing.T) {
 	// Создаем реальный репозиторий
-	repo := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repo := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	service := NewMetricsService(repo, testutils.NewMockLogger())
 	ctx := context.Background()
 
@@ -372,7 +372,7 @@ func TestMetricsService_UpdateMetric_WithValidation(t *testing.T) {
 }
 
 func TestMetricsService_UpdateMetricJSON(t *testing.T) {
-	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	service := NewMetricsService(repository, testutils.NewMockLogger())
 	ctx := context.Background()
 
@@ -442,7 +442,7 @@ func TestMetricsService_UpdateMetricJSON(t *testing.T) {
 }
 
 func TestMetricsService_GetMetricJSON(t *testing.T) {
-	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger())
+	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger(), "/tmp/test-metrics.json", false)
 	service := NewMetricsService(repository, testutils.NewMockLogger())
 	ctx := context.Background()
 

@@ -21,7 +21,7 @@ import (
 // createTestHandler creates a test handler
 func createTestHandler() *handler.MetricsHandler {
 	mockLogger := testutils.NewMockLogger()
-	repository := repository.NewInMemoryMetricsRepository(mockLogger)
+	repository := repository.NewInMemoryMetricsRepository(mockLogger, "/tmp/test-metrics.json", false)
 	service := service.NewMetricsService(repository, mockLogger)
 	return handler.NewMetricsHandler(service, mockLogger)
 }

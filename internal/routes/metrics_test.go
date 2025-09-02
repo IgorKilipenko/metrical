@@ -16,7 +16,7 @@ import (
 func TestSetupMetricsRoutes(t *testing.T) {
 	// Создаем мок хендлер для тестирования
 	mockLogger := testutils.NewMockLogger()
-	repository := repository.NewInMemoryMetricsRepository(mockLogger)
+	repository := repository.NewInMemoryMetricsRepository(mockLogger, "/tmp/test-metrics.json", false)
 	service := service.NewMetricsService(repository, mockLogger)
 	handler := handler.NewMetricsHandler(service, mockLogger)
 
@@ -117,7 +117,7 @@ func TestSetupMetricsRoutes_JSONEndpoints(t *testing.T) {
 
 	// Проверяем, что роутер создан
 	assert.NotNil(t, r)
-	
+
 	// Проверяем, что роутер содержит маршруты (базовая проверка)
 	// Более детальная проверка маршрутов требует сложной настройки chi контекста
 }
