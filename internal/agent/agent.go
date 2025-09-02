@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -238,6 +239,48 @@ func (a *Agent) sendHTTPRequest(url string) error {
 	return fmt.Errorf("failed to send request after %d attempts", DefaultMaxRetries)
 }
 
+// sendHTTPRequestWithGzip выполняет HTTP запрос с gzip сжатием и retry логикой
+func (a *Agent) sendHTTPRequestWithGzip(url string) error {
+	for attempt := 1; attempt <= DefaultMaxRetries; attempt++ {
+		// Создаем пустой POST запрос (для простых метрик тело не нужно)
+		req, err := http.NewRequest("POST", url, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create request: %w", err)
+		}
+
+		// Устанавливаем заголовки для gzip
+		req.Header.Set("Accept-Encoding", "gzip")
+
+		resp, err := a.httpClient.Do(req)
+		if err != nil {
+			// Если это последняя попытка, возвращаем ошибку
+			if attempt == DefaultMaxRetries {
+				return fmt.Errorf("failed after %d attempts: %w", DefaultMaxRetries, err)
+			}
+			// Небольшая задержка перед повторной попыткой
+			time.Sleep(DefaultRetryDelay)
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		} else {
+			// Читаем тело ответа для лучшей диагностики
+			body := make([]byte, 1024)
+			n, _ := resp.Body.Read(body)
+			bodyStr := string(body[:n])
+
+			if attempt == DefaultMaxRetries {
+				return fmt.Errorf("server returned status %d: %s", resp.StatusCode, bodyStr)
+			}
+			time.Sleep(DefaultRetryDelay)
+		}
+	}
+
+	return fmt.Errorf("failed to send request after %d attempts", DefaultMaxRetries)
+}
+
 // sendSingleMetric отправляет одну метрику с retry логикой
 func (a *Agent) sendSingleMetric(name string, value interface{}) error {
 	// Подготавливаем информацию о метрике
@@ -247,7 +290,7 @@ func (a *Agent) sendSingleMetric(name string, value interface{}) error {
 	}
 
 	// Отправляем HTTP запрос
-	if err := a.sendHTTPRequest(metricInfo.URL); err != nil {
+	if err := a.sendHTTPRequestWithGzip(metricInfo.URL); err != nil {
 		return fmt.Errorf("failed to send metric %s: %w", name, err)
 	}
 
@@ -305,6 +348,22 @@ func (a *Agent) prepareMetricJSON(name string, value interface{}) (*models.Metri
 	return &metric, nil
 }
 
+// compressData сжимает данные с помощью gzip
+func (a *Agent) compressData(data []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	gzWriter := gzip.NewWriter(&buf)
+
+	if _, err := gzWriter.Write(data); err != nil {
+		return nil, fmt.Errorf("failed to write to gzip writer: %w", err)
+	}
+
+	if err := gzWriter.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close gzip writer: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
 // sendJSONRequest отправляет JSON запрос на сервер
 func (a *Agent) sendJSONRequest(metric *models.Metrics) error {
 	// Убеждаемся, что URL содержит протокол
@@ -320,14 +379,22 @@ func (a *Agent) sendJSONRequest(metric *models.Metrics) error {
 		return fmt.Errorf("failed to marshal metric: %w", err)
 	}
 
+	// Сжимаем данные
+	compressedData, err := a.compressData(jsonData)
+	if err != nil {
+		return fmt.Errorf("failed to compress data: %w", err)
+	}
+
 	// Создаем запрос
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(compressedData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Устанавливаем заголовки
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set("Accept-Encoding", "gzip")
 
 	// Выполняем запрос с retry логикой
 	return a.sendHTTPRequestWithRetry(req)

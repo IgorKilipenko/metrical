@@ -16,6 +16,9 @@ func SetupMetricsRoutes(handler *handler.MetricsHandler) *chi.Mux {
 	// Добавляем middleware для логирования
 	r.Use(middleware.LoggingMiddleware())
 
+	// Добавляем middleware для поддержки gzip
+	r.Use(middleware.GzipMiddleware())
+
 	// Настраиваем автоматическую обработку trailing slash
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
