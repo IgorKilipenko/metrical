@@ -216,11 +216,8 @@ func (a *Agent) sendHTTPRequest(url string) error {
 				return fmt.Errorf("failed after %d attempts: %w", DefaultMaxRetries, err)
 			}
 			// Небольшая задержка перед повторной попыткой
-			timer := time.NewTimer(DefaultRetryDelay)
-			select {
-			case <-timer.C:
-				continue
-			}
+			<-time.After(DefaultRetryDelay)
+			continue
 		}
 		defer resp.Body.Close()
 
@@ -236,11 +233,8 @@ func (a *Agent) sendHTTPRequest(url string) error {
 				return fmt.Errorf("server returned status %d: %s", resp.StatusCode, bodyStr)
 			}
 			// Небольшая задержка перед повторной попыткой
-			timer := time.NewTimer(DefaultRetryDelay)
-			select {
-			case <-timer.C:
-				continue
-			}
+			<-time.After(DefaultRetryDelay)
+			continue
 		}
 	}
 
