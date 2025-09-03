@@ -83,13 +83,13 @@ func (h *MetricsHandler) UpdateMetric(w http.ResponseWriter, r *http.Request) {
 			"name", metricName,
 			"value", metricValue,
 			"error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
 	h.logger.Info("metric updated successfully",
 		"type", metricType,
-		"name", metricName,
+		"name", metricType,
 		"value", metricValue)
 	w.WriteHeader(http.StatusOK)
 }
@@ -131,7 +131,7 @@ func (h *MetricsHandler) UpdateMetricJSON(w http.ResponseWriter, r *http.Request
 	err := h.service.UpdateMetricJSON(ctx, &metric)
 	if err != nil {
 		h.logger.Error("failed to update metric", "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
@@ -180,7 +180,7 @@ func (h *MetricsHandler) GetMetricValue(w http.ResponseWriter, r *http.Request) 
 			h.logger.Error("failed to get gauge metric",
 				"name", metricName,
 				"error", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
 		if !exists {
@@ -199,7 +199,7 @@ func (h *MetricsHandler) GetMetricValue(w http.ResponseWriter, r *http.Request) 
 			h.logger.Error("failed to get counter metric",
 				"name", metricName,
 				"error", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
 		if !exists {
@@ -266,7 +266,7 @@ func (h *MetricsHandler) GetMetricJSON(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(err.Error(), "not found") {
 			http.Error(w, err.Error(), http.StatusNotFound)
 		} else {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
 		return
 	}
@@ -278,7 +278,7 @@ func (h *MetricsHandler) GetMetricJSON(w http.ResponseWriter, r *http.Request) {
 	// Кодируем ответ в JSON
 	if err := json.NewEncoder(w).Encode(result); err != nil {
 		h.logger.Error("failed to encode response", "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
@@ -303,7 +303,7 @@ func (h *MetricsHandler) GetAllMetrics(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error("failed to get metrics data",
 			"error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
@@ -312,7 +312,7 @@ func (h *MetricsHandler) GetAllMetrics(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error("failed to execute template",
 			"error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
