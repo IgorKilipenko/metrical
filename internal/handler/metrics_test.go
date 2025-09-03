@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,7 +21,11 @@ func createTestHandler() *MetricsHandler {
 	mockLogger := testutils.NewMockLogger()
 	repository := repository.NewInMemoryMetricsRepository(mockLogger, testutils.TestMetricsFile, false)
 	service := service.NewMetricsService(repository, mockLogger)
-	return NewMetricsHandler(service, mockLogger)
+	handler, err := NewMetricsHandler(service, mockLogger)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create test handler: %v", err))
+	}
+	return handler
 }
 
 // createChiContext создает chi контекст для тестирования

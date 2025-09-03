@@ -18,7 +18,10 @@ func TestSetupMetricsRoutes(t *testing.T) {
 	mockLogger := testutils.NewMockLogger()
 	repository := repository.NewInMemoryMetricsRepository(mockLogger, testutils.TestMetricsFile, false)
 	service := service.NewMetricsService(repository, mockLogger)
-	handler := handler.NewMetricsHandler(service, mockLogger)
+	handler, err := handler.NewMetricsHandler(service, mockLogger)
+	if err != nil {
+		t.Fatalf("failed to create metrics handler: %v", err)
+	}
 
 	// Настраиваем маршруты
 	router := SetupMetricsRoutes(handler)

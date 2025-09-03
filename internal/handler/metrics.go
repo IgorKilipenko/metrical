@@ -24,26 +24,24 @@ type MetricsHandler struct {
 }
 
 // NewMetricsHandler создает новый экземпляр MetricsHandler
-func NewMetricsHandler(service *service.MetricsService, logger logger.Logger) *MetricsHandler {
+func NewMetricsHandler(service *service.MetricsService, logger logger.Logger) (*MetricsHandler, error) {
 	if service == nil {
-		panic("service cannot be nil")
+		return nil, fmt.Errorf("service cannot be nil")
 	}
 	if logger == nil {
-		panic("logger cannot be nil")
+		return nil, fmt.Errorf("logger cannot be nil")
 	}
 
 	template, err := template.NewMetricsTemplate()
 	if err != nil {
-		// В продакшене лучше использовать panic или возвращать ошибку
-		// Для простоты используем panic, так как это конструктор
-		panic(fmt.Sprintf("failed to create metrics template: %v", err))
+		return nil, fmt.Errorf("failed to create metrics template: %w", err)
 	}
 
 	return &MetricsHandler{
 		service:  service,
 		template: template,
 		logger:   logger,
-	}
+	}, nil
 }
 
 // UpdateMetric обновляет метрику

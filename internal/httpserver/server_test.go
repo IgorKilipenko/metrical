@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,7 +24,11 @@ func createTestHandler() *handler.MetricsHandler {
 	mockLogger := testutils.NewMockLogger()
 	repository := repository.NewInMemoryMetricsRepository(mockLogger, testutils.TestMetricsFile, false)
 	service := service.NewMetricsService(repository, mockLogger)
-	return handler.NewMetricsHandler(service, mockLogger)
+	handler, err := handler.NewMetricsHandler(service, mockLogger)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create test handler: %v", err))
+	}
+	return handler
 }
 
 // createTestServer creates a test server with default configuration

@@ -56,7 +56,10 @@ func (a *App) Run() error {
 	}
 
 	service := service.NewMetricsService(repository, appLogger)
-	handler := handler.NewMetricsHandler(service, appLogger)
+	handler, err := handler.NewMetricsHandler(service, appLogger)
+	if err != nil {
+		return fmt.Errorf("failed to create metrics handler: %w", err)
+	}
 
 	// Создаем сервер с переданными зависимостями
 	server, err := httpserver.NewServer(a.addr, handler, appLogger)
