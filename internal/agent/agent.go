@@ -263,19 +263,28 @@ func (a *Agent) sendHTTPRequestWithGzip(url string) error {
 		}
 		defer resp.Body.Close()
 
+		// Проверяем статус ответа
 		if resp.StatusCode == http.StatusOK {
 			return nil
-		} else {
-			// Читаем тело ответа для лучшей диагностики
-			body := make([]byte, 1024)
-			n, _ := resp.Body.Read(body)
-			bodyStr := string(body[:n])
-
-			if attempt == DefaultMaxRetries {
-				return fmt.Errorf("server returned status %d: %s", resp.StatusCode, bodyStr)
-			}
-			time.Sleep(DefaultRetryDelay)
 		}
+
+		// Читаем тело ответа для лучшей диагностики
+		body := make([]byte, 1024)
+		n, _ := resp.Body.Read(body)
+		bodyStr := string(body[:n])
+
+		// Retry только при серверных ошибках (5xx)
+		if resp.StatusCode >= 500 && resp.StatusCode < 600 {
+			if attempt == DefaultMaxRetries {
+				return fmt.Errorf("server error after %d attempts: status %d: %s", DefaultMaxRetries, resp.StatusCode, bodyStr)
+			}
+			// Небольшая задержка перед повторной попыткой
+			time.Sleep(DefaultRetryDelay)
+			continue
+		}
+
+		// Клиентские ошибки (4xx) и другие статусы не требуют retry
+		return fmt.Errorf("client error: status %d: %s", resp.StatusCode, bodyStr)
 	}
 
 	return fmt.Errorf("failed to send request after %d attempts", DefaultMaxRetries)
@@ -415,19 +424,28 @@ func (a *Agent) sendHTTPRequestWithRetry(req *http.Request) error {
 		}
 		defer resp.Body.Close()
 
+		// Проверяем статус ответа
 		if resp.StatusCode == http.StatusOK {
 			return nil
-		} else {
-			// Читаем тело ответа для лучшей диагностики
-			body := make([]byte, 1024)
-			n, _ := resp.Body.Read(body)
-			bodyStr := string(body[:n])
-
-			if attempt == DefaultMaxRetries {
-				return fmt.Errorf("server returned status %d: %s", resp.StatusCode, bodyStr)
-			}
-			time.Sleep(DefaultRetryDelay)
 		}
+
+		// Читаем тело ответа для лучшей диагностики
+		body := make([]byte, 1024)
+		n, _ := resp.Body.Read(body)
+		bodyStr := string(body[:n])
+
+		// Retry только при серверных ошибках (5xx)
+		if resp.StatusCode >= 500 && resp.StatusCode < 600 {
+			if attempt == DefaultMaxRetries {
+				return fmt.Errorf("server error after %d attempts: status %d: %s", DefaultMaxRetries, resp.StatusCode, bodyStr)
+			}
+			// Небольшая задержка перед повторной попыткой
+			time.Sleep(DefaultRetryDelay)
+			continue
+		}
+
+		// Клиентские ошибки (4xx) и другие статусы не требуют retry
+		return fmt.Errorf("client error: status %d: %s", resp.StatusCode, bodyStr)
 	}
 
 	return fmt.Errorf("failed to send request after %d attempts", DefaultMaxRetries)
