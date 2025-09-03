@@ -216,8 +216,11 @@ func (a *Agent) sendHTTPRequest(url string) error {
 				return fmt.Errorf("failed after %d attempts: %w", DefaultMaxRetries, err)
 			}
 			// Небольшая задержка перед повторной попыткой
-			time.Sleep(DefaultRetryDelay)
-			continue
+			timer := time.NewTimer(DefaultRetryDelay)
+			select {
+			case <-timer.C:
+				continue
+			}
 		}
 		defer resp.Body.Close()
 
@@ -232,7 +235,12 @@ func (a *Agent) sendHTTPRequest(url string) error {
 			if attempt == DefaultMaxRetries {
 				return fmt.Errorf("server returned status %d: %s", resp.StatusCode, bodyStr)
 			}
-			time.Sleep(DefaultRetryDelay)
+			// Небольшая задержка перед повторной попыткой
+			timer := time.NewTimer(DefaultRetryDelay)
+			select {
+			case <-timer.C:
+				continue
+			}
 		}
 	}
 
@@ -258,7 +266,7 @@ func (a *Agent) sendHTTPRequestWithGzip(url string) error {
 				return fmt.Errorf("failed after %d attempts: %w", DefaultMaxRetries, err)
 			}
 			// Небольшая задержка перед повторной попыткой
-			time.Sleep(DefaultRetryDelay)
+			<-time.After(DefaultRetryDelay)
 			continue
 		}
 		defer resp.Body.Close()
@@ -279,7 +287,7 @@ func (a *Agent) sendHTTPRequestWithGzip(url string) error {
 				return fmt.Errorf("server error after %d attempts: status %d: %s", DefaultMaxRetries, resp.StatusCode, bodyStr)
 			}
 			// Небольшая задержка перед повторной попыткой
-			time.Sleep(DefaultRetryDelay)
+			<-time.After(DefaultRetryDelay)
 			continue
 		}
 
@@ -419,7 +427,7 @@ func (a *Agent) sendHTTPRequestWithRetry(req *http.Request) error {
 				return fmt.Errorf("failed after %d attempts: %w", DefaultMaxRetries, err)
 			}
 			// Небольшая задержка перед повторной попыткой
-			time.Sleep(DefaultRetryDelay)
+			<-time.After(DefaultRetryDelay)
 			continue
 		}
 		defer resp.Body.Close()
@@ -440,7 +448,7 @@ func (a *Agent) sendHTTPRequestWithRetry(req *http.Request) error {
 				return fmt.Errorf("server error after %d attempts: status %d: %s", DefaultMaxRetries, resp.StatusCode, bodyStr)
 			}
 			// Небольшая задержка перед повторной попыткой
-			time.Sleep(DefaultRetryDelay)
+			<-time.After(DefaultRetryDelay)
 			continue
 		}
 
