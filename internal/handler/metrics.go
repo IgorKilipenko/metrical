@@ -1,156 +1,399 @@
 package handler
 
 import (
-	"log"
+	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
-	"strconv"
+	"strings"
+	"time"
 
+	"github.com/IgorKilipenko/metrical/internal/logger"
+	models "github.com/IgorKilipenko/metrical/internal/model"
 	"github.com/IgorKilipenko/metrical/internal/service"
 	"github.com/IgorKilipenko/metrical/internal/template"
+	"github.com/IgorKilipenko/metrical/internal/validation"
 	"github.com/go-chi/chi/v5"
 )
 
-// MetricsHandler обрабатывает HTTP запросы для работы с метриками
+// MetricsHandler обработчик HTTP запросов для метрик
 type MetricsHandler struct {
-	service *service.MetricsService
+	service  *service.MetricsService
+	template *template.MetricsTemplate
+	logger   logger.Logger
 }
 
-// NewMetricsHandler создает новый обработчик метрик
-func NewMetricsHandler(service *service.MetricsService) *MetricsHandler {
+// NewMetricsHandler создает новый экземпляр MetricsHandler
+func NewMetricsHandler(service *service.MetricsService, logger logger.Logger) (*MetricsHandler, error) {
+	if service == nil {
+		return nil, fmt.Errorf("service cannot be nil")
+	}
+	if logger == nil {
+		return nil, fmt.Errorf("logger cannot be nil")
+	}
+
+	template, err := template.NewMetricsTemplate()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create metrics template: %w", err)
+	}
+
 	return &MetricsHandler{
-		service: service,
-	}
+		service:  service,
+		template: template,
+		logger:   logger,
+	}, nil
 }
 
-// UpdateMetric обрабатывает POST запросы для обновления метрик
+// UpdateMetric обновляет метрику
 func (h *MetricsHandler) UpdateMetric(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Получаем параметры из chi роутера
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "name")
 	metricValue := chi.URLParam(r, "value")
 
-	if metricName == "" {
-		http.Error(w, "Metric name is required", http.StatusNotFound)
-		return
-	}
+	h.logger.Info("processing update metric request",
+		"method", r.Method,
+		"url", r.URL.Path,
+		"type", metricType,
+		"name", metricName,
+		"value", metricValue,
+		"remote_addr", r.RemoteAddr)
 
-	err := h.service.UpdateMetric(metricType, metricName, metricValue)
+	// Валидация через пакет validation
+	metricReq, err := validation.ValidateMetricRequest(metricType, metricName, metricValue)
 	if err != nil {
+		h.logger.Warn("metric validation failed",
+			"type", metricType,
+			"name", metricName,
+			"value", metricValue,
+			"error", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
+	// Создаем контекст с таймаутом для операции после валидации
+	// Используем контекст запроса, который может быть отменен в тестах
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	// Вызов сервиса с валидированными данными и контекстом
+	err = h.service.UpdateMetric(ctx, metricReq)
+	if err != nil {
+		h.logger.Error("failed to update metric",
+			"type", metricType,
+			"name", metricName,
+			"value", metricValue,
+			"error", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info("metric updated successfully",
+		"type", metricType,
+		"name", metricType,
+		"value", metricValue)
 	w.WriteHeader(http.StatusOK)
 }
 
-// GetMetricValue обрабатывает GET запросы для получения значения метрики
-func (h *MetricsHandler) GetMetricValue(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+// UpdateMetricJSON обновляет метрику из JSON запроса
+func (h *MetricsHandler) UpdateMetricJSON(w http.ResponseWriter, r *http.Request) {
+	h.logger.Info("processing update metric JSON request",
+		"method", r.Method,
+		"url", r.URL.Path,
+		"remote_addr", r.RemoteAddr)
+
+	// Проверяем Content-Type
+	if r.Header.Get("Content-Type") != "application/json" {
+		h.logger.Warn("invalid content type", "content_type", r.Header.Get("Content-Type"))
+		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
 		return
 	}
 
-	// Получаем параметры из chi роутера
+	// Декодируем JSON
+	var metric models.Metrics
+	if err := json.NewDecoder(r.Body).Decode(&metric); err != nil {
+		h.logger.Warn("failed to decode JSON", "error", err)
+		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
+		return
+	}
+
+	// Валидация метрики
+	if err := h.validateMetricJSON(&metric); err != nil {
+		h.logger.Warn("metric validation failed", "error", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Создаем контекст с таймаутом
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	// Обновляем метрику через сервис
+	err := h.service.UpdateMetricJSON(ctx, &metric)
+	if err != nil {
+		h.logger.Error("failed to update metric", "error", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info("metric updated successfully from JSON",
+		"id", metric.ID,
+		"type", metric.MType)
+	w.WriteHeader(http.StatusOK)
+}
+
+// GetMetricValue возвращает значение метрики
+func (h *MetricsHandler) GetMetricValue(w http.ResponseWriter, r *http.Request) {
+	// Создаем контекст с таймаутом для операции
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "name")
 
-	if metricName == "" {
-		http.Error(w, "Metric name is required", http.StatusNotFound)
+	h.logger.Info("processing get metric request",
+		"method", r.Method,
+		"url", r.URL.Path,
+		"type", metricType,
+		"name", metricName,
+		"remote_addr", r.RemoteAddr)
+
+	// Валидация имени метрики
+	if err := validation.ValidateMetricName(metricName); err != nil {
+		h.logger.Warn("metric name validation failed",
+			"type", metricType,
+			"name", metricName,
+			"error", err)
+		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
-	var value string
-	var found bool
+	// Получение значения из сервиса с контекстом
+	var value any
+	var err error
 
 	switch metricType {
 	case "gauge":
 		var gaugeValue float64
-		var err error
-		gaugeValue, found, err = h.service.GetGauge(metricName)
+		var exists bool
+		gaugeValue, exists, err = h.service.GetGauge(ctx, metricName)
 		if err != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			h.logger.Error("failed to get gauge metric",
+				"name", metricName,
+				"error", err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
-		if found {
-			value = strconv.FormatFloat(gaugeValue, 'f', -1, 64)
+		if !exists {
+			h.logger.Debug("gauge metric not found",
+				"name", metricName)
+			http.Error(w, "Metric not found", http.StatusNotFound)
+			return
 		}
+		value = gaugeValue
+
 	case "counter":
 		var counterValue int64
-		var err error
-		counterValue, found, err = h.service.GetCounter(metricName)
+		var exists bool
+		counterValue, exists, err = h.service.GetCounter(ctx, metricName)
 		if err != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			h.logger.Error("failed to get counter metric",
+				"name", metricName,
+				"error", err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
-		if found {
-			value = strconv.FormatInt(counterValue, 10)
+		if !exists {
+			h.logger.Debug("counter metric not found",
+				"name", metricName)
+			http.Error(w, "Metric not found", http.StatusNotFound)
+			return
 		}
+		value = counterValue
+
 	default:
+		h.logger.Warn("invalid metric type requested",
+			"type", metricType,
+			"name", metricName)
 		http.Error(w, "Invalid metric type", http.StatusBadRequest)
 		return
 	}
 
-	if !found {
-		http.Error(w, "Metric not found", http.StatusNotFound)
-		return
-	}
-
+	h.logger.Info("metric retrieved successfully",
+		"type", metricType,
+		"name", metricName,
+		"value", value)
 	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(value))
+	w.Write(fmt.Appendf(nil, "%v", value))
 }
 
-// GetAllMetrics обрабатывает GET запросы для отображения всех метрик
+// GetMetricJSON возвращает метрику в JSON формате
+func (h *MetricsHandler) GetMetricJSON(w http.ResponseWriter, r *http.Request) {
+	h.logger.Info("processing get metric JSON request",
+		"method", r.Method,
+		"url", r.URL.Path,
+		"remote_addr", r.RemoteAddr)
+
+	// Проверяем Content-Type
+	if r.Header.Get("Content-Type") != "application/json" {
+		h.logger.Warn("invalid content type", "content_type", r.Header.Get("Content-Type"))
+		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
+		return
+	}
+
+	// Декодируем JSON
+	var metric models.Metrics
+	if err := json.NewDecoder(r.Body).Decode(&metric); err != nil {
+		h.logger.Warn("failed to decode JSON", "error", err)
+		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
+		return
+	}
+
+	// Валидация запроса
+	if err := h.validateMetricRequestJSON(&metric); err != nil {
+		h.logger.Warn("metric request validation failed", "error", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Создаем контекст с таймаутом
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	// Получаем метрику через сервис
+	result, err := h.service.GetMetricJSON(ctx, &metric)
+	if err != nil {
+		h.logger.Error("failed to get metric", "error", err)
+		if strings.Contains(err.Error(), "not found") {
+			http.Error(w, err.Error(), http.StatusNotFound)
+		} else {
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Устанавливаем заголовки
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	// Кодируем ответ в JSON
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		h.logger.Error("failed to encode response", "error", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info("metric retrieved successfully as JSON",
+		"id", result.ID,
+		"type", result.MType)
+}
+
+// GetAllMetrics возвращает все метрики в HTML формате
 func (h *MetricsHandler) GetAllMetrics(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
+	// Создаем контекст с таймаутом для операции
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
 
-	gauges, err := h.service.GetAllGauges()
+	h.logger.Info("processing get all metrics request",
+		"method", r.Method,
+		"url", r.URL.Path,
+		"remote_addr", r.RemoteAddr)
+
+	// Получаем данные метрик через приватный метод
+	metricsData, err := h.getAllMetricsData(ctx)
 	if err != nil {
-		log.Printf("Error getting gauges: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		h.logger.Error("failed to get metrics data",
+			"error", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
-	counters, err := h.service.GetAllCounters()
+	// Выполняем шаблон
+	htmlBytes, err := h.template.Execute(*metricsData)
 	if err != nil {
-		log.Printf("Error getting counters: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		h.logger.Error("failed to execute template",
+			"error", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
-	// Создаем шаблон
-	mt, err := template.NewMetricsTemplate()
+	h.logger.Info("all metrics retrieved successfully",
+		"gauge_count", metricsData.GaugeCount,
+		"counter_count", metricsData.CounterCount)
+	w.Header().Set("Content-Type", "text/html")
+	w.WriteHeader(http.StatusOK)
+	w.Write(htmlBytes)
+}
+
+// getAllMetricsData получает все данные метрик
+func (h *MetricsHandler) getAllMetricsData(ctx context.Context) (*template.MetricsData, error) {
+	h.logger.Debug("fetching all metrics data")
+
+	gauges, err := h.service.GetAllGauges(ctx)
 	if err != nil {
-		log.Printf("Error creating template: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+		h.logger.Error("failed to get all gauges", "error", err)
+		return nil, err
 	}
 
-	// Подготавливаем данные для шаблона
-	data := template.MetricsData{
+	counters, err := h.service.GetAllCounters(ctx)
+	if err != nil {
+		h.logger.Error("failed to get all counters", "error", err)
+		return nil, err
+	}
+
+	h.logger.Debug("metrics data fetched successfully",
+		"gauge_count", len(gauges),
+		"counter_count", len(counters))
+
+	return &template.MetricsData{
 		Gauges:       gauges,
 		Counters:     counters,
 		GaugeCount:   len(gauges),
 		CounterCount: len(counters),
+	}, nil
+}
+
+// validateMetricJSON валидирует метрику из JSON
+func (h *MetricsHandler) validateMetricJSON(metric *models.Metrics) error {
+	if metric.ID == "" {
+		return fmt.Errorf("metric ID is required")
 	}
 
-	// Выполняем шаблон
-	htmlBytes, err := mt.Execute(data)
-	if err != nil {
-		log.Printf("Error executing template: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+	if metric.MType == "" {
+		return fmt.Errorf("metric type is required")
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	w.Write(htmlBytes)
+	switch metric.MType {
+	case models.Gauge:
+		if metric.Value == nil {
+			return fmt.Errorf("value is required for gauge metric")
+		}
+	case models.Counter:
+		if metric.Delta == nil {
+			return fmt.Errorf("delta is required for counter metric")
+		}
+	default:
+		return fmt.Errorf("unsupported metric type: %s", metric.MType)
+	}
+
+	return nil
+}
+
+// validateMetricRequestJSON валидирует запрос на получение метрики
+func (h *MetricsHandler) validateMetricRequestJSON(metric *models.Metrics) error {
+	if metric.ID == "" {
+		return fmt.Errorf("metric ID is required")
+	}
+
+	if metric.MType == "" {
+		return fmt.Errorf("metric type is required")
+	}
+
+	switch metric.MType {
+	case models.Gauge, models.Counter:
+		// Тип поддерживается
+	default:
+		return fmt.Errorf("unsupported metric type: %s", metric.MType)
+	}
+
+	return nil
 }

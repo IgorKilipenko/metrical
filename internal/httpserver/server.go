@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/IgorKilipenko/metrical/internal/handler"
+	"github.com/IgorKilipenko/metrical/internal/logger"
 	"github.com/IgorKilipenko/metrical/internal/router"
 	"github.com/IgorKilipenko/metrical/internal/routes"
 )
@@ -37,15 +37,18 @@ type Server struct {
 	handler *handler.MetricsHandler
 	router  *router.Router // Кэшированный роутер
 	server  *http.Server   // Ссылка на HTTP сервер для graceful shutdown
+	logger  logger.Logger
 }
 
 // NewServer создает новый HTTP сервер с переданными зависимостями
-func NewServer(addr string, handler *handler.MetricsHandler) (*Server, error) {
-	return NewServerWithConfig(&ServerConfig{Addr: addr}, handler)
+func NewServer(addr string, handler *handler.MetricsHandler, logger logger.Logger) (*Server, error) {
+	config := DefaultServerConfig()
+	config.Addr = addr
+	return NewServerWithConfig(config, handler, logger)
 }
 
 // NewServerWithConfig создает новый HTTP сервер с конфигурацией
-func NewServerWithConfig(config *ServerConfig, handler *handler.MetricsHandler) (*Server, error) {
+func NewServerWithConfig(config *ServerConfig, handler *handler.MetricsHandler, logger logger.Logger) (*Server, error) {
 	if config == nil {
 		return nil, errors.New("config cannot be nil")
 	}
@@ -55,21 +58,34 @@ func NewServerWithConfig(config *ServerConfig, handler *handler.MetricsHandler) 
 	if handler == nil {
 		return nil, errors.New("handler cannot be nil")
 	}
+	if logger == nil {
+		return nil, errors.New("logger cannot be nil")
+	}
+
+	logger.Info("creating server with config", "addr", config.Addr)
 
 	srv := &Server{
 		config:  config,
 		handler: handler,
+		logger:  logger,
 	}
 
 	// Инициализируем роутер один раз
+	logger.Info("creating router")
 	srv.router = srv.createRouter()
+	logger.Info("router created successfully")
 
 	return srv, nil
 }
 
 // Start запускает HTTP сервер
 func (s *Server) Start() error {
-	slog.Info("starting HTTP server", "addr", s.config.Addr)
+	s.logger.Info("starting HTTP server",
+		"addr", s.config.Addr,
+		"read_timeout", s.config.ReadTimeout,
+		"write_timeout", s.config.WriteTimeout,
+		"idle_timeout", s.config.IdleTimeout)
+
 	s.server = &http.Server{
 		Addr:         s.config.Addr,
 		Handler:      s.router,
@@ -79,18 +95,27 @@ func (s *Server) Start() error {
 	}
 
 	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		slog.Error("server error", "error", err)
+		s.logger.Error("server error", "error", err)
 		return fmt.Errorf("failed to start server: %w", err)
 	}
+
+	s.logger.Info("HTTP server stopped")
 	return nil
 }
 
 // Shutdown gracefully останавливает сервер
 func (s *Server) Shutdown(ctx context.Context) error {
-	slog.Info("shutting down server gracefully")
+	s.logger.Info("shutting down server gracefully")
 	if s.server != nil {
-		return s.server.Shutdown(ctx)
+		err := s.server.Shutdown(ctx)
+		if err != nil {
+			s.logger.Error("error during server shutdown", "error", err)
+			return err
+		}
+		s.logger.Info("server shutdown completed successfully")
+		return nil
 	}
+	s.logger.Warn("shutdown called on nil server")
 	return nil
 }
 

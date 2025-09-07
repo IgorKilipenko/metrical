@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/IgorKilipenko/metrical/internal/handler"
 	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/IgorKilipenko/metrical/internal/service"
+	"github.com/IgorKilipenko/metrical/internal/testutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,15 +21,21 @@ import (
 
 // createTestHandler creates a test handler
 func createTestHandler() *handler.MetricsHandler {
-	repository := repository.NewInMemoryMetricsRepository()
-	service := service.NewMetricsService(repository)
-	return handler.NewMetricsHandler(service)
+	mockLogger := testutils.NewMockLogger()
+	repository := repository.NewInMemoryMetricsRepository(mockLogger, testutils.TestMetricsFile, false)
+	service := service.NewMetricsService(repository, mockLogger)
+	handler, err := handler.NewMetricsHandler(service, mockLogger)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create test handler: %v", err))
+	}
+	return handler
 }
 
 // createTestServer creates a test server with default configuration
 func createTestServer(t *testing.T) *Server {
 	handler := createTestHandler()
-	srv, err := NewServer(":8080", handler)
+	mockLogger := testutils.NewMockLogger()
+	srv, err := NewServer(":8080", handler, mockLogger)
 	require.NoError(t, err)
 	return srv
 }
@@ -35,7 +43,8 @@ func createTestServer(t *testing.T) *Server {
 // createTestServerWithConfig creates a test server with custom configuration
 func createTestServerWithConfig(t *testing.T, config *ServerConfig) *Server {
 	handler := createTestHandler()
-	srv, err := NewServerWithConfig(config, handler)
+	mockLogger := testutils.NewMockLogger()
+	srv, err := NewServerWithConfig(config, handler, mockLogger)
 	require.NoError(t, err)
 	return srv
 }
@@ -59,8 +68,9 @@ func assertHTTPResponse(t *testing.T, w *httptest.ResponseRecorder, expectedStat
 
 func TestNewServer(t *testing.T) {
 	handler := createTestHandler()
+	mockLogger := testutils.NewMockLogger()
 
-	srv, err := NewServer(":8080", handler)
+	srv, err := NewServer(":8080", handler, mockLogger)
 
 	require.NoError(t, err)
 	require.NotNil(t, srv)
@@ -70,8 +80,9 @@ func TestNewServer(t *testing.T) {
 
 func TestNewServerWithEmptyAddr(t *testing.T) {
 	handler := createTestHandler()
+	mockLogger := testutils.NewMockLogger()
 
-	srv, err := NewServer("", handler)
+	srv, err := NewServer("", handler, mockLogger)
 
 	assert.Error(t, err)
 	assert.Nil(t, srv)
@@ -79,7 +90,8 @@ func TestNewServerWithEmptyAddr(t *testing.T) {
 }
 
 func TestNewServerWithNilHandler(t *testing.T) {
-	srv, err := NewServer(":8080", nil)
+	mockLogger := testutils.NewMockLogger()
+	srv, err := NewServer(":8080", nil, mockLogger)
 
 	assert.Error(t, err)
 	assert.Nil(t, srv)
@@ -88,7 +100,8 @@ func TestNewServerWithNilHandler(t *testing.T) {
 
 func TestServerIntegration(t *testing.T) {
 	handler := createTestHandler()
-	srv, err := NewServer(":8080", handler)
+	mockLogger := testutils.NewMockLogger()
+	srv, err := NewServer(":8080", handler, mockLogger)
 	require.NoError(t, err)
 
 	server := httptest.NewServer(srv)
@@ -166,7 +179,8 @@ func TestServerIntegration(t *testing.T) {
 
 func TestServerEndToEnd(t *testing.T) {
 	handler := createTestHandler()
-	srv, err := NewServer(":8080", handler)
+	mockLogger := testutils.NewMockLogger()
+	srv, err := NewServer(":8080", handler, mockLogger)
 	require.NoError(t, err)
 
 	server := httptest.NewServer(srv)
@@ -219,7 +233,8 @@ func TestServerBasicFunctionality(t *testing.T) {
 
 func TestServerRedirects(t *testing.T) {
 	handler := createTestHandler()
-	srv, err := NewServer(":8080", handler)
+	mockLogger := testutils.NewMockLogger()
+	srv, err := NewServer(":8080", handler, mockLogger)
 	require.NoError(t, err)
 
 	server := httptest.NewServer(srv)
@@ -246,7 +261,7 @@ func TestServerRedirects(t *testing.T) {
 		{
 			name:             "Path with trailing slash",
 			path:             "/update/gauge/test/123.45/",
-			expectedStatus:   http.StatusNotFound, // Chi router doesn't redirect trailing slashes by default
+			expectedStatus:   http.StatusMethodNotAllowed, // GET request to POST endpoint with trailing slashes
 			expectedRedirect: false,
 		},
 		{
@@ -276,7 +291,8 @@ func TestServerRedirects(t *testing.T) {
 
 func TestServerShutdownWithNilServer(t *testing.T) {
 	handler := createTestHandler()
-	srv, err := NewServer(":8080", handler)
+	mockLogger := testutils.NewMockLogger()
+	srv, err := NewServer(":8080", handler, mockLogger)
 	require.NoError(t, err)
 
 	// Тестируем shutdown без запущенного сервера
@@ -320,8 +336,9 @@ func TestNewServerWithConfig(t *testing.T) {
 
 func TestNewServerWithNilConfig(t *testing.T) {
 	handler := createTestHandler()
+	mockLogger := testutils.NewMockLogger()
 
-	srv, err := NewServerWithConfig(nil, handler)
+	srv, err := NewServerWithConfig(nil, handler, mockLogger)
 
 	assert.Error(t, err)
 	assert.Nil(t, srv)
@@ -369,8 +386,9 @@ func TestServerConfigValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler := createTestHandler()
+			mockLogger := testutils.NewMockLogger()
 
-			srv, err := NewServerWithConfig(tt.config, handler)
+			srv, err := NewServerWithConfig(tt.config, handler, mockLogger)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -388,7 +406,8 @@ func TestServerConfigValidation(t *testing.T) {
 
 func TestServerHTTPMethods(t *testing.T) {
 	handler := createTestHandler()
-	srv, err := NewServer(":8080", handler)
+	mockLogger := testutils.NewMockLogger()
+	srv, err := NewServer(":8080", handler, mockLogger)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -420,7 +439,8 @@ func TestServerHTTPMethods(t *testing.T) {
 
 func TestServerConcurrentRequests(t *testing.T) {
 	handler := createTestHandler()
-	srv, err := NewServer(":8080", handler)
+	mockLogger := testutils.NewMockLogger()
+	srv, err := NewServer(":8080", handler, mockLogger)
 	require.NoError(t, err)
 
 	// Тестируем конкурентные запросы

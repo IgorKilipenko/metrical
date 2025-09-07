@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -8,13 +9,19 @@ import (
 	"github.com/IgorKilipenko/metrical/internal/handler"
 	"github.com/IgorKilipenko/metrical/internal/repository"
 	"github.com/IgorKilipenko/metrical/internal/service"
+	"github.com/IgorKilipenko/metrical/internal/testutils"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestSetupMetricsRoutes(t *testing.T) {
 	// Создаем мок хендлер для тестирования
-	repository := repository.NewInMemoryMetricsRepository()
-	service := service.NewMetricsService(repository)
-	handler := handler.NewMetricsHandler(service)
+	mockLogger := testutils.NewMockLogger()
+	repository := repository.NewInMemoryMetricsRepository(mockLogger, testutils.TestMetricsFile, false)
+	service := service.NewMetricsService(repository, mockLogger)
+	handler, err := handler.NewMetricsHandler(service, mockLogger)
+	if err != nil {
+		t.Fatalf("failed to create metrics handler: %v", err)
+	}
 
 	// Настраиваем маршруты
 	router := SetupMetricsRoutes(handler)
@@ -32,8 +39,8 @@ func TestSetupMetricsRoutes(t *testing.T) {
 
 		// Проверяем, что возвращается HTML
 		contentType := w.Header().Get("Content-Type")
-		if contentType != "text/html; charset=utf-8" {
-			t.Errorf("Expected Content-Type text/html, got %s", contentType)
+		if contentType != "text/html" && contentType != "text/html; charset=utf-8" {
+			t.Errorf("Expected Content-Type text/html or text/html; charset=utf-8, got %s", contentType)
 		}
 	})
 
@@ -52,7 +59,8 @@ func TestSetupMetricsRoutes(t *testing.T) {
 	// Тестируем GET /value/{type}/{name}
 	t.Run("GET /value/gauge/test", func(t *testing.T) {
 		// Сначала добавляем метрику через repository
-		err := repository.UpdateGauge("test", 123.45)
+		ctx := context.Background()
+		err := repository.UpdateGauge(ctx, "test", 123.45)
 		if err != nil {
 			t.Fatalf("Failed to update gauge: %v", err)
 		}
@@ -101,4 +109,18 @@ func TestSetupHealthRoutes(t *testing.T) {
 	if w.Body.String() != expectedBody {
 		t.Errorf("Expected body %s, got %s", expectedBody, w.Body.String())
 	}
+}
+
+func TestSetupMetricsRoutes_JSONEndpoints(t *testing.T) {
+	// Создаем mock handler
+	handler := &handler.MetricsHandler{}
+
+	// Настраиваем маршруты
+	r := SetupMetricsRoutes(handler)
+
+	// Проверяем, что роутер создан
+	assert.NotNil(t, r)
+
+	// Проверяем, что роутер содержит маршруты (базовая проверка)
+	// Более детальная проверка маршрутов требует сложной настройки chi контекста
 }

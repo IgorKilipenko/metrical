@@ -1,14 +1,19 @@
 package agent
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/IgorKilipenko/metrical/internal/logger"
+	models "github.com/IgorKilipenko/metrical/internal/model"
 )
 
 // Константы для retry логики
@@ -39,23 +44,29 @@ type Agent struct {
 	mu         sync.RWMutex
 	httpClient *http.Client
 	done       chan struct{} // Канал для graceful shutdown
+	logger     logger.Logger
 }
 
 // NewAgent создает новый экземпляр агента
-func NewAgent(config *Config) *Agent {
+func NewAgent(config *Config, agentLogger logger.Logger) *Agent {
+	if agentLogger == nil {
+		agentLogger = logger.NewSlogLogger()
+	}
+
 	return &Agent{
 		config:  config,
 		metrics: NewMetrics(),
 		httpClient: &http.Client{
 			Timeout: DefaultHTTPTimeout,
 		},
-		done: make(chan struct{}),
+		done:   make(chan struct{}),
+		logger: agentLogger,
 	}
 }
 
 // Stop останавливает агента gracefully
 func (a *Agent) Stop() {
-	log.Println("Stopping agent...")
+	a.logger.Info("stopping agent")
 	close(a.done)
 }
 
@@ -69,7 +80,7 @@ func (a *Agent) Run() {
 
 	// Ждем сигнала завершения
 	<-a.done
-	log.Println("Agent stopped gracefully")
+	a.logger.Info("agent stopped gracefully")
 }
 
 // pollMetrics собирает метрики из runtime
@@ -82,7 +93,7 @@ func (a *Agent) pollMetrics() {
 		case <-ticker.C:
 			a.collectMetrics()
 		case <-a.done:
-			log.Println("Polling stopped")
+			a.logger.Info("polling stopped")
 			return
 		}
 	}
@@ -108,10 +119,12 @@ func (a *Agent) collectMetrics() {
 
 	totalMetrics := len(a.metrics.Gauges) + len(a.metrics.Counters)
 	if a.config.VerboseLogging {
-		log.Printf("Collected %d metrics (gauges: %d, counters: %d)",
-			totalMetrics, len(a.metrics.Gauges), len(a.metrics.Counters))
+		a.logger.Info("collected metrics",
+			"total", totalMetrics,
+			"gauges", len(a.metrics.Gauges),
+			"counters", len(a.metrics.Counters))
 	} else {
-		log.Printf("Collected %d metrics", totalMetrics)
+		a.logger.Info("collected metrics", "total", totalMetrics)
 	}
 }
 
@@ -125,7 +138,7 @@ func (a *Agent) reportMetrics() {
 		case <-ticker.C:
 			a.sendMetrics()
 		case <-a.done:
-			log.Println("Reporting stopped")
+			a.logger.Info("reporting stopped")
 			return
 		}
 	}
@@ -141,11 +154,11 @@ func (a *Agent) sendMetrics() {
 	errorCount := 0
 
 	for name, value := range metrics {
-		if err := a.sendSingleMetric(name, value); err != nil {
+		if err := a.sendSingleMetricJSON(name, value); err != nil {
 			errorCount++
 			// Логируем ошибки только если включено подробное логирование
 			if a.config.VerboseLogging {
-				log.Printf("Error sending metric %s: %v", name, err)
+				a.logger.Error("error sending metric", "name", name, "error", err)
 			}
 		} else {
 			successCount++
@@ -154,9 +167,11 @@ func (a *Agent) sendMetrics() {
 
 	// Логируем итоговую статистику
 	if errorCount > 0 {
-		log.Printf("Sent %d metrics successfully, %d failed", successCount, errorCount)
+		a.logger.Warn("sent metrics with errors",
+			"successful", successCount,
+			"failed", errorCount)
 	} else {
-		log.Printf("Successfully sent %d metrics", successCount)
+		a.logger.Info("successfully sent metrics", "count", successCount)
 	}
 }
 
@@ -201,7 +216,7 @@ func (a *Agent) sendHTTPRequest(url string) error {
 				return fmt.Errorf("failed after %d attempts: %w", DefaultMaxRetries, err)
 			}
 			// Небольшая задержка перед повторной попыткой
-			time.Sleep(DefaultRetryDelay)
+			<-time.After(DefaultRetryDelay)
 			continue
 		}
 		defer resp.Body.Close()
@@ -217,8 +232,61 @@ func (a *Agent) sendHTTPRequest(url string) error {
 			if attempt == DefaultMaxRetries {
 				return fmt.Errorf("server returned status %d: %s", resp.StatusCode, bodyStr)
 			}
-			time.Sleep(DefaultRetryDelay)
+			// Небольшая задержка перед повторной попыткой
+			<-time.After(DefaultRetryDelay)
+			continue
 		}
+	}
+
+	return fmt.Errorf("failed to send request after %d attempts", DefaultMaxRetries)
+}
+
+// sendHTTPRequestWithGzip выполняет HTTP запрос с gzip сжатием и retry логикой
+func (a *Agent) sendHTTPRequestWithGzip(url string) error {
+	for attempt := 1; attempt <= DefaultMaxRetries; attempt++ {
+		// Создаем пустой POST запрос (для простых метрик тело не нужно)
+		req, err := http.NewRequest("POST", url, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create request: %w", err)
+		}
+
+		// Устанавливаем заголовки для gzip
+		req.Header.Set("Accept-Encoding", "gzip")
+
+		resp, err := a.httpClient.Do(req)
+		if err != nil {
+			// Если это последняя попытка, возвращаем ошибку
+			if attempt == DefaultMaxRetries {
+				return fmt.Errorf("failed after %d attempts: %w", DefaultMaxRetries, err)
+			}
+			// Небольшая задержка перед повторной попыткой
+			<-time.After(DefaultRetryDelay)
+			continue
+		}
+		defer resp.Body.Close()
+
+		// Проверяем статус ответа
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+
+		// Читаем тело ответа для лучшей диагностики
+		body := make([]byte, 1024)
+		n, _ := resp.Body.Read(body)
+		bodyStr := string(body[:n])
+
+		// Retry только при серверных ошибках (5xx)
+		if resp.StatusCode >= 500 && resp.StatusCode < 600 {
+			if attempt == DefaultMaxRetries {
+				return fmt.Errorf("server error after %d attempts: status %d: %s", DefaultMaxRetries, resp.StatusCode, bodyStr)
+			}
+			// Небольшая задержка перед повторной попыткой
+			<-time.After(DefaultRetryDelay)
+			continue
+		}
+
+		// Клиентские ошибки (4xx) и другие статусы не требуют retry
+		return fmt.Errorf("client error: status %d: %s", resp.StatusCode, bodyStr)
 	}
 
 	return fmt.Errorf("failed to send request after %d attempts", DefaultMaxRetries)
@@ -233,14 +301,154 @@ func (a *Agent) sendSingleMetric(name string, value interface{}) error {
 	}
 
 	// Отправляем HTTP запрос
-	if err := a.sendHTTPRequest(metricInfo.URL); err != nil {
+	if err := a.sendHTTPRequestWithGzip(metricInfo.URL); err != nil {
 		return fmt.Errorf("failed to send metric %s: %w", name, err)
 	}
 
 	// Логируем успешную отправку
 	if a.config.VerboseLogging {
-		log.Printf("Sent metric %s = %s, status: 200", metricInfo.Name, metricInfo.Value)
+		a.logger.Debug("sent metric successfully",
+			"name", metricInfo.Name,
+			"value", metricInfo.Value,
+			"status", 200)
 	}
 
 	return nil
+}
+
+// sendSingleMetricJSON отправляет одну метрику в JSON формате
+func (a *Agent) sendSingleMetricJSON(name string, value interface{}) error {
+	// Подготавливаем метрику в JSON формате
+	metric, err := a.prepareMetricJSON(name, value)
+	if err != nil {
+		return err
+	}
+
+	// Отправляем HTTP запрос
+	if err := a.sendJSONRequest(metric); err != nil {
+		return fmt.Errorf("failed to send metric %s: %w", name, err)
+	}
+
+	// Логируем успешную отправку
+	if a.config.VerboseLogging {
+		a.logger.Debug("sent metric successfully",
+			"name", metric.ID,
+			"type", metric.MType,
+			"status", 200)
+	}
+
+	return nil
+}
+
+// prepareMetricJSON подготавливает метрику в JSON формате
+func (a *Agent) prepareMetricJSON(name string, value interface{}) (*models.Metrics, error) {
+	var metric models.Metrics
+	metric.ID = name
+
+	switch v := value.(type) {
+	case float64:
+		metric.MType = "gauge"
+		metric.Value = &v
+	case int64:
+		metric.MType = "counter"
+		metric.Delta = &v
+	default:
+		return nil, fmt.Errorf("unknown metric type for %s: %T", name, value)
+	}
+
+	return &metric, nil
+}
+
+// compressData сжимает данные с помощью gzip
+func (a *Agent) compressData(data []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	gzWriter := gzip.NewWriter(&buf)
+
+	if _, err := gzWriter.Write(data); err != nil {
+		return nil, fmt.Errorf("failed to write to gzip writer: %w", err)
+	}
+
+	if err := gzWriter.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close gzip writer: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+// sendJSONRequest отправляет JSON запрос на сервер
+func (a *Agent) sendJSONRequest(metric *models.Metrics) error {
+	// Убеждаемся, что URL содержит протокол
+	serverURL := a.config.ServerURL
+	if !strings.HasPrefix(serverURL, "http://") && !strings.HasPrefix(serverURL, "https://") {
+		serverURL = "http://" + serverURL
+	}
+	url := fmt.Sprintf("%s/update", serverURL)
+
+	// Кодируем метрику в JSON
+	jsonData, err := json.Marshal(metric)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metric: %w", err)
+	}
+
+	// Сжимаем данные
+	compressedData, err := a.compressData(jsonData)
+	if err != nil {
+		return fmt.Errorf("failed to compress data: %w", err)
+	}
+
+	// Создаем запрос
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(compressedData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Устанавливаем заголовки
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set("Accept-Encoding", "gzip")
+
+	// Выполняем запрос с retry логикой
+	return a.sendHTTPRequestWithRetry(req)
+}
+
+// sendHTTPRequestWithRetry выполняет HTTP запрос с retry логикой
+func (a *Agent) sendHTTPRequestWithRetry(req *http.Request) error {
+	for attempt := 1; attempt <= DefaultMaxRetries; attempt++ {
+		resp, err := a.httpClient.Do(req)
+		if err != nil {
+			// Если это последняя попытка, возвращаем ошибку
+			if attempt == DefaultMaxRetries {
+				return fmt.Errorf("failed after %d attempts: %w", DefaultMaxRetries, err)
+			}
+			// Небольшая задержка перед повторной попыткой
+			<-time.After(DefaultRetryDelay)
+			continue
+		}
+		defer resp.Body.Close()
+
+		// Проверяем статус ответа
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+
+		// Читаем тело ответа для лучшей диагностики
+		body := make([]byte, 1024)
+		n, _ := resp.Body.Read(body)
+		bodyStr := string(body[:n])
+
+		// Retry только при серверных ошибках (5xx)
+		if resp.StatusCode >= 500 && resp.StatusCode < 600 {
+			if attempt == DefaultMaxRetries {
+				return fmt.Errorf("server error after %d attempts: status %d: %s", DefaultMaxRetries, resp.StatusCode, bodyStr)
+			}
+			// Небольшая задержка перед повторной попыткой
+			<-time.After(DefaultRetryDelay)
+			continue
+		}
+
+		// Клиентские ошибки (4xx) и другие статусы не требуют retry
+		return fmt.Errorf("client error: status %d: %s", resp.StatusCode, bodyStr)
+	}
+
+	return fmt.Errorf("failed to send request after %d attempts", DefaultMaxRetries)
 }

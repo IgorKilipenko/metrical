@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/IgorKilipenko/metrical/internal/testutils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -24,7 +25,8 @@ func TestNewAgent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			agent := NewAgent(tt.config)
+			mockLogger := testutils.NewMockLogger()
+			agent := NewAgent(tt.config, mockLogger)
 
 			assert.Equal(t, tt.config, agent.config, "Agent config should match provided config")
 			assert.NotNil(t, agent.metrics, "Agent metrics struct should be initialized")
@@ -37,7 +39,8 @@ func TestNewAgent(t *testing.T) {
 }
 
 func TestAgent_PrepareMetricInfo(t *testing.T) {
-	agent := NewAgent(NewConfig())
+	mockLogger := testutils.NewMockLogger()
+	agent := NewAgent(NewConfig(), mockLogger)
 
 	tests := []struct {
 		name        string
@@ -114,7 +117,8 @@ func TestAgent_PrepareMetricInfo(t *testing.T) {
 }
 
 func TestAgent_PrepareMetricInfo_URLHandling(t *testing.T) {
-	agent := NewAgent(NewConfig())
+	mockLogger := testutils.NewMockLogger()
+	agent := NewAgent(NewConfig(), mockLogger)
 
 	tests := []struct {
 		name      string
@@ -184,7 +188,8 @@ func TestAgent_CollectMetrics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			agent := NewAgent(tt.config)
+			mockLogger := testutils.NewMockLogger()
+			agent := NewAgent(tt.config, mockLogger)
 
 			// Собираем метрики
 			agent.collectMetrics()
@@ -238,7 +243,8 @@ func TestAgent_CollectMetrics_ThreadSafety(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			agent := NewAgent(tt.config)
+			mockLogger := testutils.NewMockLogger()
+			agent := NewAgent(tt.config, mockLogger)
 
 			// Запускаем несколько горутин для тестирования потокобезопасности
 			done := make(chan bool, tt.goroutines)
@@ -268,7 +274,8 @@ func TestAgent_GracefulShutdown(t *testing.T) {
 	config.PollInterval = 100 * time.Millisecond
 	config.ReportInterval = 200 * time.Millisecond
 
-	agent := NewAgent(config)
+	mockLogger := testutils.NewMockLogger()
+	agent := NewAgent(config, mockLogger)
 
 	// Запускаем агент в горутине
 	go agent.Run()
@@ -293,5 +300,100 @@ func TestAgent_GracefulShutdown(t *testing.T) {
 		// Ожидаемо - канал закрыт
 	default:
 		t.Error("Agent should be stopped")
+	}
+}
+
+func TestAgent_sendSingleMetricJSON(t *testing.T) {
+	mockLogger := testutils.NewMockLogger()
+	config := &Config{
+		ServerURL:      "localhost:8080",
+		PollInterval:   1 * time.Second,
+		ReportInterval: 1 * time.Second,
+		VerboseLogging: true,
+	}
+
+	agent := NewAgent(config, mockLogger)
+
+	tests := []struct {
+		name        string
+		metricName  string
+		metricValue interface{}
+		expectError bool
+	}{
+		{
+			name:        "unsupported metric type",
+			metricName:  "TestMetric",
+			metricValue: "string",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := agent.sendSingleMetricJSON(tt.metricName, tt.metricValue)
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestAgent_prepareMetricJSON(t *testing.T) {
+	mockLogger := testutils.NewMockLogger()
+	config := &Config{
+		ServerURL:      "localhost:8080",
+		PollInterval:   1 * time.Second,
+		ReportInterval: 1 * time.Second,
+		VerboseLogging: true,
+	}
+
+	agent := NewAgent(config, mockLogger)
+
+	tests := []struct {
+		name         string
+		metricName   string
+		metricValue  interface{}
+		expectError  bool
+		expectedType string
+	}{
+		{
+			name:         "gauge metric",
+			metricName:   "TestGauge",
+			metricValue:  42.5,
+			expectError:  false,
+			expectedType: "gauge",
+		},
+		{
+			name:         "counter metric",
+			metricName:   "TestCounter",
+			metricValue:  int64(100),
+			expectError:  false,
+			expectedType: "counter",
+		},
+		{
+			name:        "unsupported metric type",
+			metricName:  "TestMetric",
+			metricValue: "string",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			metric, err := agent.prepareMetricJSON(tt.metricName, tt.metricValue)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.Nil(t, metric)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, metric)
+				assert.Equal(t, tt.metricName, metric.ID)
+				assert.Equal(t, tt.expectedType, metric.MType)
+			}
+		})
 	}
 }

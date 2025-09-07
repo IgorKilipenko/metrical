@@ -18,8 +18,10 @@ func SetupMetricsRoutes(handler *handler.MetricsHandler) *chi.Mux
 
 Настраивает следующие маршруты:
 - `GET /` - отображение всех метрик (HTML)
-- `POST /update/{type}/{name}/{value}` - обновление метрики
-- `GET /value/{type}/{name}` - получение значения метрики
+- `POST /update/{type}/{name}/{value}` - обновление метрики (legacy)
+- `GET /value/{type}/{name}` - получение значения метрики (legacy)
+- `POST /update` - обновление метрики через JSON API
+- `POST /value` - получение метрики через JSON API
 
 ### Архитектура маршрутов
 

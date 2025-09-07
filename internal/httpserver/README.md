@@ -9,7 +9,7 @@
 - Настройку маршрутов HTTP
 - Запуск сервера с graceful shutdown
 - Обработку ошибок и валидацию входных параметров
-- Структурированное логирование с использованием `slog`
+- Структурированное логирование с использованием logger абстракции
 - Гибкую конфигурацию сервера
 
 ### Архитектура HTTP сервера (Clean Architecture)
@@ -20,6 +20,7 @@ graph TB
         SERVER[Server]
         ROUTER[Router]
         CONFIG[ServerConfig]
+        CTX_MGR[Context Manager]
     end
     
     subgraph "Injected Dependencies"
@@ -42,11 +43,13 @@ graph TB
     
     subgraph "HTTP Layer"
         HTTP_SERVER[HTTP Server]
+        REQ_CTX[Request Context]
     end
     
     SERVER -.->|Dependency Injection| HANDLER
     SERVER --> ROUTER
     SERVER --> CONFIG
+    SERVER --> CTX_MGR
     HANDLER --> SERVICE
     SERVICE --> REPO
     REPO --> IMR
@@ -54,24 +57,10 @@ graph TB
     SERVICE --> TEMPLATE
     
     HTTP_SERVER --> SERVER
-    
-    style SERVER fill:#f3e5f5
-    style HANDLER fill:#e3f2fd
-    style ROUTER fill:#e3f2fd
-    style CONFIG fill:#fff3e0
-    style SERVICE fill:#e8f5e8
-    style REPO fill:#fff3e0
-    style IMR fill:#fff3e0
-    style MODELS fill:#e1f5fe
-    style TEMPLATE fill:#fff3e0
-    
-    note right of SERVER
-        • Принимает handler через DI
-        • Не создает зависимости
-        • Следует принципам Clean Architecture
-        • Структурированное логирование
-        • Гибкая конфигурация
-    end note
+    REQ_CTX --> CTX_MGR
+    CTX_MGR --> HANDLER
+    CTX_MGR --> SERVICE
+    CTX_MGR --> REPO
 ```
 
 ### Жизненный цикл сервера
@@ -84,25 +73,42 @@ stateDiagram-v2
     Start --> Running
     
     Running --> HandleRequest : HTTP Request
-    HandleRequest --> Running
+    HandleRequest --> CreateContext : With Timeout
+    CreateContext --> ProcessRequest : Context Ready
+    ProcessRequest --> Running
     
     Running --> Shutdown : SIGINT/SIGTERM
-    Shutdown --> GracefulShutdown
+    Shutdown --> GracefulShutdown : With Context
     GracefulShutdown --> Stopped
     Stopped --> [*]
     
     note right of Configure
-        • Create Router
-        • Setup Routes
-        • Initialize Dependencies
-        • Apply Server Config
+        Create Router
+        Setup Routes
+        Initialize Dependencies
+        Apply Server Config
+        Setup Context Management
     end note
     
     note right of HandleRequest
-        • Parse Request
-        • Route to Handler
-        • Process Business Logic
-        • Return Response
+        Parse Request
+        Extract Request Context
+        Create Timeout Context
+        Route to Handler
+    end note
+    
+    note right of ProcessRequest
+        Process Business Logic
+        Check Context Cancellation
+        Handle Timeouts
+        Return Response
+    end note
+    
+    note right of GracefulShutdown
+        Cancel All Contexts
+        Wait for Active Requests
+        Close Connections
+        Release Resources
     end note
 ```
 
@@ -127,7 +133,7 @@ if err := server.Start(); err != nil {
     log.Printf("Server error: %v", err)
 }
 
-// Graceful shutdown
+// Graceful shutdown с контекстом
 ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 defer cancel()
 if err := server.Shutdown(ctx); err != nil {
@@ -167,13 +173,69 @@ server, err := httpserver.NewServerWithConfig(config, handler)
 
 ```go
 // Создание test handler для тестов
-repository := repository.NewInMemoryMetricsRepository()
-service := service.NewMetricsService(repository)
-handler := handler.NewMetricsHandler(service)
+mockLogger := &MockLogger{}
+repository := repository.NewInMemoryMetricsRepository(mockLogger)
+service := service.NewMetricsService(repository, mockLogger)
+handler := handler.NewMetricsHandler(service, mockLogger)
 
-server, err := httpserver.NewServer(":8080", handler)
+server, err := httpserver.NewServer(":8080", handler, mockLogger)
 if err != nil {
     t.Fatalf("Failed to create server: %v", err)
+}
+```
+
+### Работа с контекстом
+
+Сервер поддерживает полную работу с контекстом для управления таймаутами и отменой операций:
+
+```go
+// Создание сервера с кастомными таймаутами
+config := &httpserver.ServerConfig{
+    Addr:         ":8080",
+    ReadTimeout:  15 * time.Second,  // Таймаут чтения запроса
+    WriteTimeout: 15 * time.Second,  // Таймаут записи ответа
+    IdleTimeout:  30 * time.Second,  // Таймаут простоя соединения
+}
+
+server, err := httpserver.NewServerWithConfig(config, handler)
+
+// Graceful shutdown с таймаутом
+ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+defer cancel()
+
+// Сервер корректно завершит все активные запросы
+if err := server.Shutdown(ctx); err != nil {
+    if err == context.DeadlineExceeded {
+        log.Println("Shutdown timeout - forcing close")
+    } else {
+        log.Printf("Shutdown error: %v", err)
+    }
+}
+```
+
+### Обработка контекста в запросах
+
+Все HTTP обработчики автоматически создают контексты с таймаутами:
+
+```go
+// В MetricsHandler.UpdateMetric
+func (h *MetricsHandler) UpdateMetric(w http.ResponseWriter, r *http.Request) {
+    // Создание контекста с таймаутом для операции
+    ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+    defer cancel()
+
+    // Вызов сервиса с контекстом
+    err := h.service.UpdateMetric(ctx, metricReq)
+    if err != nil {
+        if err == context.DeadlineExceeded {
+            http.Error(w, "Request timeout", http.StatusRequestTimeout)
+        } else if err == context.Canceled {
+            http.Error(w, "Request canceled", http.StatusRequestTimeout)
+        } else {
+            http.Error(w, "Internal server error", http.StatusInternalServerError)
+        }
+        return
+    }
 }
 ```
 
@@ -275,7 +337,9 @@ Gracefully останавливает сервер с использование
 ### Error Handling
 - ✅ **Валидация входных параметров** - проверка config и handler
 - ✅ **Контекстные ошибки** - детальные сообщения об ошибках
-- ✅ **Graceful shutdown** - корректная остановка сервера
+- ✅ **Graceful shutdown** - корректная остановка сервера с контекстом
+- ✅ **Обработка таймаутов** - правильная обработка context.DeadlineExceeded
+- ✅ **Отмена операций** - поддержка context.Canceled
 
 ### Single Responsibility
 - ✅ **Единственная ответственность** - сервер отвечает только за HTTP
@@ -283,9 +347,51 @@ Gracefully останавливает сервер с использование
 - ✅ **Инкапсуляция** - скрывает детали реализации
 
 ### Structured Logging
-- ✅ **Структурированные логи** - использование `slog` для лучшей читаемости
+- ✅ **Структурированные логи** - использование logger абстракции для лучшей читаемости
 - ✅ **Контекстная информация** - логи содержат адрес сервера и ошибки
 - ✅ **Уровни логирования** - Info для нормальных событий, Error для ошибок
+- ✅ **Абстракция логирования** - независимость от конкретной реализации логгера
+
+### Context Management
+- ✅ **Поддержка контекста** - все операции поддерживают context.Context
+- ✅ **Таймауты** - настраиваемые таймауты для операций
+- ✅ **Отмена операций** - корректная обработка отмены через контекст
+- ✅ **Graceful shutdown** - завершение всех операций при остановке сервера
+
+### Logging Integration
+- ✅ **Logger абстракция** - использование logger.Logger интерфейса
+- ✅ **События сервера** - логирование запуска, остановки и ошибок сервера
+- ✅ **Конфигурация** - логирование параметров конфигурации сервера
+- ✅ **Graceful shutdown** - детальное логирование процесса остановки
+
+## Логирование
+
+HTTPServer интегрирован с системой логирования для отслеживания событий сервера:
+
+```go
+// Логирование запуска сервера
+server.Start()
+// Логи: "Starting HTTP server" addr=:8080 read_timeout=30s write_timeout=30s
+
+// Логирование конфигурации
+// Логи: "Server configuration" addr=:8080 read_timeout=30s write_timeout=30s idle_timeout=60s
+
+// Логирование graceful shutdown
+server.Shutdown(ctx)
+// Логи: "Starting graceful shutdown" timeout=30s
+// Логи: "Server shutdown completed successfully"
+
+// Логирование ошибок
+if err != nil {
+    // Логи: "Server error" error="address already in use"
+}
+```
+
+### Уровни логирования
+
+- **Info**: События жизненного цикла сервера (запуск, остановка, конфигурация)
+- **Warn**: Предупреждения (долгий shutdown, нестандартная конфигурация)
+- **Error**: Ошибки сервера (не удалось запустить, ошибки shutdown)
 
 ## Маршруты
 
@@ -301,9 +407,11 @@ Gracefully останавливает сервер с использование
 - Создание сервера с валидными параметрами
 - Обработку ошибок при невалидных параметрах
 - HTTP endpoints и их корректную работу
-- Graceful shutdown функциональность
+- Graceful shutdown функциональность с контекстом
 - Работу с конфигурацией сервера
 - Edge cases и граничные условия
 - Конкурентные запросы
 - Валидацию HTTP методов
+- Обработку таймаутов и отмены операций
+- Тестирование контекста в различных сценариях
 

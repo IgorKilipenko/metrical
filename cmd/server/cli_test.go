@@ -16,11 +16,11 @@ func TestParseFlags_DefaultAddress(t *testing.T) {
 	// Устанавливаем тестовые аргументы (только имя программы)
 	os.Args = []string{"server"}
 
-	addr, err := parseFlags()
+	config, err := parseFlags()
 	require.NoError(t, err, "parseFlags should not return error for default address")
 
 	expected := "localhost:8080"
-	assert.Equal(t, expected, addr, "Should return default address")
+	assert.Equal(t, expected, config.Address, "Should return default address")
 }
 
 func TestParseFlags_CustomAddress(t *testing.T) {
@@ -31,11 +31,11 @@ func TestParseFlags_CustomAddress(t *testing.T) {
 	// Устанавливаем тестовые аргументы с кастомным адресом
 	os.Args = []string{"server", "-a", "localhost:9090"}
 
-	addr, err := parseFlags()
+	config, err := parseFlags()
 	require.NoError(t, err, "parseFlags should not return error for valid custom address")
 
 	expected := "localhost:9090"
-	assert.Equal(t, expected, addr, "Should return custom address")
+	assert.Equal(t, expected, config.Address, "Should return custom address")
 }
 
 func TestParseFlags_InvalidAddress(t *testing.T) {
@@ -115,9 +115,9 @@ func TestParseFlags_VariousValidAddresses(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			os.Args = tc.args
 
-			addr, err := parseFlags()
+			config, err := parseFlags()
 			require.NoError(t, err, "parseFlags should not return error for valid address")
-			assert.Equal(t, tc.expected, addr, "Should return expected address")
+			assert.Equal(t, tc.expected, config.Address, "Should return expected address")
 		})
 	}
 }
@@ -162,6 +162,81 @@ func TestParseFlags_InvalidFlagValues(t *testing.T) {
 			require.Error(t, err, "Expected error for invalid flag value")
 			assert.True(t, IsInvalidAddress(err), "Should return InvalidAddressError")
 			assert.Contains(t, err.Error(), tc.expectedErr, "Error message should contain expected reason")
+		})
+	}
+}
+
+func TestParseFlags_FlagPriorityAndValidation(t *testing.T) {
+	// Сохраняем оригинальные аргументы
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	testCases := []struct {
+		name        string
+		args        []string
+		envVars     map[string]string
+		expectedErr string
+		expectError bool
+	}{
+		{
+			name:        "Empty flag value should be validated",
+			args:        []string{"server", "-a", ""},
+			envVars:     nil,
+			expectedErr: "адрес не может быть пустым",
+			expectError: true,
+		},
+		{
+			name:        "Environment variable overrides empty flag",
+			args:        []string{"server", "-a", ""},
+			envVars:     map[string]string{"ADDRESS": "localhost:9090"},
+			expectedErr: "",
+			expectError: false,
+		},
+		{
+			name:        "Environment variable overrides valid flag",
+			args:        []string{"server", "-a", "localhost:8080"},
+			envVars:     map[string]string{"ADDRESS": "localhost:9090"},
+			expectedErr: "",
+			expectError: false,
+		},
+		{
+			name:        "Flag overrides default when valid",
+			args:        []string{"server", "-a", "localhost:9090"},
+			envVars:     nil,
+			expectedErr: "",
+			expectError: false,
+		},
+		{
+			name:        "Default value used when no flag or env",
+			args:        []string{"server"},
+			envVars:     nil,
+			expectedErr: "",
+			expectError: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Устанавливаем переменные окружения
+			if tc.envVars != nil {
+				for key, value := range tc.envVars {
+					os.Setenv(key, value)
+					defer os.Unsetenv(key)
+				}
+			}
+
+			os.Args = tc.args
+
+			result, err := parseFlags()
+
+			if tc.expectError {
+				require.Error(t, err, "Expected error for invalid configuration")
+				assert.True(t, IsInvalidAddress(err), "Should return InvalidAddressError")
+				assert.Contains(t, err.Error(), tc.expectedErr, "Error message should contain expected reason")
+			} else {
+				require.NoError(t, err, "Expected no error for valid configuration")
+				assert.NotEmpty(t, result, "Result should not be empty")
+			}
 		})
 	}
 }
@@ -285,7 +360,7 @@ func TestParseFlags_HelpFlagPanic(t *testing.T) {
 				}
 			}()
 
-			addr, err := parseFlags()
+			config, err := parseFlags()
 
 			if tc.expectError {
 				require.Error(t, err, "Expected error")
@@ -294,7 +369,7 @@ func TestParseFlags_HelpFlagPanic(t *testing.T) {
 				}
 			} else {
 				require.NoError(t, err, "Expected no error")
-				assert.Equal(t, "localhost:8080", addr, "Should return expected address")
+				assert.Equal(t, "localhost:8080", config.Address, "Should return expected address")
 			}
 		})
 	}

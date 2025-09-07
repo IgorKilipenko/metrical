@@ -2,6 +2,8 @@ package app
 
 import (
 	"testing"
+
+	"github.com/IgorKilipenko/metrical/internal/testutils"
 )
 
 func TestNewConfig(t *testing.T) {
@@ -58,7 +60,7 @@ func TestNewConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config, err := NewConfig(tt.input)
+			config, err := NewConfig(tt.input, 300, testutils.TestMetricsFile, true)
 
 			if tt.expectError {
 				if err == nil {
