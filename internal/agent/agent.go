@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"runtime"
 	"strconv"
@@ -219,15 +221,20 @@ func (a *Agent) sendHTTPRequest(url string) error {
 			<-time.After(DefaultRetryDelay)
 			continue
 		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode == http.StatusOK {
+			resp.Body.Close() // Закрываем тело ответа сразу после успешного ответа
 			return nil
 		} else {
 			// Читаем тело ответа для лучшей диагностики
 			body := make([]byte, 1024)
-			n, _ := resp.Body.Read(body)
+			n, readErr := resp.Body.Read(body)
 			bodyStr := string(body[:n])
+			if readErr != nil && !errors.Is(readErr, io.EOF) {
+				// Если ошибка чтения не EOF, добавляем информацию об ошибке
+				bodyStr += fmt.Sprintf(" (read error: %v)", readErr)
+			}
+			resp.Body.Close() // Закрываем тело ответа после чтения
 
 			if attempt == DefaultMaxRetries {
 				return fmt.Errorf("server returned status %d: %s", resp.StatusCode, bodyStr)
@@ -263,17 +270,22 @@ func (a *Agent) sendHTTPRequestWithGzip(url string) error {
 			<-time.After(DefaultRetryDelay)
 			continue
 		}
-		defer resp.Body.Close()
 
 		// Проверяем статус ответа
 		if resp.StatusCode == http.StatusOK {
+			resp.Body.Close() // Закрываем тело ответа сразу после успешного ответа
 			return nil
 		}
 
 		// Читаем тело ответа для лучшей диагностики
 		body := make([]byte, 1024)
-		n, _ := resp.Body.Read(body)
+		n, readErr := resp.Body.Read(body)
 		bodyStr := string(body[:n])
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			// Если ошибка чтения не EOF, добавляем информацию об ошибке
+			bodyStr += fmt.Sprintf(" (read error: %v)", readErr)
+		}
+		resp.Body.Close() // Закрываем тело ответа после чтения
 
 		// Retry только при серверных ошибках (5xx)
 		if resp.StatusCode >= 500 && resp.StatusCode < 600 {
@@ -412,8 +424,21 @@ func (a *Agent) sendJSONRequest(metric *models.Metrics) error {
 }
 
 // sendHTTPRequestWithRetry выполняет HTTP запрос с retry логикой
-func (a *Agent) sendHTTPRequestWithRetry(req *http.Request) error {
+func (a *Agent) sendHTTPRequestWithRetry(originalReq *http.Request) error {
 	for attempt := 1; attempt <= DefaultMaxRetries; attempt++ {
+		// Создаем новый запрос для каждой попытки, так как req.Body может быть уже прочитан
+		req, err := http.NewRequest(originalReq.Method, originalReq.URL.String(), originalReq.Body)
+		if err != nil {
+			return fmt.Errorf("failed to create request: %w", err)
+		}
+
+		// Копируем заголовки из оригинального запроса
+		for key, values := range originalReq.Header {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
+
 		resp, err := a.httpClient.Do(req)
 		if err != nil {
 			// Если это последняя попытка, возвращаем ошибку
@@ -424,17 +449,22 @@ func (a *Agent) sendHTTPRequestWithRetry(req *http.Request) error {
 			<-time.After(DefaultRetryDelay)
 			continue
 		}
-		defer resp.Body.Close()
 
 		// Проверяем статус ответа
 		if resp.StatusCode == http.StatusOK {
+			resp.Body.Close() // Закрываем тело ответа сразу после успешного ответа
 			return nil
 		}
 
 		// Читаем тело ответа для лучшей диагностики
 		body := make([]byte, 1024)
-		n, _ := resp.Body.Read(body)
+		n, readErr := resp.Body.Read(body)
 		bodyStr := string(body[:n])
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			// Если ошибка чтения не EOF, добавляем информацию об ошибке
+			bodyStr += fmt.Sprintf(" (read error: %v)", readErr)
+		}
+		resp.Body.Close() // Закрываем тело ответа после чтения
 
 		// Retry только при серверных ошибках (5xx)
 		if resp.StatusCode >= 500 && resp.StatusCode < 600 {

@@ -59,7 +59,7 @@ func init() {
 
 // getEnvOrDefault возвращает значение переменной окружения или значение по умолчанию
 func getEnvOrDefault(key, defaultValue string) string {
-	if value, exists := os.LookupEnv(key); exists {
+	if value, ok := os.LookupEnv(key); ok {
 		return value
 	}
 	return defaultValue
@@ -67,7 +67,7 @@ func getEnvOrDefault(key, defaultValue string) string {
 
 // getEnvIntOrDefault возвращает целочисленное значение переменной окружения или значение по умолчанию
 func getEnvIntOrDefault(key string, defaultValue int) int {
-	if value, exists := os.LookupEnv(key); exists {
+	if value, ok := os.LookupEnv(key); ok {
 		if intValue, err := strconv.Atoi(value); err == nil {
 			return intValue
 		}
@@ -78,7 +78,7 @@ func getEnvIntOrDefault(key string, defaultValue int) int {
 // getFinalValue возвращает финальное значение с учетом приоритета
 func getFinalValue(envKey, flagValue, defaultValue string) string {
 	// 1. Переменная окружения (высший приоритет)
-	if envValue, exists := os.LookupEnv(envKey); exists {
+	if envValue, ok := os.LookupEnv(envKey); ok {
 		return envValue
 	}
 	// 2. Флаг командной строки (средний приоритет)
@@ -92,7 +92,7 @@ func getFinalValue(envKey, flagValue, defaultValue string) string {
 // getFinalIntValue возвращает финальное целочисленное значение с учетом приоритета
 func getFinalIntValue(envKey string, flagValue, defaultValue int) int {
 	// 1. Переменная окружения (высший приоритет)
-	if envValue, exists := os.LookupEnv(envKey); exists {
+	if envValue, ok := os.LookupEnv(envKey); ok {
 		if intValue, err := strconv.Atoi(envValue); err == nil {
 			return intValue
 		}
