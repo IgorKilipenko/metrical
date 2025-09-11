@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"runtime"
 	"strconv"
@@ -44,7 +42,7 @@ type Agent struct {
 	config     *Config
 	metrics    *Metrics
 	mu         sync.RWMutex
-	httpClient *http.Client
+	httpClient HTTPClient
 	done       chan struct{} // Канал для graceful shutdown
 	logger     logger.Logger
 }
@@ -55,14 +53,20 @@ func NewAgent(config *Config, agentLogger logger.Logger) *Agent {
 		agentLogger = logger.NewSlogLogger()
 	}
 
+	// Создаем базовый HTTP клиент
+	baseClient := &http.Client{
+		Timeout: DefaultHTTPTimeout,
+	}
+
+	// Обертываем в retry клиент
+	retryClient := NewRetryHTTPClient(baseClient, DefaultMaxRetries, DefaultRetryDelay, agentLogger)
+
 	return &Agent{
-		config:  config,
-		metrics: NewMetrics(),
-		httpClient: &http.Client{
-			Timeout: DefaultHTTPTimeout,
-		},
-		done:   make(chan struct{}),
-		logger: agentLogger,
+		config:     config,
+		metrics:    NewMetrics(),
+		httpClient: retryClient,
+		done:       make(chan struct{}),
+		logger:     agentLogger,
 	}
 }
 
@@ -210,98 +214,40 @@ func (a *Agent) prepareMetricInfo(name string, value interface{}) (*MetricInfo, 
 
 // sendHTTPRequest выполняет HTTP запрос с retry логикой
 func (a *Agent) sendHTTPRequest(url string) error {
-	for attempt := 1; attempt <= DefaultMaxRetries; attempt++ {
-		resp, err := a.httpClient.Post(url, "text/plain", nil)
-		if err != nil {
-			// Если это последняя попытка, возвращаем ошибку
-			if attempt == DefaultMaxRetries {
-				return fmt.Errorf("failed after %d attempts: %w", DefaultMaxRetries, err)
-			}
-			// Небольшая задержка перед повторной попыткой
-			<-time.After(DefaultRetryDelay)
-			continue
-		}
+	resp, err := a.httpClient.Post(url, "text/plain", nil)
+	if err != nil {
+		return fmt.Errorf("failed to send HTTP request: %w", err)
+	}
+	defer resp.Body.Close()
 
-		if resp.StatusCode == http.StatusOK {
-			resp.Body.Close() // Закрываем тело ответа сразу после успешного ответа
-			return nil
-		} else {
-			// Читаем тело ответа для лучшей диагностики
-			body := make([]byte, 1024)
-			n, readErr := resp.Body.Read(body)
-			bodyStr := string(body[:n])
-			if readErr != nil && !errors.Is(readErr, io.EOF) {
-				// Если ошибка чтения не EOF, добавляем информацию об ошибке
-				bodyStr += fmt.Sprintf(" (read error: %v)", readErr)
-			}
-			resp.Body.Close() // Закрываем тело ответа после чтения
-
-			if attempt == DefaultMaxRetries {
-				return fmt.Errorf("server returned status %d: %s", resp.StatusCode, bodyStr)
-			}
-			// Небольшая задержка перед повторной попыткой
-			<-time.After(DefaultRetryDelay)
-			continue
-		}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned status %d", resp.StatusCode)
 	}
 
-	return fmt.Errorf("failed to send request after %d attempts", DefaultMaxRetries)
+	return nil
 }
 
 // sendHTTPRequestWithGzip выполняет HTTP запрос с gzip сжатием и retry логикой
 func (a *Agent) sendHTTPRequestWithGzip(url string) error {
-	for attempt := 1; attempt <= DefaultMaxRetries; attempt++ {
-		// Создаем пустой POST запрос (для простых метрик тело не нужно)
-		req, err := http.NewRequest("POST", url, nil)
-		if err != nil {
-			return fmt.Errorf("failed to create request: %w", err)
-		}
-
-		// Устанавливаем заголовки для gzip
-		req.Header.Set("Accept-Encoding", "gzip")
-
-		resp, err := a.httpClient.Do(req)
-		if err != nil {
-			// Если это последняя попытка, возвращаем ошибку
-			if attempt == DefaultMaxRetries {
-				return fmt.Errorf("failed after %d attempts: %w", DefaultMaxRetries, err)
-			}
-			// Небольшая задержка перед повторной попыткой
-			<-time.After(DefaultRetryDelay)
-			continue
-		}
-
-		// Проверяем статус ответа
-		if resp.StatusCode == http.StatusOK {
-			resp.Body.Close() // Закрываем тело ответа сразу после успешного ответа
-			return nil
-		}
-
-		// Читаем тело ответа для лучшей диагностики
-		body := make([]byte, 1024)
-		n, readErr := resp.Body.Read(body)
-		bodyStr := string(body[:n])
-		if readErr != nil && !errors.Is(readErr, io.EOF) {
-			// Если ошибка чтения не EOF, добавляем информацию об ошибке
-			bodyStr += fmt.Sprintf(" (read error: %v)", readErr)
-		}
-		resp.Body.Close() // Закрываем тело ответа после чтения
-
-		// Retry только при серверных ошибках (5xx)
-		if resp.StatusCode >= 500 && resp.StatusCode < 600 {
-			if attempt == DefaultMaxRetries {
-				return fmt.Errorf("server error after %d attempts: status %d: %s", DefaultMaxRetries, resp.StatusCode, bodyStr)
-			}
-			// Небольшая задержка перед повторной попыткой
-			<-time.After(DefaultRetryDelay)
-			continue
-		}
-
-		// Клиентские ошибки (4xx) и другие статусы не требуют retry
-		return fmt.Errorf("client error: status %d: %s", resp.StatusCode, bodyStr)
+	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	return fmt.Errorf("failed to send request after %d attempts", DefaultMaxRetries)
+	// Устанавливаем заголовки для gzip
+	req.Header.Set("Accept-Encoding", "gzip")
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send HTTP request with gzip: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned status %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 // sendSingleMetric отправляет одну метрику с retry логикой
@@ -424,61 +370,16 @@ func (a *Agent) sendJSONRequest(metric *models.Metrics) error {
 }
 
 // sendHTTPRequestWithRetry выполняет HTTP запрос с retry логикой
-func (a *Agent) sendHTTPRequestWithRetry(originalReq *http.Request) error {
-	for attempt := 1; attempt <= DefaultMaxRetries; attempt++ {
-		// Создаем новый запрос для каждой попытки, так как req.Body может быть уже прочитан
-		req, err := http.NewRequest(originalReq.Method, originalReq.URL.String(), originalReq.Body)
-		if err != nil {
-			return fmt.Errorf("failed to create request: %w", err)
-		}
+func (a *Agent) sendHTTPRequestWithRetry(req *http.Request) error {
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send HTTP request with retry: %w", err)
+	}
+	defer resp.Body.Close()
 
-		// Копируем заголовки из оригинального запроса
-		for key, values := range originalReq.Header {
-			for _, value := range values {
-				req.Header.Add(key, value)
-			}
-		}
-
-		resp, err := a.httpClient.Do(req)
-		if err != nil {
-			// Если это последняя попытка, возвращаем ошибку
-			if attempt == DefaultMaxRetries {
-				return fmt.Errorf("failed after %d attempts: %w", DefaultMaxRetries, err)
-			}
-			// Небольшая задержка перед повторной попыткой
-			<-time.After(DefaultRetryDelay)
-			continue
-		}
-
-		// Проверяем статус ответа
-		if resp.StatusCode == http.StatusOK {
-			resp.Body.Close() // Закрываем тело ответа сразу после успешного ответа
-			return nil
-		}
-
-		// Читаем тело ответа для лучшей диагностики
-		body := make([]byte, 1024)
-		n, readErr := resp.Body.Read(body)
-		bodyStr := string(body[:n])
-		if readErr != nil && !errors.Is(readErr, io.EOF) {
-			// Если ошибка чтения не EOF, добавляем информацию об ошибке
-			bodyStr += fmt.Sprintf(" (read error: %v)", readErr)
-		}
-		resp.Body.Close() // Закрываем тело ответа после чтения
-
-		// Retry только при серверных ошибках (5xx)
-		if resp.StatusCode >= 500 && resp.StatusCode < 600 {
-			if attempt == DefaultMaxRetries {
-				return fmt.Errorf("server error after %d attempts: status %d: %s", DefaultMaxRetries, resp.StatusCode, bodyStr)
-			}
-			// Небольшая задержка перед повторной попыткой
-			<-time.After(DefaultRetryDelay)
-			continue
-		}
-
-		// Клиентские ошибки (4xx) и другие статусы не требуют retry
-		return fmt.Errorf("client error: status %d: %s", resp.StatusCode, bodyStr)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned status %d", resp.StatusCode)
 	}
 
-	return fmt.Errorf("failed to send request after %d attempts", DefaultMaxRetries)
+	return nil
 }
