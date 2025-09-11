@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,14 +26,6 @@ type MetricValue struct {
 	Value     float64
 	Type      string // "gauge" или "counter"
 	Timestamp time.Time
-}
-
-// MetricInfo структура для хранения информации о метрике для отправки
-type MetricInfo struct {
-	Name  string
-	Type  string
-	Value string
-	URL   string
 }
 
 // Agent агент для сбора и отправки метрик
@@ -179,99 +170,6 @@ func (a *Agent) sendMetrics() {
 	} else {
 		a.logger.Info("successfully sent metrics", "count", successCount)
 	}
-}
-
-// prepareMetricInfo подготавливает информацию о метрике для отправки
-func (a *Agent) prepareMetricInfo(name string, value interface{}) (*MetricInfo, error) {
-	var metricType string
-	var stringValue string
-
-	switch v := value.(type) {
-	case float64:
-		metricType = MetricTypeGauge
-		stringValue = strconv.FormatFloat(v, 'f', -1, 64)
-	case int64:
-		metricType = MetricTypeCounter
-		stringValue = strconv.FormatInt(v, 10)
-	default:
-		return nil, fmt.Errorf("unknown metric type for %s: %T", name, value)
-	}
-
-	// Убеждаемся, что URL содержит протокол
-	serverURL := a.config.ServerURL
-	if !strings.HasPrefix(serverURL, "http://") && !strings.HasPrefix(serverURL, "https://") {
-		serverURL = "http://" + serverURL
-	}
-	url := fmt.Sprintf("%s/update/%s/%s/%s", serverURL, metricType, name, stringValue)
-
-	return &MetricInfo{
-		Name:  name,
-		Type:  metricType,
-		Value: stringValue,
-		URL:   url,
-	}, nil
-}
-
-// sendHTTPRequest выполняет HTTP запрос с retry логикой
-func (a *Agent) sendHTTPRequest(url string) error {
-	resp, err := a.httpClient.Post(url, "text/plain", nil)
-	if err != nil {
-		return fmt.Errorf("failed to send HTTP request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("server returned status %d", resp.StatusCode)
-	}
-
-	return nil
-}
-
-// sendHTTPRequestWithGzip выполняет HTTP запрос с gzip сжатием и retry логикой
-func (a *Agent) sendHTTPRequestWithGzip(url string) error {
-	req, err := http.NewRequest("POST", url, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Устанавливаем заголовки для gzip
-	req.Header.Set("Accept-Encoding", "gzip")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send HTTP request with gzip: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("server returned status %d", resp.StatusCode)
-	}
-
-	return nil
-}
-
-// sendSingleMetric отправляет одну метрику с retry логикой
-func (a *Agent) sendSingleMetric(name string, value interface{}) error {
-	// Подготавливаем информацию о метрике
-	metricInfo, err := a.prepareMetricInfo(name, value)
-	if err != nil {
-		return err
-	}
-
-	// Отправляем HTTP запрос
-	if err := a.sendHTTPRequestWithGzip(metricInfo.URL); err != nil {
-		return fmt.Errorf("failed to send metric %s: %w", name, err)
-	}
-
-	// Логируем успешную отправку
-	if a.config.VerboseLogging {
-		a.logger.Debug("sent metric successfully",
-			"name", metricInfo.Name,
-			"value", metricInfo.Value,
-			"status", 200)
-	}
-
-	return nil
 }
 
 // sendSingleMetricJSON отправляет одну метрику в JSON формате

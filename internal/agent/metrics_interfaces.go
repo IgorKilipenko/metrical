@@ -21,7 +21,6 @@ type MetricsSender interface {
 // MetricPreparer интерфейс для подготовки метрик
 type MetricPreparer interface {
 	PrepareJSON(name string, value any) (*models.Metrics, error)
-	PrepareInfo(name string, value any) (*MetricInfo, error)
 }
 
 // HTTPRequestBuilder интерфейс для создания HTTP запросов
