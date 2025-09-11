@@ -1,6 +1,6 @@
 # internal/agent
 
-Агент для сбора и отправки метрик.
+Агент для сбора и отправки метрик с поддержкой retry логики и gzip сжатия.
 
 ## Архитектура агента
 
@@ -10,8 +10,8 @@ graph TB
         AGENT[Agent]
         CONFIG[Config]
         METRICS[Metrics Collector]
-        METRIC_INFO[MetricInfo]
-        HTTP_HANDLER[HTTP Handler]
+        HTTP_CLIENT[RetryHTTPClient]
+        INTERFACES[Interfaces]
     end
     
     subgraph "Runtime"
@@ -20,28 +20,35 @@ graph TB
     end
     
     subgraph "Network"
-        HTTP_CLIENT[HTTP Client]
+        BASE_CLIENT[Base HTTP Client]
         SERVER[Server]
+    end
+    
+    subgraph "Interfaces"
+        HTTP_INTERFACE[HTTPClient]
+        METRICS_INTERFACE[MetricsCollector]
+        SENDER_INTERFACE[MetricsSender]
     end
     
     AGENT --> CONFIG
     AGENT --> METRICS
-    AGENT --> HTTP_HANDLER
+    AGENT --> HTTP_CLIENT
+    AGENT --> INTERFACES
     
     METRICS --> RUNTIME
     METRICS --> RANDOM
-    HTTP_HANDLER --> METRIC_INFO
-    HTTP_HANDLER --> HTTP_CLIENT
-    HTTP_CLIENT --> SERVER
+    HTTP_CLIENT --> BASE_CLIENT
+    HTTP_CLIENT --> HTTP_INTERFACE
+    BASE_CLIENT --> SERVER
     
     style AGENT fill:#f3e5f5
     style CONFIG fill:#e8f5e8
     style METRICS fill:#e3f2fd
-    style METRIC_INFO fill:#fff8e1
-    style HTTP_HANDLER fill:#f3e5f5
+    style HTTP_CLIENT fill:#e1f5fe
+    style INTERFACES fill:#fff8e1
     style RUNTIME fill:#fff3e0
     style RANDOM fill:#fff3e0
-    style HTTP_CLIENT fill:#e1f5fe
+    style BASE_CLIENT fill:#e1f5fe
     style SERVER fill:#e1f5fe
 ```
 
@@ -52,7 +59,8 @@ sequenceDiagram
     participant Agent
     participant Collector
     participant Runtime
-    participant HTTPClient
+    participant RetryClient
+    participant BaseClient
     participant Server
     
     loop Every 2 seconds
@@ -63,32 +71,52 @@ sequenceDiagram
     end
     
     loop Every 10 seconds
-        Agent->>HTTPClient: Send Metrics
-        HTTPClient->>Server: HTTP POST
-        Server-->>HTTPClient: 200 OK
-        HTTPClient-->>Agent: Success
+        Agent->>RetryClient: Send JSON Metrics
+        RetryClient->>RetryClient: Compress with Gzip
+        RetryClient->>BaseClient: HTTP POST with Retry
+        BaseClient->>Server: Compressed JSON
+        alt Success
+            Server-->>BaseClient: 200 OK
+            BaseClient-->>RetryClient: Success
+            RetryClient-->>Agent: Success
+        else Server Error (5xx)
+            Server-->>BaseClient: 5xx Error
+            BaseClient-->>RetryClient: Error
+            RetryClient->>RetryClient: Retry (max 2 attempts)
+            RetryClient->>BaseClient: Retry Request
+        else Client Error (4xx)
+            Server-->>BaseClient: 4xx Error
+            BaseClient-->>RetryClient: Error
+            RetryClient-->>Agent: No Retry
+        end
     end
     
     Note over Agent,Collector: Потокобезопасный сбор
-    Note over HTTPClient,Server: Retry логика при ошибках
+    Note over RetryClient,Server: Retry только при 5xx ошибках
+    Note over RetryClient: Gzip сжатие всех JSON данных
 ```
 
 ## Возможности
 
 ### ✅ Основные функции
 - **Сбор метрик**: 27 runtime метрик + 1 дополнительная (RandomValue) + 1 counter (PollCount)
-- **Отправка метрик**: HTTP POST запросы с retry логикой (legacy и JSON API)
+- **Отправка метрик**: HTTP POST запросы с retry логикой (только JSON API)
 - **Graceful shutdown**: Корректное завершение работы
 - **Потокобезопасность**: Использование `sync.RWMutex`
 - **Конфигурация**: Гибкие настройки через структуру Config
 - **Логирование**: Структурированное логирование через logger абстракцию
-- **JSON API поддержка**: Отправка метрик через новые JSON эндпоинты
+- **JSON API поддержка**: Отправка метрик через JSON эндпоинты
 - **Gzip поддержка**: Автоматическое сжатие всех отправляемых данных
+- **Интерфейсы**: Модульная архитектура с интерфейсами для тестируемости
+- **Retry HTTP Client**: Отдельный компонент с умной retry логикой
 
 ### ✅ Обработка ошибок
-- **Retry логика**: 2 попытки с задержкой 100ms
-- **Детальная диагностика**: Чтение тела ответа при ошибках
+- **Умная retry логика**: 2 попытки с задержкой 100ms только при 5xx ошибках
+- **Нет retry при 4xx**: Клиентские ошибки не вызывают повторные попытки
+- **Создание нового запроса**: Каждая попытка использует свежий HTTP запрос
+- **Детальная диагностика**: Чтение тела ответа при ошибках с правильной обработкой EOF
 - **Структурированное логирование**: Детальное логирование операций и ошибок
+- **Правильное закрытие ресурсов**: Нет утечек HTTP соединений
 
 ### ✅ Конфигурация
 - **Валидация**: Проверка корректности настроек
@@ -101,18 +129,25 @@ sequenceDiagram
 - **Прозрачная работа**: Сжатие происходит автоматически без изменения API
 - **Эффективность**: Значительное уменьшение размера передаваемых данных
 
+### ✅ Архитектурные улучшения
+- **Интерфейсы**: `HTTPClient`, `MetricsCollector`, `MetricsSender` для тестируемости
+- **Разделение ответственности**: `RetryHTTPClient` отделен от основной логики агента
+
 ## Структура файлов
 
 ### Основные файлы
-- `agent.go` - основная логика агента (сбор, отправка, retry логика)
+- `agent.go` - основная логика агента (сбор, отправка метрик)
 - `config.go` - конфигурация агента с валидацией
 - `metrics.go` - работа с метриками (runtime + дополнительные)
+- `http_client.go` - HTTP клиент с retry логикой
+- `metrics_interfaces.go` - интерфейсы для модульной архитектуры
 
 ### Тестовые файлы
-- `agent_test.go` - тесты агента (создание, сбор метрик, потокобезопасность, graceful shutdown, подготовка метрик)
+- `agent_test.go` - тесты агента (создание, сбор метрик, потокобезопасность, graceful shutdown, подготовка JSON)
 - `config_test.go` - тесты конфигурации (создание, валидация)
 - `metrics_test.go` - тесты метрик (создание, заполнение, обновление)
 - `gzip_test.go` - тесты gzip функциональности (сжатие, распаковка, интеграция)
+- `http_client_test.go` - тесты HTTP клиента (retry логика, обработка ошибок, helper функции)
 
 ## Запуск тестов
 
@@ -135,6 +170,12 @@ go vet ./internal/agent/...
 # Тесты gzip функциональности
 go test ./internal/agent/... -run TestAgent_CompressData -v
 go test ./internal/agent/... -run TestAgent_CompressDataIntegration -v
+
+# Тесты HTTP клиента с retry логикой
+go test ./internal/agent/... -run TestRetryHTTPClient -v
+
+# Тесты с helper функциями
+go test ./internal/agent/... -run TestRetryHTTPClient_Do_Success -v
 ```
 
 ## Конфигурация по умолчанию
@@ -146,6 +187,32 @@ DefaultReportInterval = 10 * time.Second
 DefaultHTTPTimeout    = 10 * time.Second
 DefaultMaxRetries     = 2
 DefaultRetryDelay     = 100 * time.Millisecond
+```
+
+## Интерфейсы
+
+### HTTPClient
+```go
+type HTTPClient interface {
+    Do(req *http.Request) (*http.Response, error)
+    Post(url, contentType string, body io.Reader) (*http.Response, error)
+}
+```
+
+### MetricsCollector
+```go
+type MetricsCollector interface {
+    Collect() map[string]any
+    GetAllMetrics() map[string]any
+}
+```
+
+### MetricsSender
+```go
+type MetricsSender interface {
+    Send(metrics map[string]any) error
+    SendSingle(name string, value interface{}) error
+}
 ```
 
 ## Логирование
@@ -168,6 +235,10 @@ agent.sendMetrics()
 // Логирование ошибок (при verbose режиме)
 // Логи: "error sending metric" name=Alloc error="connection refused"
 
+// Логирование retry логики
+// Логи: "failed to read response body" error="network timeout"
+// Логи: "server error after 2 attempts: status 500: internal server error"
+
 // Логирование graceful shutdown
 agent.Stop()
 // Логи: "stopping agent"
@@ -180,5 +251,38 @@ agent.Stop()
 
 - **Debug**: Детальная информация о метриках (при verbose режиме)
 - **Info**: Основные события (сбор метрик, отправка, остановка)
-- **Warn**: Предупреждения (частичные ошибки отправки)
+- **Warn**: Предупреждения (частичные ошибки отправки, ошибки чтения ответов)
 - **Error**: Ошибки отправки метрик (при verbose режиме)
+
+## Примеры использования
+
+### Создание агента с кастомным HTTP клиентом
+```go
+// Создание базового HTTP клиента
+baseClient := &http.Client{
+    Timeout: 30 * time.Second,
+}
+
+// Создание retry клиента
+retryClient := NewRetryHTTPClient(baseClient, 3, 200*time.Millisecond, logger)
+
+// Создание агента
+config := NewConfig()
+agent := &Agent{
+    config:     config,
+    metrics:    NewMetrics(),
+    httpClient: retryClient,
+    logger:     logger,
+}
+```
+
+### Тестирование с моком
+```go
+// Создание мок HTTP клиента
+mockClient := &MockHTTPClient{}
+mockClient.SetResponses([]*http.Response{successResp}, []error{nil})
+
+// Создание агента с моком
+agent := NewAgent(config, logger)
+agent.httpClient = mockClient
+```
