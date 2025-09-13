@@ -23,6 +23,11 @@ type MetricsHandler struct {
 	logger   logger.Logger
 }
 
+// DatabasePinger интерфейс для проверки соединения с БД
+type DatabasePinger interface {
+	Ping(ctx context.Context) error
+}
+
 // NewMetricsHandler создает новый экземпляр MetricsHandler
 func NewMetricsHandler(service *service.MetricsService, logger logger.Logger) (*MetricsHandler, error) {
 	if service == nil {
@@ -396,4 +401,28 @@ func (h *MetricsHandler) validateMetricRequestJSON(metric *models.Metrics) error
 	}
 
 	return nil
+}
+
+// Ping проверяет соединение с базой данных
+func (h *MetricsHandler) Ping(pinger DatabasePinger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		h.logger.Info("processing ping request",
+			"method", r.Method,
+			"url", r.URL.Path,
+			"remote_addr", r.RemoteAddr)
+
+		// Создаем контекст с таймаутом
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		// Проверяем соединение с БД
+		if err := pinger.Ping(ctx); err != nil {
+			h.logger.Error("database ping failed", "error", err)
+			http.Error(w, "Database connection failed", http.StatusInternalServerError)
+			return
+		}
+
+		h.logger.Info("database ping successful")
+		w.WriteHeader(http.StatusOK)
+	}
 }

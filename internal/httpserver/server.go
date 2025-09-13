@@ -11,6 +11,7 @@ import (
 	"github.com/IgorKilipenko/metrical/internal/logger"
 	"github.com/IgorKilipenko/metrical/internal/router"
 	"github.com/IgorKilipenko/metrical/internal/routes"
+	"github.com/go-chi/chi/v5"
 )
 
 // ServerConfig конфигурация HTTP сервера
@@ -78,6 +79,32 @@ func NewServerWithConfig(config *ServerConfig, handler *handler.MetricsHandler, 
 	return srv, nil
 }
 
+// NewServerWithChiRouter создает новый HTTP сервер с готовым chi роутером
+func NewServerWithChiRouter(addr string, chiRouter *chi.Mux, logger logger.Logger) (*Server, error) {
+	config := DefaultServerConfig()
+	config.Addr = addr
+
+	if config.Addr == "" {
+		return nil, errors.New("address cannot be empty")
+	}
+	if chiRouter == nil {
+		return nil, errors.New("router cannot be nil")
+	}
+	if logger == nil {
+		return nil, errors.New("logger cannot be nil")
+	}
+
+	logger.Info("creating server with custom router", "addr", config.Addr)
+
+	srv := &Server{
+		config: config,
+		logger: logger,
+		router: router.NewWithChiRouter(chiRouter),
+	}
+
+	return srv, nil
+}
+
 // Start запускает HTTP сервер
 func (s *Server) Start() error {
 	s.logger.Info("starting HTTP server",
@@ -127,6 +154,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // createRouter создает и настраивает роутер с маршрутами
 func (s *Server) createRouter() *router.Router {
 	// Используем отдельный пакет для настройки маршрутов
-	chiRouter := routes.SetupMetricsRoutes(s.handler)
+	// Создаем заглушку для ping (всегда возвращает ошибку)
+	chiRouter := routes.SetupMetricsRoutes(s.handler, &noDatabasePinger{})
 	return router.NewWithChiRouter(chiRouter)
+}
+
+// noDatabasePinger заглушка для случая когда БД не используется
+type noDatabasePinger struct{}
+
+func (p *noDatabasePinger) Ping(ctx context.Context) error {
+	return fmt.Errorf("database not configured")
 }

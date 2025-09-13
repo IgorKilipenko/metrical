@@ -50,7 +50,7 @@ func main() {
 	config, err := parseFlags()
 	handleError(err)
 
-	appConfig, err := app.NewConfig(config.Address, config.StoreInterval, config.FileStoragePath, config.Restore)
+	appConfig, err := app.NewConfig(config.Address, config.StoreInterval, config.FileStoragePath, config.Restore, config.DatabaseDSN)
 	handleError(err)
 
 	application := app.New(appConfig)

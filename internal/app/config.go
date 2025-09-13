@@ -6,7 +6,7 @@ import (
 )
 
 // NewConfig создает конфигурацию из строки адреса и дополнительных параметров
-func NewConfig(addr string, storeInterval int, fileStoragePath string, restore bool) (Config, error) {
+func NewConfig(addr string, storeInterval int, fileStoragePath string, restore bool, databaseDSN string) (Config, error) {
 	// Парсим адрес и порт
 	serverAddr, serverPort, err := parseAddr(addr)
 	if err != nil {
@@ -19,6 +19,7 @@ func NewConfig(addr string, storeInterval int, fileStoragePath string, restore b
 		StoreInterval:   storeInterval,
 		FileStoragePath: fileStoragePath,
 		Restore:         restore,
+		DatabaseDSN:     databaseDSN,
 	}, nil
 }
 

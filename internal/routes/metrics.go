@@ -10,7 +10,7 @@ import (
 )
 
 // SetupMetricsRoutes настраивает маршруты для метрик
-func SetupMetricsRoutes(handler *handler.MetricsHandler) *chi.Mux {
+func SetupMetricsRoutes(handler *handler.MetricsHandler, pinger handler.DatabasePinger) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Добавляем middleware для логирования
@@ -35,9 +35,8 @@ func SetupMetricsRoutes(handler *handler.MetricsHandler) *chi.Mux {
 		w.Write([]byte("Router is working"))
 	})
 
-	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("pong"))
-	})
+	// Database health check endpoint
+	r.Get("/ping", handler.Ping(pinger))
 
 	// Основные маршруты метрик
 	r.Get("/", handler.GetAllMetrics)
