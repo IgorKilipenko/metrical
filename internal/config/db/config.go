@@ -9,23 +9,27 @@ import (
 
 // Config содержит конфигурацию подключения к базе данных
 type Config struct {
-	DSN             string        // Data Source Name для подключения к БД
-	MaxConns        int32         // Максимальное количество соединений в пуле
-	MinConns        int32         // Минимальное количество соединений в пуле
-	MaxConnLifetime time.Duration // Максимальное время жизни соединения
-	MaxConnIdleTime time.Duration // Максимальное время простоя соединения
-	ConnectTimeout  time.Duration // Таймаут подключения
+	DSN                string        // Data Source Name для подключения к БД
+	MaxConns           int32         // Максимальное количество соединений в пуле
+	MinConns           int32         // Минимальное количество соединений в пуле
+	MaxConnLifetime    time.Duration // Максимальное время жизни соединения
+	MaxConnIdleTime    time.Duration // Максимальное время простоя соединения
+	ConnectTimeout     time.Duration // Таймаут подключения
+	PingTimeout        time.Duration // Таймаут для ping операций
+	HealthCheckTimeout time.Duration // Таймаут для health check операций
 }
 
 // DefaultConfig возвращает конфигурацию по умолчанию
 func DefaultConfig() Config {
 	return Config{
-		DSN:             "postgres://metricaldb:Secret@localhost:5432/metricaldb?sslmode=disable",
-		MaxConns:        10,
-		MinConns:        2,
-		MaxConnLifetime: time.Hour,
-		MaxConnIdleTime: time.Minute * 30,
-		ConnectTimeout:  time.Second * 10,
+		DSN:                "postgres://metricaldb:Secret@localhost:5432/metricaldb?sslmode=disable",
+		MaxConns:           10,
+		MinConns:           2,
+		MaxConnLifetime:    time.Hour,
+		MaxConnIdleTime:    time.Minute * 30,
+		ConnectTimeout:     time.Second * 10,
+		PingTimeout:        time.Second * 5,
+		HealthCheckTimeout: time.Second * 5,
 	}
 }
 
@@ -69,6 +73,18 @@ func NewConfig() Config {
 		}
 	}
 
+	if pingTimeout := os.Getenv("DB_PING_TIMEOUT"); pingTimeout != "" {
+		if val, err := time.ParseDuration(pingTimeout); err == nil {
+			config.PingTimeout = val
+		}
+	}
+
+	if healthCheckTimeout := os.Getenv("DB_HEALTH_CHECK_TIMEOUT"); healthCheckTimeout != "" {
+		if val, err := time.ParseDuration(healthCheckTimeout); err == nil {
+			config.HealthCheckTimeout = val
+		}
+	}
+
 	return config
 }
 
@@ -102,6 +118,14 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("connect timeout must be positive")
 	}
 
+	if c.PingTimeout <= 0 {
+		return fmt.Errorf("ping timeout must be positive")
+	}
+
+	if c.HealthCheckTimeout <= 0 {
+		return fmt.Errorf("health check timeout must be positive")
+	}
+
 	return nil
 }
 
@@ -130,6 +154,6 @@ func (c *Config) String() string {
 		}
 	}
 
-	return fmt.Sprintf("Config{DSN: %s, MaxConns: %d, MinConns: %d, MaxConnLifetime: %v, MaxConnIdleTime: %v, ConnectTimeout: %v}",
-		maskedDSN, c.MaxConns, c.MinConns, c.MaxConnLifetime, c.MaxConnIdleTime, c.ConnectTimeout)
+	return fmt.Sprintf("Config{DSN: %s, MaxConns: %d, MinConns: %d, MaxConnLifetime: %v, MaxConnIdleTime: %v, ConnectTimeout: %v, PingTimeout: %v, HealthCheckTimeout: %v}",
+		maskedDSN, c.MaxConns, c.MinConns, c.MaxConnLifetime, c.MaxConnIdleTime, c.ConnectTimeout, c.PingTimeout, c.HealthCheckTimeout)
 }

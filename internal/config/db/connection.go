@@ -9,6 +9,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// DatabaseConnection интерфейс для работы с базой данных
+type DatabaseConnection interface {
+	Pool() *pgxpool.Pool
+	Ping(ctx context.Context) error
+	PingWithRetry(ctx context.Context, maxRetries int) error
+	Close()
+	Stats() *pgxpool.Stat
+	HealthCheck(ctx context.Context) error
+	HealthCheckWithRetry(ctx context.Context, maxRetries int) error
+}
+
 // Connection представляет подключение к базе данных
 type Connection struct {
 	pool   *pgxpool.Pool
@@ -70,11 +81,10 @@ func (c *Connection) Pool() *pgxpool.Pool {
 
 // Ping проверяет соединение с базой данных
 func (c *Connection) Ping(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, c.config.PingTimeout)
 	defer cancel()
 
 	if err := c.pool.Ping(ctx); err != nil {
-		c.logger.Error("database ping failed", "error", err)
 		return fmt.Errorf("database ping failed: %w", err)
 	}
 
@@ -103,13 +113,12 @@ func (c *Connection) HealthCheck(ctx context.Context) error {
 	}
 
 	// Выполняем простой запрос для проверки работоспособности
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, c.config.HealthCheckTimeout)
 	defer cancel()
 
 	var result int
 	err := c.pool.QueryRow(ctx, "SELECT 1").Scan(&result)
 	if err != nil {
-		c.logger.Error("database health check failed", "error", err)
 		return fmt.Errorf("database health check failed: %w", err)
 	}
 
@@ -119,4 +128,54 @@ func (c *Connection) HealthCheck(ctx context.Context) error {
 
 	c.logger.Debug("database health check successful")
 	return nil
+}
+
+// PingWithRetry выполняет ping с повторными попытками
+func (c *Connection) PingWithRetry(ctx context.Context, maxRetries int) error {
+	var lastErr error
+
+	for i := 0; i < maxRetries; i++ {
+		if err := c.Ping(ctx); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+
+		// Если это не последняя попытка, ждем перед повтором
+		if i < maxRetries-1 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(i+1) * time.Second):
+				// Экспоненциальная задержка: 1s, 2s, 3s, ...
+			}
+		}
+	}
+
+	return fmt.Errorf("ping failed after %d retries: %w", maxRetries, lastErr)
+}
+
+// HealthCheckWithRetry выполняет health check с повторными попытками
+func (c *Connection) HealthCheckWithRetry(ctx context.Context, maxRetries int) error {
+	var lastErr error
+
+	for i := 0; i < maxRetries; i++ {
+		if err := c.HealthCheck(ctx); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+
+		// Если это не последняя попытка, ждем перед повтором
+		if i < maxRetries-1 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(i+1) * time.Second):
+				// Экспоненциальная задержка: 1s, 2s, 3s, ...
+			}
+		}
+	}
+
+	return fmt.Errorf("health check failed after %d retries: %w", maxRetries, lastErr)
 }

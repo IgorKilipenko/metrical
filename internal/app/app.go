@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -17,6 +16,12 @@ import (
 	"github.com/IgorKilipenko/metrical/internal/routes"
 	"github.com/IgorKilipenko/metrical/internal/service"
 	"github.com/go-chi/chi/v5"
+)
+
+// Константы для таймаутов
+const (
+	DefaultMigrationTimeout = 30 * time.Second
+	DefaultShutdownTimeout  = 30 * time.Second
 )
 
 // App представляет основное приложение
@@ -44,12 +49,31 @@ func New(config Config) *App {
 	}
 }
 
+// validateConfig проверяет корректность конфигурации
+func (a *App) validateConfig() error {
+	if a.config.Addr == "" {
+		return fmt.Errorf("address cannot be empty")
+	}
+	if a.config.Port == "" {
+		return fmt.Errorf("port cannot be empty")
+	}
+	return nil
+}
+
 // Run запускает приложение
 func (a *App) Run() error {
-	log.Printf("Starting metrics server on %s", a.addr)
+	// Валидируем конфигурацию
+	if err := a.validateConfig(); err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
 
 	// Создаем логгер
 	appLogger := logger.NewSlogLogger()
+	appLogger.Info("starting metrics server",
+		"addr", a.addr,
+		"database_configured", a.config.DatabaseDSN != "",
+		"store_interval", a.config.StoreInterval,
+		"file_storage", a.config.FileStoragePath)
 
 	// Создаем репозиторий в зависимости от конфигурации
 	var repo repository.MetricsRepository
@@ -62,23 +86,23 @@ func (a *App) Run() error {
 
 		// Создаем конфигурацию БД
 		dbConfig := db.NewConfig()
-		if a.config.DatabaseDSN != "" {
-			dbConfig.DSN = a.config.DatabaseDSN
-		}
+		dbConfig.DSN = a.config.DatabaseDSN
 
 		// Создаем подключение к БД
 		dbConnection, err = db.NewConnection(dbConfig, appLogger)
 		if err != nil {
-			appLogger.Error("failed to connect to database", "error", err, "dsn", dbConfig.DSN)
 			return fmt.Errorf("failed to connect to database: %w", err)
 		}
-		defer dbConnection.Close()
+		defer func() {
+			if dbConnection != nil {
+				dbConnection.Close()
+			}
+		}()
 
 		// Выполняем миграции
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), DefaultMigrationTimeout)
 		defer cancel()
 		if err := db.Migrate(ctx, dbConnection, appLogger); err != nil {
-			appLogger.Error("failed to run database migrations", "error", err)
 			return fmt.Errorf("failed to run database migrations: %w", err)
 		}
 
@@ -103,7 +127,6 @@ func (a *App) Run() error {
 	// Создаем обработчик
 	metricsHandler, err := handler.NewMetricsHandler(service, appLogger)
 	if err != nil {
-		appLogger.Error("failed to create metrics handler", "error", err)
 		return fmt.Errorf("failed to create metrics handler: %w", err)
 	}
 
@@ -120,7 +143,6 @@ func (a *App) Run() error {
 	// Создаем сервер
 	server, err := httpserver.NewServerWithChiRouter(a.addr, chiRouter, appLogger)
 	if err != nil {
-		appLogger.Error("failed to create server", "error", err, "addr", a.addr)
 		return fmt.Errorf("failed to create server: %w", err)
 	}
 	a.server = server
@@ -136,8 +158,8 @@ func (a *App) Run() error {
 
 	// Запускаем сервер в горутине
 	go func() {
-		if err := a.server.Start(); err != nil {
-			log.Printf("Server error: %v", err)
+		if err := a.server.Start(ctx); err != nil {
+			appLogger.Error("server error", "error", err)
 			cancel()
 		}
 	}()
@@ -169,7 +191,7 @@ func (a *App) waitForShutdown(ctx context.Context, repo repository.MetricsReposi
 	// Ожидаем сигнал или ошибку сервера
 	select {
 	case sig := <-sigChan:
-		log.Printf("Received signal %v, shutting down gracefully...", sig)
+		logger.Info("received signal, shutting down gracefully", "signal", sig)
 		// Останавливаем периодическое сохранение перед завершением
 		if a.config.StoreInterval > 0 {
 			if err := repo.SaveToFile(); err != nil {
@@ -179,7 +201,7 @@ func (a *App) waitForShutdown(ctx context.Context, repo repository.MetricsReposi
 			}
 		}
 	case <-ctx.Done():
-		log.Println("Server stopped, shutting down...")
+		logger.Info("server stopped, shutting down")
 		// Останавливаем периодическое сохранение перед завершением
 		if a.config.StoreInterval > 0 {
 			if err := repo.SaveToFile(); err != nil {
@@ -191,16 +213,16 @@ func (a *App) waitForShutdown(ctx context.Context, repo repository.MetricsReposi
 	}
 
 	// Даем время на завершение текущих запросов
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), DefaultShutdownTimeout)
 	defer cancel()
 
 	// Gracefully останавливаем сервер
 	if err := a.server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("Error during shutdown: %v", err)
+		logger.Error("error during shutdown", "error", err)
 		return err
 	}
 
-	log.Println("Server shutdown complete")
+	logger.Info("server shutdown complete")
 	return nil
 }
 
