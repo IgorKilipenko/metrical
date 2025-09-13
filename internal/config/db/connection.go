@@ -9,14 +9,28 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// DatabaseConnection интерфейс для работы с базой данных
+// DatabaseConnection интерфейс для работы с базой данных.
+// Предоставляет методы для управления подключением к PostgreSQL.
 type DatabaseConnection interface {
+	// Pool возвращает пул соединений для выполнения SQL запросов
 	Pool() *pgxpool.Pool
+
+	// Ping проверяет доступность базы данных
 	Ping(ctx context.Context) error
+
+	// PingWithRetry выполняет ping с повторными попытками при сбоях
 	PingWithRetry(ctx context.Context, maxRetries int) error
+
+	// Close закрывает все соединения и освобождает ресурсы
 	Close()
+
+	// Stats возвращает статистику использования пула соединений
 	Stats() *pgxpool.Stat
+
+	// HealthCheck выполняет комплексную проверку здоровья БД
 	HealthCheck(ctx context.Context) error
+
+	// HealthCheckWithRetry выполняет health check с повторными попытками
 	HealthCheckWithRetry(ctx context.Context, maxRetries int) error
 }
 
@@ -27,7 +41,39 @@ type Connection struct {
 	logger logger.Logger
 }
 
-// NewConnection создает новое подключение к базе данных
+// NewConnection создает новое подключение к базе данных.
+//
+// Функция выполняет следующие действия:
+//  1. Валидирует конфигурацию подключения
+//  2. Создает пул соединений с настройками из config
+//  3. Проверяет доступность базы данных через ping
+//  4. Возвращает готовое к использованию подключение
+//
+// Параметры:
+//   - config: конфигурация подключения (DSN, таймауты, размер пула)
+//   - logger: логгер для записи событий подключения
+//
+// Возвращает:
+//   - *Connection: готовое подключение к БД
+//   - error: ошибка создания подключения или nil при успехе
+//
+// Пример использования:
+//
+//	config := db.DefaultConfig()
+//	config.DSN = "postgres://user:pass@localhost:5432/db"
+//	logger := logger.New()
+//
+//	conn, err := db.NewConnection(config, logger)
+//	if err != nil {
+//	    log.Fatalf("Failed to connect to database: %v", err)
+//	}
+//	defer conn.Close()
+//
+// Возможные ошибки:
+//   - "invalid database config": некорректная конфигурация
+//   - "failed to parse database config": ошибка парсинга DSN
+//   - "failed to create connection pool": ошибка создания пула
+//   - "failed to ping database": база данных недоступна
 func NewConnection(config Config, logger logger.Logger) (*Connection, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid database config: %w", err)
@@ -79,7 +125,29 @@ func (c *Connection) Pool() *pgxpool.Pool {
 	return c.pool
 }
 
-// Ping проверяет соединение с базой данных
+// Ping проверяет соединение с базой данных.
+//
+// Выполняет быструю проверку доступности базы данных через TCP соединение.
+// Использует таймаут из конфигурации (config.PingTimeout).
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//
+// Возвращает:
+//   - error: ошибка подключения или nil при успехе
+//
+// Пример использования:
+//
+//	ctx := context.Background()
+//	err := conn.Ping(ctx)
+//	if err != nil {
+//	    log.Printf("Database is not available: %v", err)
+//	}
+//
+// Возможные ошибки:
+//   - "database ping failed": база данных недоступна
+//   - context.DeadlineExceeded: превышен таймаут
+//   - context.Canceled: операция отменена
 func (c *Connection) Ping(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, c.config.PingTimeout)
 	defer cancel()
@@ -92,7 +160,23 @@ func (c *Connection) Ping(ctx context.Context) error {
 	return nil
 }
 
-// Close закрывает соединение с базой данных
+// Close закрывает соединение с базой данных и освобождает ресурсы.
+//
+// Безопасно закрывает все соединения в пуле и освобождает связанные ресурсы.
+// Функция идемпотентна - можно вызывать многократно без побочных эффектов.
+// Рекомендуется вызывать при завершении работы приложения.
+//
+// Пример использования:
+//
+//	conn, err := db.NewConnection(config, logger)
+//	if err != nil {
+//	    return err
+//	}
+//	defer conn.Close() // Гарантированное закрытие при выходе
+//
+// Примечания:
+//   - После вызова Close() все операции с подключением будут возвращать ошибки
+//   - Функция не возвращает ошибок, так как закрытие всегда возможно
 func (c *Connection) Close() {
 	if c.pool != nil {
 		c.logger.Info("closing database connection pool")
@@ -105,7 +189,37 @@ func (c *Connection) Stats() *pgxpool.Stat {
 	return c.pool.Stat()
 }
 
-// HealthCheck выполняет проверку здоровья базы данных
+// HealthCheck выполняет комплексную проверку здоровья базы данных.
+//
+// Выполняет двухэтапную проверку:
+//  1. Ping - проверка TCP соединения
+//  2. SQL запрос - проверка возможности выполнения запросов
+//
+// Использует таймаут из конфигурации (config.HealthCheckTimeout).
+// Рекомендуется для health check endpoints в микросервисах.
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//
+// Возвращает:
+//   - error: ошибка проверки или nil при успехе
+//
+// Пример использования:
+//
+//	ctx := context.Background()
+//	err := conn.HealthCheck(ctx)
+//	if err != nil {
+//	    // База данных не готова к работе
+//	    http.Error(w, "Database unhealthy", http.StatusServiceUnavailable)
+//	    return
+//	}
+//	// База данных готова к работе
+//
+// Возможные ошибки:
+//   - "database ping failed": TCP соединение недоступно
+//   - "database health check failed": SQL запрос не выполнен
+//   - "unexpected health check result": неожиданный результат запроса
+//   - context.DeadlineExceeded: превышен таймаут
 func (c *Connection) HealthCheck(ctx context.Context) error {
 	// Проверяем ping
 	if err := c.Ping(ctx); err != nil {
@@ -130,7 +244,35 @@ func (c *Connection) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-// PingWithRetry выполняет ping с повторными попытками
+// PingWithRetry выполняет ping с повторными попытками при сбоях.
+//
+// Реализует retry логику с экспоненциальной задержкой:
+//   - 1-я попытка: немедленно
+//   - 2-я попытка: через 1 секунду
+//   - 3-я попытка: через 2 секунды
+//   - N-я попытка: через (N-1) секунд
+//
+// Поддерживает отмену через контекст между попытками.
+// Рекомендуется для критически важных операций.
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//   - maxRetries: максимальное количество попыток (включая первую)
+//
+// Возвращает:
+//   - error: ошибка после всех попыток или nil при успехе
+//
+// Пример использования:
+//
+//	ctx := context.Background()
+//	err := conn.PingWithRetry(ctx, 3) // 3 попытки
+//	if err != nil {
+//	    log.Printf("Database unavailable after 3 attempts: %v", err)
+//	}
+//
+// Возможные ошибки:
+//   - "ping failed after N retries": все попытки исчерпаны
+//   - context.Canceled: операция отменена между попытками
 func (c *Connection) PingWithRetry(ctx context.Context, maxRetries int) error {
 	var lastErr error
 
