@@ -248,6 +248,7 @@ go run cmd/server/main.go -a=localhost:9090
 - `-i, --interval` - интервал сохранения метрик в секундах (по умолчанию: 300, 0 для синхронного сохранения)
 - `-f, --file` - путь к файлу для сохранения метрик (по умолчанию: "/tmp/metrics-db.json")
 - `-r, --restore` - загружать ли метрики при старте (по умолчанию: true)
+- `-d, --database` - DSN для подключения к PostgreSQL (опционально)
 - `-h, --help` - показать справку по флагам
 
 ### Примеры использования:
@@ -273,6 +274,9 @@ go run cmd/server/main.go -a=localhost:9090
 
 # Запуск без восстановления метрик при старте
 ./server -a=9090 -r=false
+
+# Запуск с PostgreSQL
+./server -a=9090 -d="postgres://user:password@localhost:5432/metrics_db?sslmode=disable"
 
 # Показать справку
 ./server --help
@@ -456,6 +460,45 @@ func handleError(err error) {
 
 Все значения имеют значения по умолчанию, поэтому сервер можно запускать без указания флагов.
 
+## 🗄️ PostgreSQL поддержка
+
+Сервер поддерживает хранение метрик в PostgreSQL базе данных:
+
+### Конфигурация PostgreSQL
+
+```bash
+# Переменные окружения для PostgreSQL
+export DATABASE_DSN="postgres://user:password@localhost:5432/metrics_db?sslmode=disable"
+export DB_MAX_CONNS=10
+export DB_MIN_CONNS=2
+export DB_MAX_CONN_LIFETIME=1h
+export DB_MAX_CONN_IDLE_TIME=30m
+export DB_CONNECT_TIMEOUT=10s
+export DB_PING_TIMEOUT=5s
+export DB_HEALTH_CHECK_TIMEOUT=5s
+```
+
+### Запуск с PostgreSQL
+
+```bash
+# Через флаг -d
+./server -a=9090 -d="postgres://user:password@localhost:5432/metrics_db?sslmode=disable"
+
+# Через переменную окружения
+export DATABASE_DSN="postgres://user:password@localhost:5432/metrics_db?sslmode=disable"
+./server -a=9090
+```
+
+### Особенности PostgreSQL реализации
+
+- ✅ **Connection Pooling** - эффективное управление соединениями
+- ✅ **Атомарные операции** - UPSERT с ON CONFLICT для thread-safety
+- ✅ **Валидация данных** - проверка входных параметров
+- ✅ **Retry логика** - автоматические повторы при сбоях
+- ✅ **Health Check** - проверка состояния базы данных
+
+📖 **Подробная документация:** [internal/repository/README.md](../../internal/repository/README.md)
+
 ### Архитектурные слои
 
 Проект построен по принципам Clean Architecture:
@@ -476,17 +519,24 @@ graph TB
     subgraph "Data Access Layer"
         REPO[Repository Interface]
         IMR[InMemory Repository]
+        PGR[PostgreSQL Repository]
     end
     
     subgraph "Data Layer"
         MODELS[Data Models]
+        PG[(PostgreSQL)]
+        FS[(File System)]
     end
     
     H --> S
     R --> H
     S --> REPO
     REPO --> IMR
+    REPO --> PGR
+    IMR --> FS
+    PGR --> PG
     IMR --> MODELS
+    PGR --> MODELS
     S --> T
     S --> VAL
     
@@ -497,7 +547,10 @@ graph TB
     style VAL fill:#f3e5f5
     style REPO fill:#e8f5e8
     style IMR fill:#e8f5e8
+    style PGR fill:#e8f5e8
     style MODELS fill:#fff3e0
+    style PG fill:#ffebee
+    style FS fill:#ffebee
 ```
 
 ### Поток обработки запроса

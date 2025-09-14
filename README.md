@@ -101,10 +101,13 @@ type Metrics struct {
 - **Dependency Injection** - инверсия зависимостей
 - **Validation Layer** - отдельный слой валидации данных
 - **Logger Abstraction** - абстракция логирования через все слои
-- **Persistence Layer** - слой персистентности метрик на диск
+- **Persistence Layer** - слой персистентности метрик (файлы + PostgreSQL)
 - **Error Handling** - детальная обработка ошибок
 - **Test-Driven Development** - полное покрытие тестами
 - **Gzip Middleware** - автоматическое сжатие/распаковка HTTP данных
+- **Database Abstraction** - интерфейсы для легкого переключения между хранилищами
+- **Connection Pooling** - эффективное управление соединениями с БД
+- **Retry Logic** - автоматические повторы при сбоях
 
 ### Архитектура
 
@@ -127,10 +130,18 @@ graph TB
     subgraph "Data Access Layer"
         REPO[Repository Interface]
         IMR[InMemory Repository]
+        PGR[PostgreSQL Repository]
+    end
+    
+    subgraph "Database Layer"
+        PG[(PostgreSQL)]
+        FS[(File System)]
     end
     
     subgraph "Cross-Cutting Concerns"
         L[Logger Abstraction]
+        CP[Connection Pool]
+        RT[Retry Logic]
     end
     
     H --> V
@@ -138,11 +149,17 @@ graph TB
     V --> S
     S --> REPO
     REPO --> IMR
+    REPO --> PGR
+    IMR --> FS
+    PGR --> PG
+    PGR --> CP
+    PGR --> RT
     S --> T
     
     H -.-> L
     S -.-> L
     REPO -.-> L
+    PGR -.-> L
     
     style H fill:#e3f2fd
     style R fill:#e3f2fd
@@ -151,7 +168,12 @@ graph TB
     style T fill:#f3e5f5
     style REPO fill:#e8f5e8
     style IMR fill:#e8f5e8
+    style PGR fill:#e8f5e8
+    style PG fill:#ffebee
+    style FS fill:#ffebee
     style L fill:#fff3e0
+    style CP fill:#fff3e0
+    style RT fill:#fff3e0
 ```
 
 ## Структура проекта
@@ -171,11 +193,13 @@ go-metrics/
 │   ├── template/           # HTML шаблоны
 │   ├── routes/             # HTTP маршруты
 │   ├── model/              # Структуры данных
-│   ├── repository/         # Работа с данными
+│   ├── repository/         # Работа с данными (InMemory + PostgreSQL)
 │   ├── logger/             # Абстракция логирования
 │   ├── middleware/         # Middleware (gzip, logging)
 │   ├── testutils/          # Утилиты для тестирования
-│   └── agent/              # Логика агента (с gzip поддержкой)
+│   ├── agent/              # Логика агента (с gzip поддержкой)
+│   └── config/             # Конфигурация (включая DB настройки)
+│       └── db/             # Конфигурация базы данных
 ├── migrations/             # Миграции БД
 ├── pkg/                    # Публичные пакеты
 └── README.md              # Документация проекта
@@ -218,6 +242,81 @@ export RESTORE=true              # Восстановление при стар�
 ]
 ```
 
+## 🗄️ PostgreSQL поддержка
+
+Сервер поддерживает хранение метрик в PostgreSQL базе данных с полной функциональностью:
+
+### Конфигурация PostgreSQL
+
+```bash
+# Переменные окружения для PostgreSQL
+export DATABASE_DSN="postgres://user:password@localhost:5432/metrics_db?sslmode=disable"
+export DB_MAX_CONNS=10
+export DB_MIN_CONNS=2
+export DB_MAX_CONN_LIFETIME=1h
+export DB_MAX_CONN_IDLE_TIME=30m
+export DB_CONNECT_TIMEOUT=10s
+export DB_PING_TIMEOUT=5s
+export DB_HEALTH_CHECK_TIMEOUT=5s
+```
+
+### Запуск с PostgreSQL
+
+```bash
+# Запуск сервера с PostgreSQL
+./cmd/server/server \
+  -a=localhost:9090 \
+  -d="postgres://user:password@localhost:5432/metrics_db?sslmode=disable"
+```
+
+### Схема базы данных
+
+```sql
+CREATE TABLE metrics (
+    name VARCHAR(255) NOT NULL,
+    type VARCHAR(50) NOT NULL,
+    value DOUBLE PRECISION,
+    delta BIGINT,
+    updated_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (name, type)
+);
+
+-- Индексы для оптимизации
+CREATE INDEX idx_metrics_type ON metrics(type);
+CREATE INDEX idx_metrics_updated_at ON metrics(updated_at);
+```
+
+### Docker Compose для разработки
+
+```yaml
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: metrics_db
+      POSTGRES_USER: metrics_user
+      POSTGRES_PASSWORD: metrics_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+volumes:
+  postgres_data:
+```
+
+### Особенности PostgreSQL реализации
+
+- ✅ **Connection Pooling** - эффективное управление соединениями
+- ✅ **Атомарные операции** - UPSERT с ON CONFLICT для thread-safety
+- ✅ **Валидация данных** - проверка входных параметров
+- ✅ **Структурированное логирование** - детальное отслеживание операций
+- ✅ **Health Check** - проверка состояния базы данных
+- ✅ **Retry логика** - автоматические повторы при сбоях
+- ✅ **Конфигурируемые таймауты** - настройка всех временных параметров
+
+📖 **Подробная документация:** [internal/repository/README.md](internal/repository/README.md)
+
 ## 🚀 Функциональность
 
 ### Поддерживаемые типы метрик
@@ -259,6 +358,119 @@ curl -X POST http://localhost:8080/update \
 // Агент автоматически сжимает все JSON метрики
 err := agent.sendSingleMetricJSON("test_metric", value)
 // Данные сжимаются и отправляются с gzip заголовками
+```
+
+### 🛡️ Улучшенная обработка ошибок и логирование
+
+Проект включает продвинутую систему обработки ошибок и структурированного логирования:
+
+#### Структурированное логирование
+```go
+// Все компоненты используют единую систему логирования
+logger.Info("Server started", "port", 8080, "env", "production")
+logger.Error("Database connection failed", "error", err, "retry_count", 3)
+logger.Debug("Processing metric", "name", "temperature", "value", 23.5)
+```
+
+#### Валидация данных
+```go
+// Встроенная валидация всех входных данных
+func (r *PostgreSQLMetricsRepository) validateMetricName(name string) error {
+    if name == "" {
+        return fmt.Errorf("metric name cannot be empty")
+    }
+    return nil
+}
+
+func (r *PostgreSQLMetricsRepository) validateGaugeValue(value float64) error {
+    if math.IsNaN(value) {
+        return fmt.Errorf("gauge value cannot be NaN")
+    }
+    if math.IsInf(value, 0) {
+        return fmt.Errorf("gauge value cannot be infinite")
+    }
+    return nil
+}
+```
+
+#### Retry логика
+```go
+// Автоматические повторы при сбоях с экспоненциальной задержкой
+func (c *Connection) PingWithRetry(ctx context.Context, maxRetries int) error {
+    for i := 0; i < maxRetries; i++ {
+        if err := c.Ping(ctx); err == nil {
+            return nil
+        }
+        time.Sleep(time.Duration(i+1) * time.Second)
+    }
+    return fmt.Errorf("ping failed after %d retries", maxRetries)
+}
+```
+
+### 🔧 Конфигурация и переменные окружения
+
+Проект поддерживает гибкую конфигурацию через переменные окружения с константами:
+
+#### Константы для переменных окружения
+```go
+const (
+    EnvDatabaseDSN            = "DATABASE_DSN"
+    EnvDBMaxConns             = "DB_MAX_CONNS"
+    EnvDBMinConns             = "DB_MIN_CONNS"
+    EnvDBMaxConnLifetime      = "DB_MAX_CONN_LIFETIME"
+    EnvDBMaxConnIdleTime      = "DB_MAX_CONN_IDLE_TIME"
+    EnvDBConnectTimeout       = "DB_CONNECT_TIMEOUT"
+    EnvDBPingTimeout          = "DB_PING_TIMEOUT"
+    EnvDBHealthCheckTimeout   = "DB_HEALTH_CHECK_TIMEOUT"
+)
+```
+
+#### Безопасная маскировка паролей
+```go
+// DSN с паролем автоматически маскируется в логах
+dsn := "postgres://user:secret@localhost:5432/db"
+masked := maskDSN(dsn) // "postgres://user:***@localhost:5432/db"
+```
+
+### 🧪 Продвинутое тестирование
+
+Проект включает комплексную систему тестирования:
+
+#### Unit тесты с моками
+```go
+func TestPostgreSQLRepositoryWithMockPool(t *testing.T) {
+    mockPool := &MockDatabasePool{}
+    mockPool.On("Exec", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+        Return(pgconn.CommandTag("INSERT 0 1"), nil)
+    
+    repo := repository.NewPostgreSQLMetricsRepositoryWithPool(mockPool, logger)
+    // Тестирование без реальной БД
+}
+```
+
+#### Интеграционные тесты
+```go
+func TestPostgreSQLRepository(t *testing.T) {
+    testDB := setupTestDB(t)
+    defer testDB.Close()
+    
+    repo := repository.NewPostgreSQLMetricsRepository(testDB, logger)
+    // Тестирование с реальной БД
+}
+```
+
+#### Бенчмарки производительности
+```go
+func BenchmarkPostgreSQLRepository(b *testing.B) {
+    b.Run("UpdateGauge", func(b *testing.B) {
+        for i := 0; i < b.N; i++ {
+            err := repo.UpdateGauge(ctx, "benchmark_gauge", float64(i))
+            if err != nil {
+                b.Fatal(err)
+            }
+        }
+    })
+}
 ```
 
 ### HTTP API
@@ -313,6 +525,19 @@ go test ./... -v -cover
 # Тесты gzip функциональности
 go test ./internal/middleware/... -v
 go test ./internal/agent/... -v
+
+# Тесты PostgreSQL репозитория
+go test ./internal/repository/... -v
+
+# Тесты конфигурации базы данных
+go test ./internal/config/db/... -v
+
+# Бенчмарки производительности
+go test -bench=. -benchmem ./internal/repository
+
+# Тесты с профилированием
+go test -cpuprofile=cpu.prof -bench=.
+go test -memprofile=mem.prof -bench=.
 ```
 
 ## Документация пакетов
@@ -332,3 +557,14 @@ go test ./internal/agent/... -v
 - 📖 **Логгер:** [internal/logger/README.md](internal/logger/README.md)
 - 📖 **Middleware:** [internal/middleware/README.md](internal/middleware/README.md)
 - 📖 **Test Utils:** [internal/testutils/README.md](internal/testutils/README.md)
+- 📖 **Конфигурация БД:** [internal/config/db/README.md](internal/config/db/README.md)
+
+## 🆕 Новые возможности
+
+### 🗄️ PostgreSQL интеграция
+- ✅ **Полная поддержка PostgreSQL** - хранение метрик в БД
+- ✅ **Connection pooling** - эффективное управление соединениями
+- ✅ **Атомарные операции** - UPSERT с ON CONFLICT
+- ✅ **Retry логика** - автоматические повторы при сбоях
+- ✅ **Health checks** - проверка состояния БД
+
