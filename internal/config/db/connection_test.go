@@ -147,7 +147,6 @@ func TestConnection_InterfaceCompliance(t *testing.T) {
 
 	// Создаем Connection только для проверки интерфейса
 	conn := &Connection{
-		pool:   nil, // Будет nil для тестов интерфейса
 		config: config,
 		logger: logger,
 	}
@@ -161,7 +160,6 @@ func TestConnection_ConfigIntegration(t *testing.T) {
 	config := createMinimalTestConfig()
 
 	conn := &Connection{
-		pool:   nil, // Будет nil для тестов конфигурации
 		config: config,
 		logger: testutils.NewMockLogger(),
 	}
@@ -360,7 +358,6 @@ func TestConnection_ContextHandling(t *testing.T) {
 	logger := testutils.NewMockLogger()
 
 	conn := &Connection{
-		pool:   nil, // Будет nil для тестов контекста
 		config: config,
 		logger: logger,
 	}

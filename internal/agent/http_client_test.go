@@ -110,6 +110,9 @@ func TestRetryHTTPClient_Do_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Len(t, mockClient.doCalls, 1)
+	if resp != nil {
+		resp.Body.Close()
+	}
 }
 
 func TestRetryHTTPClient_Do_RetryOn5xx(t *testing.T) {
@@ -128,6 +131,9 @@ func TestRetryHTTPClient_Do_RetryOn5xx(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Len(t, mockClient.doCalls, 2)
+	if resp != nil {
+		resp.Body.Close()
+	}
 }
 
 func TestRetryHTTPClient_Do_NoRetryOn4xx(t *testing.T) {
@@ -140,11 +146,14 @@ func TestRetryHTTPClient_Do_NoRetryOn4xx(t *testing.T) {
 	setupMockClient(mockClient, []*http.Response{resp}, []error{nil})
 	client := createTestRetryClient(mockClient)
 
-	_, err := client.Do(req)
+	resp, err := client.Do(req)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "client error: status 404")
 	assert.Len(t, mockClient.doCalls, 1)
+	if resp != nil {
+		resp.Body.Close()
+	}
 }
 
 func TestRetryHTTPClient_Do_MaxRetriesExceeded(t *testing.T) {
@@ -157,11 +166,14 @@ func TestRetryHTTPClient_Do_MaxRetriesExceeded(t *testing.T) {
 	setupMockClient(mockClient, []*http.Response{resp, resp}, []error{nil, nil})
 	client := createTestRetryClient(mockClient)
 
-	_, err := client.Do(req)
+	resp, err := client.Do(req)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "server error after 2 attempts")
 	assert.Len(t, mockClient.doCalls, 2)
+	if resp != nil {
+		resp.Body.Close()
+	}
 }
 
 func TestRetryHTTPClient_Do_NetworkError(t *testing.T) {
@@ -178,6 +190,9 @@ func TestRetryHTTPClient_Do_NetworkError(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed after 2 attempts")
 	assert.Nil(t, resp)
 	assert.Len(t, mockClient.doCalls, 2)
+	if resp != nil {
+		resp.Body.Close()
+	}
 }
 
 func TestRetryHTTPClient_Post_Success(t *testing.T) {
@@ -192,6 +207,9 @@ func TestRetryHTTPClient_Post_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Len(t, mockClient.postCalls, 1)
+	if resp != nil {
+		resp.Body.Close()
+	}
 }
 
 func TestRetryHTTPClient_readResponseBody(t *testing.T) {
@@ -242,6 +260,7 @@ func TestRetryHTTPClient_readResponseBody(t *testing.T) {
 
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expected, result)
+			resp.Body.Close()
 		})
 	}
 }
