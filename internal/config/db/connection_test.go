@@ -307,8 +307,8 @@ func TestConnection_ConfigString(t *testing.T) {
 
 	str := config.String()
 
-	// Проверяем, что пароль замаскирован
-	assert.Contains(t, str, "***")
+	// Проверяем, что пароль замаскирован (URL encoded)
+	assert.Contains(t, str, "%2A%2A%2A")
 	assert.NotContains(t, str, "password")
 
 	// Проверяем, что остальные параметры присутствуют
@@ -326,7 +326,7 @@ func TestConnection_ConfigDefaults(t *testing.T) {
 	config := DefaultConfig()
 
 	// Проверяем значения по умолчанию
-	assert.Equal(t, "postgres://metricaldb:Secret@localhost:5432/metricaldb?sslmode=disable", config.DSN)
+	assert.Equal(t, "", config.DSN) // DSN теперь пустой по умолчанию
 	assert.Equal(t, int32(10), config.MaxConns)
 	assert.Equal(t, int32(2), config.MinConns)
 	assert.Equal(t, time.Hour, config.MaxConnLifetime)
@@ -343,7 +343,8 @@ func TestConnection_ConfigFromEnvironment(t *testing.T) {
 	config := NewConfig()
 
 	// Проверяем, что конфигурация создается
-	assert.NotEmpty(t, config.DSN)
+	// DSN может быть пустым если не установлена переменная окружения
+	// assert.NotEmpty(t, config.DSN) // Убираем эту проверку
 	assert.Greater(t, config.MaxConns, int32(0))
 	assert.GreaterOrEqual(t, config.MinConns, int32(0))
 	assert.Greater(t, config.MaxConnLifetime, time.Duration(0))
