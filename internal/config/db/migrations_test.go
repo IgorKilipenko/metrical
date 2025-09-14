@@ -20,8 +20,23 @@ func setupTestDB(t *testing.T) (*pgxpool.Pool, func()) {
 	config, err := pgxpool.ParseConfig(dsn)
 	require.NoError(t, err, "Failed to parse test DSN")
 
-	pool, err := pgxpool.NewWithConfig(context.Background(), config)
-	require.NoError(t, err, "Failed to create test connection pool")
+	// Проверяем доступность базы данных
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Skipf("Skipping integration test: database not available: %v", err)
+		return nil, func() {}
+	}
+
+	// Проверяем подключение
+	err = pool.Ping(ctx)
+	if err != nil {
+		pool.Close()
+		t.Skipf("Skipping integration test: database not reachable: %v", err)
+		return nil, func() {}
+	}
 
 	// Очищаем тестовую БД
 	cleanup := func() {
@@ -188,6 +203,9 @@ func TestMigrationError(t *testing.T) {
 
 func TestGetMigrationStats(t *testing.T) {
 	pool, cleanup := setupTestDB(t)
+	if pool == nil {
+		return // Тест пропущен
+	}
 	defer cleanup()
 
 	conn := &Connection{pool: pool}
@@ -235,6 +253,9 @@ func TestGetMigrationStats(t *testing.T) {
 
 func TestGetMigrationHistory(t *testing.T) {
 	pool, cleanup := setupTestDB(t)
+	if pool == nil {
+		return // Тест пропущен
+	}
 	defer cleanup()
 
 	conn := &Connection{pool: pool}
@@ -288,6 +309,9 @@ func TestGetMigrationHistory(t *testing.T) {
 
 func TestRollbackMigration(t *testing.T) {
 	pool, cleanup := setupTestDB(t)
+	if pool == nil {
+		return // Тест пропущен
+	}
 	defer cleanup()
 
 	conn := &Connection{pool: pool}
@@ -363,6 +387,9 @@ func TestRollbackMigration(t *testing.T) {
 
 func TestRollbackMigrationNoMigrationsToRollback(t *testing.T) {
 	pool, cleanup := setupTestDB(t)
+	if pool == nil {
+		return // Тест пропущен
+	}
 	defer cleanup()
 
 	conn := &Connection{pool: pool}
