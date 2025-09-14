@@ -98,7 +98,7 @@ func TestNewServerWithNilHandler(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, srv)
-	assert.Contains(t, err.Error(), "handler cannot be nil")
+	assert.Contains(t, err.Error(), "handler is required when router is not provided")
 }
 
 func TestServerIntegration(t *testing.T) {

@@ -74,8 +74,12 @@ func TestNewConnection(t *testing.T) {
 			errorMsg:    "database DSN is required",
 		},
 		{
-			name:        "Invalid config - negative max connections",
-			config:      createTestConfigWithDSN(testDSNSimple),
+			name: "Invalid config - negative max connections",
+			config: func() Config {
+				config := createTestConfigWithDSN(testDSNSimple)
+				config.MaxConns = -1
+				return config
+			}(),
 			expectError: true,
 			errorMsg:    "max connections must be at least 1",
 		},

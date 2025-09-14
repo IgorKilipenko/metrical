@@ -3,12 +3,26 @@ package repository
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"github.com/IgorKilipenko/metrical/internal/logger"
 	models "github.com/IgorKilipenko/metrical/internal/model"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// DatabasePool интерфейс для работы с пулом соединений базы данных
+// Предоставляет абстракцию для лучшей тестируемости
+type DatabasePool interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	Begin(ctx context.Context) (pgx.Tx, error)
+	Ping(ctx context.Context) error
+	Close()
+	Stat() *pgxpool.Stat
+}
 
 // PostgreSQLMetricsRepository реализация репозитория для PostgreSQL
 type PostgreSQLMetricsRepository struct {
@@ -24,14 +38,64 @@ func NewPostgreSQLMetricsRepository(pool *pgxpool.Pool, logger logger.Logger) *P
 	}
 }
 
-// UpdateGauge обновляет значение gauge метрики
-func (r *PostgreSQLMetricsRepository) UpdateGauge(ctx context.Context, name string, value float64) error {
-	// Проверяем отмену контекста
+// NewPostgreSQLMetricsRepositoryWithPool создает новый экземпляр с интерфейсом DatabasePool
+// Используется для лучшей тестируемости
+func NewPostgreSQLMetricsRepositoryWithPool(pool DatabasePool, logger logger.Logger) *PostgreSQLMetricsRepository {
+	// Приводим к конкретному типу для внутреннего использования
+	pgxPool, ok := pool.(*pgxpool.Pool)
+	if !ok {
+		panic("pool must be *pgxpool.Pool")
+	}
+
+	return &PostgreSQLMetricsRepository{
+		pool:   pgxPool,
+		logger: logger,
+	}
+}
+
+// checkContext проверяет отмену контекста и возвращает ошибку если контекст отменен
+func (r *PostgreSQLMetricsRepository) checkContext(ctx context.Context, operation string) error {
 	select {
 	case <-ctx.Done():
-		r.logger.Debug("context cancelled during gauge update", "name", name, "value", value)
+		r.logger.Debug("context cancelled during " + operation)
 		return ctx.Err()
 	default:
+		return nil
+	}
+}
+
+// validateMetricName проверяет валидность имени метрики
+func (r *PostgreSQLMetricsRepository) validateMetricName(name string) error {
+	if name == "" {
+		return fmt.Errorf("metric name cannot be empty")
+	}
+	return nil
+}
+
+// validateGaugeValue проверяет валидность значения gauge метрики
+func (r *PostgreSQLMetricsRepository) validateGaugeValue(value float64) error {
+	if math.IsNaN(value) {
+		return fmt.Errorf("gauge value cannot be NaN")
+	}
+	if math.IsInf(value, 0) {
+		return fmt.Errorf("gauge value cannot be infinite")
+	}
+	return nil
+}
+
+// UpdateGauge обновляет значение gauge метрики
+func (r *PostgreSQLMetricsRepository) UpdateGauge(ctx context.Context, name string, value float64) error {
+	// Проверяем валидность входных данных
+	if err := r.validateMetricName(name); err != nil {
+		return err
+	}
+	if err := r.validateGaugeValue(value); err != nil {
+		return err
+	}
+
+	// Проверяем отмену контекста
+	if err := r.checkContext(ctx, "gauge update"); err != nil {
+		return err
 	}
 
 	query := `
@@ -52,50 +116,27 @@ func (r *PostgreSQLMetricsRepository) UpdateGauge(ctx context.Context, name stri
 
 // UpdateCounter добавляет значение к counter метрике
 func (r *PostgreSQLMetricsRepository) UpdateCounter(ctx context.Context, name string, value int64) error {
+	// Проверяем валидность входных данных
+	if err := r.validateMetricName(name); err != nil {
+		return err
+	}
+
 	// Проверяем отмену контекста
-	select {
-	case <-ctx.Done():
-		r.logger.Debug("context cancelled during counter update", "name", name, "value", value)
-		return ctx.Err()
-	default:
+	if err := r.checkContext(ctx, "counter update"); err != nil {
+		return err
 	}
 
-	// Используем транзакцию для атомарного обновления
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	// Получаем текущее значение
-	var currentValue int64
-	err = tx.QueryRow(ctx,
-		"SELECT COALESCE(delta, 0) FROM metrics WHERE name = $1 AND type = $2",
-		name, models.Counter).Scan(&currentValue)
-
-	if err != nil && err != pgx.ErrNoRows {
-		return fmt.Errorf("failed to get current counter value: %w", err)
-	}
-
-	// Вычисляем новое значение
-	newValue := currentValue + value
-
-	// Обновляем или создаем запись
-	_, err = tx.Exec(ctx, `
+	// Используем оптимизированный SQL запрос для атомарного обновления
+	_, err := r.pool.Exec(ctx, `
 		INSERT INTO metrics (name, type, delta, updated_at) 
 		VALUES ($1, $2, $3, NOW())
 		ON CONFLICT (name, type) 
-		DO UPDATE SET delta = EXCLUDED.delta, updated_at = NOW()`,
-		name, models.Counter, newValue)
+		DO UPDATE SET delta = metrics.delta + EXCLUDED.delta, updated_at = NOW()`,
+		name, models.Counter, value)
 
 	if err != nil {
-		return fmt.Errorf("failed to update counter: %w", err)
-	}
-
-	// Коммитим транзакцию
-	if err = tx.Commit(ctx); err != nil {
-		r.logger.Error("failed to commit counter transaction", "name", name, "value", value, "error", err)
-		return fmt.Errorf("failed to commit transaction: %w", err)
+		r.logger.Error("failed to update counter metric", "name", name, "value", value, "error", err)
+		return fmt.Errorf("failed to update counter metric: %w", err)
 	}
 
 	r.logger.Debug("updated counter metric", "name", name, "value", value)
@@ -104,12 +145,14 @@ func (r *PostgreSQLMetricsRepository) UpdateCounter(ctx context.Context, name st
 
 // GetGauge возвращает значение gauge метрики
 func (r *PostgreSQLMetricsRepository) GetGauge(ctx context.Context, name string) (float64, bool, error) {
+	// Проверяем валидность входных данных
+	if err := r.validateMetricName(name); err != nil {
+		return 0, false, err
+	}
+
 	// Проверяем отмену контекста
-	select {
-	case <-ctx.Done():
-		r.logger.Debug("context cancelled during gauge retrieval", "name", name)
-		return 0, false, ctx.Err()
-	default:
+	if err := r.checkContext(ctx, "gauge retrieval"); err != nil {
+		return 0, false, err
 	}
 
 	var value float64
@@ -133,12 +176,14 @@ func (r *PostgreSQLMetricsRepository) GetGauge(ctx context.Context, name string)
 
 // GetCounter возвращает значение counter метрики
 func (r *PostgreSQLMetricsRepository) GetCounter(ctx context.Context, name string) (int64, bool, error) {
+	// Проверяем валидность входных данных
+	if err := r.validateMetricName(name); err != nil {
+		return 0, false, err
+	}
+
 	// Проверяем отмену контекста
-	select {
-	case <-ctx.Done():
-		r.logger.Debug("context cancelled during counter retrieval", "name", name)
-		return 0, false, ctx.Err()
-	default:
+	if err := r.checkContext(ctx, "counter retrieval"); err != nil {
+		return 0, false, err
 	}
 
 	var value int64
@@ -163,11 +208,8 @@ func (r *PostgreSQLMetricsRepository) GetCounter(ctx context.Context, name strin
 // GetAllGauges возвращает все gauge метрики
 func (r *PostgreSQLMetricsRepository) GetAllGauges(ctx context.Context) (models.GaugeMetrics, error) {
 	// Проверяем отмену контекста
-	select {
-	case <-ctx.Done():
-		r.logger.Debug("context cancelled during getAllGauges")
-		return nil, ctx.Err()
-	default:
+	if err := r.checkContext(ctx, "getAllGauges"); err != nil {
+		return nil, err
 	}
 
 	rows, err := r.pool.Query(ctx,
@@ -201,11 +243,8 @@ func (r *PostgreSQLMetricsRepository) GetAllGauges(ctx context.Context) (models.
 // GetAllCounters возвращает все counter метрики
 func (r *PostgreSQLMetricsRepository) GetAllCounters(ctx context.Context) (models.CounterMetrics, error) {
 	// Проверяем отмену контекста
-	select {
-	case <-ctx.Done():
-		r.logger.Debug("context cancelled during getAllCounters")
-		return nil, ctx.Err()
-	default:
+	if err := r.checkContext(ctx, "getAllCounters"); err != nil {
+		return nil, err
 	}
 
 	rows, err := r.pool.Query(ctx,
