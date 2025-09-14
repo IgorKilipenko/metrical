@@ -12,8 +12,19 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// DatabasePool интерфейс для работы с пулом соединений базы данных
-// Предоставляет абстракцию для лучшей тестируемости
+// DatabasePool интерфейс для работы с пулом соединений базы данных.
+//
+// Предоставляет абстракцию для лучшей тестируемости и позволяет
+// использовать mock-объекты в тестах вместо реального подключения к БД.
+//
+// Интерфейс включает все основные операции для работы с PostgreSQL:
+// - Выполнение SQL команд (Exec)
+// - Получение одной строки (QueryRow)
+// - Получение множества строк (Query)
+// - Управление транзакциями (Begin)
+// - Проверка соединения (Ping)
+// - Управление ресурсами (Close)
+// - Получение статистики (Stat)
 type DatabasePool interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
@@ -24,13 +35,63 @@ type DatabasePool interface {
 	Stat() *pgxpool.Stat
 }
 
-// PostgreSQLMetricsRepository реализация репозитория для PostgreSQL
+// PostgreSQLMetricsRepository реализация репозитория для PostgreSQL.
+//
+// Предоставляет полную реализацию интерфейса MetricsRepository для работы
+// с метриками в PostgreSQL базе данных. Использует connection pooling
+// для эффективного управления соединениями с БД.
+//
+// Основные возможности:
+// - Обновление gauge и counter метрик
+// - Получение отдельных метрик по имени
+// - Получение всех метрик определенного типа
+// - Валидация входных данных
+// - Структурированное логирование
+// - Обработка контекста и отмены операций
+//
+// Пример использования:
+//
+//	pool, err := pgxpool.New(ctx, dsn)
+//	if err != nil {
+//	    return err
+//	}
+//	logger := logger.New()
+//	repo := NewPostgreSQLMetricsRepository(pool, logger)
+//
+//	err = repo.UpdateGauge(ctx, "temperature", 23.5)
+//	if err != nil {
+//	    log.Printf("Failed to update metric: %v", err)
+//	}
 type PostgreSQLMetricsRepository struct {
 	pool   *pgxpool.Pool
 	logger logger.Logger
 }
 
-// NewPostgreSQLMetricsRepository создает новый экземпляр PostgreSQLMetricsRepository
+// NewPostgreSQLMetricsRepository создает новый экземпляр PostgreSQLMetricsRepository.
+//
+// Функция принимает готовый пул соединений с PostgreSQL и логгер,
+// возвращает готовый к использованию репозиторий для работы с метриками.
+//
+// Параметры:
+//   - pool: пул соединений с PostgreSQL (должен быть уже инициализирован)
+//   - logger: логгер для записи событий и ошибок
+//
+// Возвращает:
+//   - *PostgreSQLMetricsRepository: готовый репозиторий
+//
+// Пример использования:
+//
+//	pool, err := pgxpool.New(ctx, "postgres://user:pass@localhost/db")
+//	if err != nil {
+//	    return err
+//	}
+//	logger := logger.New()
+//	repo := NewPostgreSQLMetricsRepository(pool, logger)
+//
+// Примечания:
+//   - Пул соединений должен быть уже создан и готов к использованию
+//   - Логгер не должен быть nil
+//   - Репозиторий не закрывает пул соединений - это ответственность вызывающего кода
 func NewPostgreSQLMetricsRepository(pool *pgxpool.Pool, logger logger.Logger) *PostgreSQLMetricsRepository {
 	return &PostgreSQLMetricsRepository{
 		pool:   pool,
@@ -83,7 +144,39 @@ func (r *PostgreSQLMetricsRepository) validateGaugeValue(value float64) error {
 	return nil
 }
 
-// UpdateGauge обновляет значение gauge метрики
+// UpdateGauge обновляет значение gauge метрики в базе данных.
+//
+// Gauge метрики представляют мгновенные значения (например, температура, память).
+// При обновлении gauge метрики новое значение полностью заменяет старое.
+//
+// Функция выполняет следующие действия:
+//  1. Валидирует входные параметры (имя метрики и значение)
+//  2. Проверяет отмену контекста
+//  3. Выполняет UPSERT операцию в БД (INSERT или UPDATE)
+//  4. Логирует результат операции
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//   - name: имя метрики (не может быть пустым)
+//   - value: новое значение метрики (не может быть NaN или бесконечностью)
+//
+// Возвращает:
+//   - error: ошибка операции или nil при успехе
+//
+// Пример использования:
+//
+//	err := repo.UpdateGauge(ctx, "temperature", 23.5)
+//	if err != nil {
+//	    log.Printf("Failed to update gauge: %v", err)
+//	}
+//
+// Возможные ошибки:
+//   - "metric name cannot be empty": пустое имя метрики
+//   - "gauge value cannot be NaN": значение NaN
+//   - "gauge value cannot be infinite": бесконечное значение
+//   - context.DeadlineExceeded: превышен таймаут
+//   - context.Canceled: операция отменена
+//   - Ошибки базы данных: проблемы с подключением или SQL
 func (r *PostgreSQLMetricsRepository) UpdateGauge(ctx context.Context, name string, value float64) error {
 	// Проверяем валидность входных данных
 	if err := r.validateMetricName(name); err != nil {
@@ -107,14 +200,49 @@ func (r *PostgreSQLMetricsRepository) UpdateGauge(ctx context.Context, name stri
 	_, err := r.pool.Exec(ctx, query, name, models.Gauge, value)
 	if err != nil {
 		r.logger.Error("failed to update gauge metric", "name", name, "value", value, "error", err)
-		return fmt.Errorf("failed to update gauge metric: %w", err)
+		return err
 	}
 
 	r.logger.Debug("updated gauge metric", "name", name, "value", value)
 	return nil
 }
 
-// UpdateCounter добавляет значение к counter метрике
+// UpdateCounter добавляет значение к counter метрике в базе данных.
+//
+// Counter метрики представляют накопительные значения (например, количество запросов).
+// При обновлении counter метрики новое значение добавляется к существующему.
+//
+// Функция выполняет следующие действия:
+//  1. Валидирует входные параметры (имя метрики)
+//  2. Проверяет отмену контекста
+//  3. Выполняет атомарную UPSERT операцию с инкрементом
+//  4. Логирует результат операции
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//   - name: имя метрики (не может быть пустым)
+//   - value: значение для добавления к существующему счетчику
+//
+// Возвращает:
+//   - error: ошибка операции или nil при успехе
+//
+// Пример использования:
+//
+//	err := repo.UpdateCounter(ctx, "requests_total", 1)
+//	if err != nil {
+//	    log.Printf("Failed to update counter: %v", err)
+//	}
+//
+// Примечания:
+//   - Операция атомарна - нет race conditions при concurrent доступе
+//   - Если метрика не существует, создается новая с переданным значением
+//   - Если метрика существует, значение добавляется к текущему
+//
+// Возможные ошибки:
+//   - "metric name cannot be empty": пустое имя метрики
+//   - context.DeadlineExceeded: превышен таймаут
+//   - context.Canceled: операция отменена
+//   - Ошибки базы данных: проблемы с подключением или SQL
 func (r *PostgreSQLMetricsRepository) UpdateCounter(ctx context.Context, name string, value int64) error {
 	// Проверяем валидность входных данных
 	if err := r.validateMetricName(name); err != nil {
@@ -136,14 +264,52 @@ func (r *PostgreSQLMetricsRepository) UpdateCounter(ctx context.Context, name st
 
 	if err != nil {
 		r.logger.Error("failed to update counter metric", "name", name, "value", value, "error", err)
-		return fmt.Errorf("failed to update counter metric: %w", err)
+		return err
 	}
 
 	r.logger.Debug("updated counter metric", "name", name, "value", value)
 	return nil
 }
 
-// GetGauge возвращает значение gauge метрики
+// GetGauge возвращает значение gauge метрики из базы данных.
+//
+// Функция выполняет поиск gauge метрики по имени и возвращает её значение.
+// Если метрика не найдена, возвращается false в качестве второго значения.
+//
+// Функция выполняет следующие действия:
+//  1. Валидирует входные параметры (имя метрики)
+//  2. Проверяет отмену контекста
+//  3. Выполняет SELECT запрос в БД
+//  4. Обрабатывает случай отсутствия метрики
+//  5. Логирует результат операции
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//   - name: имя метрики для поиска
+//
+// Возвращает:
+//   - float64: значение метрики (0 если не найдена)
+//   - bool: true если метрика найдена, false если нет
+//   - error: ошибка операции или nil при успехе
+//
+// Пример использования:
+//
+//	value, exists, err := repo.GetGauge(ctx, "temperature")
+//	if err != nil {
+//	    log.Printf("Failed to get gauge: %v", err)
+//	    return
+//	}
+//	if exists {
+//	    log.Printf("Temperature: %.2f", value)
+//	} else {
+//	    log.Printf("Temperature metric not found")
+//	}
+//
+// Возможные ошибки:
+//   - "metric name cannot be empty": пустое имя метрики
+//   - context.DeadlineExceeded: превышен таймаут
+//   - context.Canceled: операция отменена
+//   - Ошибки базы данных: проблемы с подключением или SQL
 func (r *PostgreSQLMetricsRepository) GetGauge(ctx context.Context, name string) (float64, bool, error) {
 	// Проверяем валидность входных данных
 	if err := r.validateMetricName(name); err != nil {
@@ -167,14 +333,56 @@ func (r *PostgreSQLMetricsRepository) GetGauge(ctx context.Context, name string)
 
 	if err != nil {
 		r.logger.Error("failed to get gauge metric", "name", name, "error", err)
-		return 0, false, fmt.Errorf("failed to get gauge metric: %w", err)
+		return 0, false, err
 	}
 
 	r.logger.Debug("retrieved gauge metric", "name", name, "value", value)
 	return value, true, nil
 }
 
-// GetCounter возвращает значение counter метрики
+// GetCounter возвращает значение counter метрики из базы данных.
+//
+// Функция выполняет поиск counter метрики по имени и возвращает её накопительное значение.
+// Если метрика не найдена, возвращается false в качестве второго значения.
+//
+// Функция выполняет следующие действия:
+//  1. Валидирует входные параметры (имя метрики)
+//  2. Проверяет отмену контекста
+//  3. Выполняет SELECT запрос с COALESCE для обработки NULL значений
+//  4. Обрабатывает случай отсутствия метрики
+//  5. Логирует результат операции
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//   - name: имя метрики для поиска
+//
+// Возвращает:
+//   - int64: накопительное значение метрики (0 если не найдена)
+//   - bool: true если метрика найдена, false если нет
+//   - error: ошибка операции или nil при успехе
+//
+// Пример использования:
+//
+//	value, exists, err := repo.GetCounter(ctx, "requests_total")
+//	if err != nil {
+//	    log.Printf("Failed to get counter: %v", err)
+//	    return
+//	}
+//	if exists {
+//	    log.Printf("Total requests: %d", value)
+//	} else {
+//	    log.Printf("Requests counter not found")
+//	}
+//
+// Примечания:
+//   - Используется COALESCE для обработки NULL значений в БД
+//   - Возвращаемое значение представляет общую сумму всех инкрементов
+//
+// Возможные ошибки:
+//   - "metric name cannot be empty": пустое имя метрики
+//   - context.DeadlineExceeded: превышен таймаут
+//   - context.Canceled: операция отменена
+//   - Ошибки базы данных: проблемы с подключением или SQL
 func (r *PostgreSQLMetricsRepository) GetCounter(ctx context.Context, name string) (int64, bool, error) {
 	// Проверяем валидность входных данных
 	if err := r.validateMetricName(name); err != nil {
@@ -198,14 +406,53 @@ func (r *PostgreSQLMetricsRepository) GetCounter(ctx context.Context, name strin
 
 	if err != nil {
 		r.logger.Error("failed to get counter metric", "name", name, "error", err)
-		return 0, false, fmt.Errorf("failed to get counter metric: %w", err)
+		return 0, false, err
 	}
 
 	r.logger.Debug("retrieved counter metric", "name", name, "value", value)
 	return value, true, nil
 }
 
-// GetAllGauges возвращает все gauge метрики
+// GetAllGauges возвращает все gauge метрики из базы данных.
+//
+// Функция выполняет запрос всех gauge метрик и возвращает их в виде map,
+// где ключ - имя метрики, значение - её значение.
+//
+// Функция выполняет следующие действия:
+//  1. Проверяет отмену контекста
+//  2. Выполняет SELECT запрос всех gauge метрик
+//  3. Итерирует по результатам и заполняет map
+//  4. Обрабатывает ошибки сканирования и итерации
+//  5. Логирует результат операции
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//
+// Возвращает:
+//   - models.GaugeMetrics: map всех gauge метрик (может быть пустым)
+//   - error: ошибка операции или nil при успехе
+//
+// Пример использования:
+//
+//	gauges, err := repo.GetAllGauges(ctx)
+//	if err != nil {
+//	    log.Printf("Failed to get all gauges: %v", err)
+//	    return
+//	}
+//	for name, value := range gauges {
+//	    log.Printf("Gauge %s: %.2f", name, value)
+//	}
+//
+// Примечания:
+//   - Возвращает пустую map если метрики не найдены
+//   - Все операции выполняются в одной транзакции
+//   - Автоматически закрывает rows после использования
+//
+// Возможные ошибки:
+//   - context.DeadlineExceeded: превышен таймаут
+//   - context.Canceled: операция отменена
+//   - Ошибки базы данных: проблемы с подключением или SQL
+//   - Ошибки сканирования: проблемы с типами данных
 func (r *PostgreSQLMetricsRepository) GetAllGauges(ctx context.Context) (models.GaugeMetrics, error) {
 	// Проверяем отмену контекста
 	if err := r.checkContext(ctx, "getAllGauges"); err != nil {
@@ -216,7 +463,7 @@ func (r *PostgreSQLMetricsRepository) GetAllGauges(ctx context.Context) (models.
 		"SELECT name, value FROM metrics WHERE type = $1", models.Gauge)
 	if err != nil {
 		r.logger.Error("failed to get all gauge metrics", "error", err)
-		return nil, fmt.Errorf("failed to get all gauge metrics: %w", err)
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -226,21 +473,61 @@ func (r *PostgreSQLMetricsRepository) GetAllGauges(ctx context.Context) (models.
 		var value float64
 		if err := rows.Scan(&name, &value); err != nil {
 			r.logger.Error("failed to scan gauge metric", "error", err)
-			return nil, fmt.Errorf("failed to scan gauge metric: %w", err)
+			return nil, err
 		}
 		result[name] = value
 	}
 
 	if err := rows.Err(); err != nil {
 		r.logger.Error("error iterating gauge metrics", "error", err)
-		return nil, fmt.Errorf("error iterating gauge metrics: %w", err)
+		return nil, err
 	}
 
 	r.logger.Debug("retrieved all gauge metrics", "count", len(result))
 	return result, nil
 }
 
-// GetAllCounters возвращает все counter метрики
+// GetAllCounters возвращает все counter метрики из базы данных.
+//
+// Функция выполняет запрос всех counter метрик и возвращает их в виде map,
+// где ключ - имя метрики, значение - её накопительное значение.
+//
+// Функция выполняет следующие действия:
+//  1. Проверяет отмену контекста
+//  2. Выполняет SELECT запрос всех counter метрик с COALESCE
+//  3. Итерирует по результатам и заполняет map
+//  4. Обрабатывает ошибки сканирования и итерации
+//  5. Логирует результат операции
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//
+// Возвращает:
+//   - models.CounterMetrics: map всех counter метрик (может быть пустым)
+//   - error: ошибка операции или nil при успехе
+//
+// Пример использования:
+//
+//	counters, err := repo.GetAllCounters(ctx)
+//	if err != nil {
+//	    log.Printf("Failed to get all counters: %v", err)
+//	    return
+//	}
+//	for name, value := range counters {
+//	    log.Printf("Counter %s: %d", name, value)
+//	}
+//
+// Примечания:
+//   - Возвращает пустую map если метрики не найдены
+//   - Используется COALESCE для обработки NULL значений
+//   - Все операции выполняются в одной транзакции
+//   - Автоматически закрывает rows после использования
+//
+// Возможные ошибки:
+//   - context.DeadlineExceeded: превышен таймаут
+//   - context.Canceled: операция отменена
+//   - Ошибки базы данных: проблемы с подключением или SQL
+//   - Ошибки сканирования: проблемы с типами данных
 func (r *PostgreSQLMetricsRepository) GetAllCounters(ctx context.Context) (models.CounterMetrics, error) {
 	// Проверяем отмену контекста
 	if err := r.checkContext(ctx, "getAllCounters"); err != nil {
@@ -251,7 +538,7 @@ func (r *PostgreSQLMetricsRepository) GetAllCounters(ctx context.Context) (model
 		"SELECT name, COALESCE(delta, 0) FROM metrics WHERE type = $1", models.Counter)
 	if err != nil {
 		r.logger.Error("failed to get all counter metrics", "error", err)
-		return nil, fmt.Errorf("failed to get all counter metrics: %w", err)
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -261,14 +548,14 @@ func (r *PostgreSQLMetricsRepository) GetAllCounters(ctx context.Context) (model
 		var value int64
 		if err := rows.Scan(&name, &value); err != nil {
 			r.logger.Error("failed to scan counter metric", "error", err)
-			return nil, fmt.Errorf("failed to scan counter metric: %w", err)
+			return nil, err
 		}
 		result[name] = value
 	}
 
 	if err := rows.Err(); err != nil {
 		r.logger.Error("error iterating counter metrics", "error", err)
-		return nil, fmt.Errorf("error iterating counter metrics: %w", err)
+		return nil, err
 	}
 
 	r.logger.Debug("retrieved all counter metrics", "count", len(result))
