@@ -66,11 +66,14 @@ func createTestRequest(method, url string) *http.Request {
 }
 
 // createTestResponse создает тестовый HTTP ответ
+// ВНИМАНИЕ: Caller должен закрыть response.Body после использования
 func createTestResponse(statusCode int, body string) *http.Response {
-	return &http.Response{
+	resp := &http.Response{
 		StatusCode: statusCode,
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
+	// Возвращаем response, caller должен закрыть Body
+	return resp
 }
 
 // createTestRetryClient создает тестовый RetryHTTPClient с моком
@@ -101,6 +104,7 @@ func TestRetryHTTPClient_Do_Success(t *testing.T) {
 	mockClient := &MockHTTPClient{}
 	req := createTestRequest("GET", "http://example.com")
 	expectedResp := createTestResponse(http.StatusOK, "success")
+	defer expectedResp.Body.Close()
 
 	setupMockClient(mockClient, []*http.Response{expectedResp}, []error{nil})
 	client := createTestRetryClient(mockClient)
