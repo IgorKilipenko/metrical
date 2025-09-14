@@ -108,11 +108,10 @@ func TestRetryHTTPClient_Do_Success(t *testing.T) {
 	resp, err := client.Do(req)
 
 	assert.NoError(t, err)
+	assert.NotNil(t, resp)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Len(t, mockClient.doCalls, 1)
-	if resp != nil {
-		resp.Body.Close()
-	}
+	resp.Body.Close()
 }
 
 func TestRetryHTTPClient_Do_RetryOn5xx(t *testing.T) {
@@ -122,6 +121,8 @@ func TestRetryHTTPClient_Do_RetryOn5xx(t *testing.T) {
 	// Первая попытка - 500 ошибка, вторая - успех
 	resp1 := createTestResponse(http.StatusInternalServerError, "server error")
 	resp2 := createTestResponse(http.StatusOK, "success")
+	defer resp1.Body.Close()
+	defer resp2.Body.Close()
 
 	setupMockClient(mockClient, []*http.Response{resp1, resp2}, []error{nil, nil})
 	client := createTestRetryClient(mockClient)
@@ -129,11 +130,10 @@ func TestRetryHTTPClient_Do_RetryOn5xx(t *testing.T) {
 	resp, err := client.Do(req)
 
 	assert.NoError(t, err)
+	assert.NotNil(t, resp)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Len(t, mockClient.doCalls, 2)
-	if resp != nil {
-		resp.Body.Close()
-	}
+	resp.Body.Close()
 }
 
 func TestRetryHTTPClient_Do_NoRetryOn4xx(t *testing.T) {
@@ -142,6 +142,7 @@ func TestRetryHTTPClient_Do_NoRetryOn4xx(t *testing.T) {
 
 	// 404 ошибка - не должна вызывать retry
 	resp := createTestResponse(http.StatusNotFound, "not found")
+	defer resp.Body.Close()
 
 	setupMockClient(mockClient, []*http.Response{resp}, []error{nil})
 	client := createTestRetryClient(mockClient)
@@ -162,6 +163,7 @@ func TestRetryHTTPClient_Do_MaxRetriesExceeded(t *testing.T) {
 
 	// Все попытки возвращают 500 ошибку
 	resp := createTestResponse(http.StatusInternalServerError, "server error")
+	defer resp.Body.Close()
 
 	setupMockClient(mockClient, []*http.Response{resp, resp}, []error{nil, nil})
 	client := createTestRetryClient(mockClient)
@@ -198,6 +200,7 @@ func TestRetryHTTPClient_Do_NetworkError(t *testing.T) {
 func TestRetryHTTPClient_Post_Success(t *testing.T) {
 	mockClient := &MockHTTPClient{}
 	expectedResp := createTestResponse(http.StatusOK, "success")
+	defer expectedResp.Body.Close()
 
 	setupMockClient(mockClient, []*http.Response{expectedResp}, []error{nil})
 	client := createTestRetryClient(mockClient)
@@ -205,11 +208,10 @@ func TestRetryHTTPClient_Post_Success(t *testing.T) {
 	resp, err := client.Post("http://example.com", "application/json", strings.NewReader("data"))
 
 	assert.NoError(t, err)
+	assert.NotNil(t, resp)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Len(t, mockClient.postCalls, 1)
-	if resp != nil {
-		resp.Body.Close()
-	}
+	resp.Body.Close()
 }
 
 func TestRetryHTTPClient_readResponseBody(t *testing.T) {

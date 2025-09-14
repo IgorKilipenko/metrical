@@ -8,7 +8,6 @@ import (
 
 // MockLogger - мок логгера для тестов
 type MockLogger struct {
-	logs []string
 }
 
 // SetLevel устанавливает уровень логирования (no-op для мока)

@@ -58,7 +58,6 @@ type gzipResponseWriter struct {
 	http.ResponseWriter
 	gzipWriter *gzip.Writer
 	statusCode int
-	headers    http.Header
 }
 
 // Write записывает данные через gzip writer

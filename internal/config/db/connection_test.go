@@ -153,15 +153,20 @@ func TestConnection_InterfaceCompliance(t *testing.T) {
 
 	// Проверяем, что Connection реализует интерфейс DatabaseConnection
 	var _ DatabaseConnection = conn
+
+	// Проверяем, что поля установлены корректно
+	assert.Equal(t, config, conn.config)
+	assert.Equal(t, logger, conn.logger)
 }
 
 // TestConnection_ConfigIntegration тестирует интеграцию с конфигурацией
 func TestConnection_ConfigIntegration(t *testing.T) {
 	config := createMinimalTestConfig()
 
+	logger := testutils.NewMockLogger()
 	conn := &Connection{
 		config: config,
-		logger: testutils.NewMockLogger(),
+		logger: logger,
 	}
 
 	// Проверяем, что конфигурация правильно сохраняется
@@ -173,6 +178,9 @@ func TestConnection_ConfigIntegration(t *testing.T) {
 	assert.Equal(t, config.ConnectTimeout, conn.config.ConnectTimeout)
 	assert.Equal(t, config.PingTimeout, conn.config.PingTimeout)
 	assert.Equal(t, config.HealthCheckTimeout, conn.config.HealthCheckTimeout)
+
+	// Проверяем, что logger установлен корректно
+	assert.Equal(t, logger, conn.logger)
 }
 
 // TestConnection_ConfigValidation тестирует валидацию конфигурации
@@ -365,6 +373,9 @@ func TestConnection_ContextHandling(t *testing.T) {
 	// Тестируем, что конфигурация содержит правильные таймауты
 	assert.Equal(t, time.Second*2, conn.config.PingTimeout)
 	assert.Equal(t, time.Second*3, conn.config.HealthCheckTimeout)
+
+	// Проверяем, что logger установлен корректно
+	assert.Equal(t, logger, conn.logger)
 
 	// Тестируем создание контекста с таймаутом
 	ctx, cancel := context.WithTimeout(context.Background(), conn.config.PingTimeout)
