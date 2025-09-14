@@ -201,6 +201,10 @@ func TestGetMigrationStats(t *testing.T) {
 	err = CreateMigrationsTable(ctx, tx)
 	require.NoError(t, err, "Failed to create migrations table")
 
+	// Очищаем существующие миграции перед тестом
+	_, err = tx.Exec(ctx, "DELETE FROM schema_migrations")
+	require.NoError(t, err, "Failed to clear existing migrations")
+
 	// Добавляем тестовые миграции
 	testMigrations := []struct {
 		version     int
@@ -243,6 +247,10 @@ func TestGetMigrationHistory(t *testing.T) {
 
 	err = CreateMigrationsTable(ctx, tx)
 	require.NoError(t, err, "Failed to create migrations table")
+
+	// Очищаем существующие миграции перед тестом
+	_, err = tx.Exec(ctx, "DELETE FROM schema_migrations")
+	require.NoError(t, err, "Failed to clear existing migrations")
 
 	// Добавляем тестовые миграции
 	testMigrations := []struct {
@@ -293,6 +301,10 @@ func TestRollbackMigration(t *testing.T) {
 
 	err = CreateMigrationsTable(ctx, tx)
 	require.NoError(t, err, "Failed to create migrations table")
+
+	// Очищаем существующие миграции перед тестом
+	_, err = tx.Exec(ctx, "DELETE FROM schema_migrations")
+	require.NoError(t, err, "Failed to clear existing migrations")
 
 	// Добавляем тестовые миграции
 	testMigrations := []struct {
@@ -364,6 +376,10 @@ func TestRollbackMigrationNoMigrationsToRollback(t *testing.T) {
 
 	err = CreateMigrationsTable(ctx, tx)
 	require.NoError(t, err, "Failed to create migrations table")
+
+	// Очищаем существующие миграции перед тестом
+	_, err = tx.Exec(ctx, "DELETE FROM schema_migrations")
+	require.NoError(t, err, "Failed to clear existing migrations")
 
 	err = tx.Commit(ctx)
 	require.NoError(t, err, "Failed to commit transaction")
