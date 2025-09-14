@@ -3,13 +3,14 @@ package logger
 import (
 	"context"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewSlogLogger(t *testing.T) {
 	logger := NewSlogLogger()
-	if logger == nil {
-		t.Fatal("NewSlogLogger() returned nil")
-	}
+	require.NotNil(t, logger, "NewSlogLogger() should not return nil")
 }
 
 func TestNewSlogLoggerWithConfig(t *testing.T) {
@@ -19,19 +20,13 @@ func TestNewSlogLoggerWithConfig(t *testing.T) {
 	}
 
 	logger := NewSlogLoggerWithConfig(config)
-	if logger == nil {
-		t.Fatal("NewSlogLoggerWithConfig() returned nil")
-	}
+	require.NotNil(t, logger, "NewSlogLoggerWithConfig() should not return nil")
 }
 
 func TestDefaultLoggerConfig(t *testing.T) {
 	config := DefaultLoggerConfig()
-	if config.Level != InfoLevel {
-		t.Errorf("Expected InfoLevel, got %v", config.Level)
-	}
-	if config.Format != "text" {
-		t.Errorf("Expected 'text', got %s", config.Format)
-	}
+	assert.Equal(t, InfoLevel, config.Level, "Default level should be InfoLevel")
+	assert.Equal(t, "text", config.Format, "Default format should be 'text'")
 }
 
 func TestLogLevel_String(t *testing.T) {
@@ -47,10 +42,10 @@ func TestLogLevel_String(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		result := tt.level.String()
-		if result != tt.expected {
-			t.Errorf("LogLevel(%d).String() = %s, want %s", tt.level, result, tt.expected)
-		}
+		t.Run(tt.expected, func(t *testing.T) {
+			result := tt.level.String()
+			assert.Equal(t, tt.expected, result, "LogLevel.String() should return correct string representation")
+		})
 	}
 }
 
@@ -59,14 +54,10 @@ func TestSlogLogger_WithContext(t *testing.T) {
 	ctx := context.Background()
 
 	newLogger := logger.WithContext(ctx)
-	if newLogger == nil {
-		t.Fatal("WithContext() returned nil")
-	}
+	require.NotNil(t, newLogger, "WithContext() should not return nil")
 
 	// Проверяем, что это новый экземпляр
-	if newLogger == logger {
-		t.Error("WithContext() should return a new logger instance")
-	}
+	assert.NotEqual(t, logger, newLogger, "WithContext() should return a new logger instance")
 }
 
 func TestSlogLogger_WithFields(t *testing.T) {
@@ -77,14 +68,10 @@ func TestSlogLogger_WithFields(t *testing.T) {
 	}
 
 	newLogger := logger.WithFields(fields)
-	if newLogger == nil {
-		t.Fatal("WithFields() returned nil")
-	}
+	require.NotNil(t, newLogger, "WithFields() should not return nil")
 
 	// Проверяем, что это новый экземпляр
-	if newLogger == logger {
-		t.Error("WithFields() should return a new logger instance")
-	}
+	assert.NotEqual(t, logger, newLogger, "WithFields() should return a new logger instance")
 }
 
 func TestSlogLogger_SetLevel(t *testing.T) {
@@ -92,22 +79,17 @@ func TestSlogLogger_SetLevel(t *testing.T) {
 
 	// Устанавливаем уровень
 	logger.SetLevel(DebugLevel)
-	if logger.level != DebugLevel {
-		t.Errorf("Expected DebugLevel, got %v", logger.level)
-	}
+	assert.Equal(t, DebugLevel, logger.level, "Level should be set to DebugLevel")
 
 	// Изменяем уровень
 	logger.SetLevel(ErrorLevel)
-	if logger.level != ErrorLevel {
-		t.Errorf("Expected ErrorLevel, got %v", logger.level)
-	}
+	assert.Equal(t, ErrorLevel, logger.level, "Level should be set to ErrorLevel")
 }
 
 func TestSlogLogger_Sync(t *testing.T) {
 	logger := NewSlogLogger()
 
 	// Sync должен возвращать nil
-	if err := logger.Sync(); err != nil {
-		t.Errorf("Sync() returned error: %v", err)
-	}
+	err := logger.Sync()
+	assert.NoError(t, err, "Sync() should not return an error")
 }
