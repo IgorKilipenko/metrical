@@ -70,6 +70,7 @@ Environment variables:
 	config.StoreInterval = getFinalIntValue("STORE_INTERVAL", config.StoreInterval, 300)
 	config.FileStoragePath = getFinalValue("FILE_STORAGE_PATH", config.FileStoragePath, "/tmp/metrics-db.json")
 	config.Restore = getFinalBoolValue("RESTORE", config.Restore, true)
+	config.DatabaseDSN = getFinalValue("DATABASE_DSN", config.DatabaseDSN, "")
 
 	// Валидируем финальный адрес
 	if err := validateAddress(config.Address); err != nil {
