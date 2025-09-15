@@ -58,7 +58,7 @@ type InMemoryMetricsRepository struct {
 
 ### PostgreSQLMetricsRepository (Реализация)
 
-Реализация репозитория для PostgreSQL с connection pooling, поддержкой контекста и структурированным логированием:
+Реализация репозитория для PostgreSQL с connection pooling, поддержкой контекста, структурированным логированием и **автоматическими миграциями**:
 
 ```go
 type PostgreSQLMetricsRepository struct {
@@ -74,6 +74,9 @@ type PostgreSQLMetricsRepository struct {
 - 🛡️ **Валидация данных** - проверка входных параметров
 - 📊 **Атомарные операции** - нет race conditions при concurrent доступе
 - 🔍 **Структурированное логирование** - детальное отслеживание операций
+- 🚀 **Автоматические миграции** - создание таблиц при запуске
+- 🔒 **Контрольные суммы** - проверка целостности миграций
+- ⚙️ **Настройки PostgreSQL** - автоматическая настройка совместимости
 
 ## Использование
 
@@ -96,7 +99,7 @@ repo := repository.NewInMemoryMetricsRepository(
 service := service.NewMetricsService(repo, appLogger)
 ```
 
-#### PostgreSQL репозиторий
+#### PostgreSQL репозиторий с автоматическими миграциями
 
 ```go
 import (
@@ -122,7 +125,18 @@ if err != nil {
 }
 defer pool.Close()
 
-// Создаем PostgreSQL репозиторий
+// Создаем PostgreSQL репозиторий с автоматическими миграциями
+// Миграции будут применены автоматически при создании репозитория
+repo := repository.NewPostgreSQLMetricsRepositoryWithMigrations(pool, appLogger)
+
+// Создаем сервис с репозиторием и логгером
+service := service.NewMetricsService(repo, appLogger)
+```
+
+#### PostgreSQL репозиторий без миграций (ручное управление)
+
+```go
+// Создаем PostgreSQL репозиторий без автоматических миграций
 repo := repository.NewPostgreSQLMetricsRepository(pool, appLogger)
 
 // Создаем сервис с репозиторием и логгером
@@ -710,7 +724,62 @@ func BenchmarkPostgreSQLRepository(b *testing.B) {
 
 ## 🚀 Настройка и миграции
 
-### Создание базы данных
+### 🆕 Новая система миграций (рекомендуется)
+
+Сервис теперь поддерживает **автоматические миграции** с использованием SQL файлов:
+
+#### Структура миграций
+```
+migrations/
+├── 001_create_metrics_tables.sql
+├── 002_add_indexes.sql
+└── 003_update_schema.sql
+```
+
+#### Автоматическое применение
+```go
+// Миграции применяются автоматически при создании репозитория
+repo := repository.NewPostgreSQLMetricsRepositoryWithMigrations(pool, logger)
+```
+
+#### Пример миграции
+```sql
+-- migrations/001_create_metrics_tables.sql
+-- Миграция 001: Создание таблиц для метрик
+-- Автор: Igor Kilipenko
+
+-- Настройка PostgreSQL для совместимости
+SET standard_conforming_strings = on;
+
+-- Создание таблицы для gauge метрик
+CREATE TABLE IF NOT EXISTS gauge_metrics (
+    id VARCHAR(255) PRIMARY KEY,
+    value DOUBLE PRECISION NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Создание таблицы для counter метрик
+CREATE TABLE IF NOT EXISTS counter_metrics (
+    id VARCHAR(255) PRIMARY KEY,
+    value BIGINT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Создание индексов
+CREATE INDEX IF NOT EXISTS idx_gauge_metrics_id ON gauge_metrics(id);
+CREATE INDEX IF NOT EXISTS idx_counter_metrics_id ON counter_metrics(id);
+```
+
+#### Преимущества новой системы
+- ✅ **Автоматическое применение** - миграции выполняются при запуске
+- ✅ **Контрольные суммы** - проверка целостности SQL файлов
+- ✅ **Версионирование** - строгий порядок применения
+- ✅ **Настройки PostgreSQL** - автоматическая настройка совместимости
+- ✅ **Детальное логирование** - отслеживание всех операций
+
+### 🔧 Ручное создание базы данных (устаревший способ)
 
 ```sql
 -- Создание базы данных
@@ -719,7 +788,7 @@ CREATE DATABASE metrics_db;
 -- Подключение к базе данных
 \c metrics_db;
 
--- Создание таблицы метрик
+-- Создание таблицы метрик (старая схема)
 CREATE TABLE metrics (
     name VARCHAR(255) NOT NULL,
     type VARCHAR(50) NOT NULL,

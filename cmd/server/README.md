@@ -462,7 +462,26 @@ func handleError(err error) {
 
 ## 🗄️ PostgreSQL поддержка
 
-Сервер поддерживает хранение метрик в PostgreSQL базе данных:
+Сервер поддерживает хранение метрик в PostgreSQL базе данных с **автоматическими миграциями**:
+
+### 🆕 Автоматические миграции
+
+Сервис **автоматически создает все необходимые таблицы** при запуске:
+
+```bash
+# Запуск с PostgreSQL - таблицы создаются автоматически!
+./server -a=9090 -d="postgres://user:password@localhost:5432/metrics_db?sslmode=disable"
+```
+
+**Логи автоматических миграций:**
+```
+{"level":"info","message":"Creating PostgreSQL repository with migrations"}
+{"level":"info","message":"Loading migrations from filesystem"}
+{"level":"info","count":1,"message":"Loaded migrations"}
+{"level":"info","message":"Running migrations"}
+{"level":"info","message":"Migration applied successfully"}
+{"level":"info","message":"All migrations completed successfully"}
+```
 
 ### Конфигурация PostgreSQL
 
@@ -478,19 +497,30 @@ export DB_PING_TIMEOUT=5s
 export DB_HEALTH_CHECK_TIMEOUT=5s
 ```
 
-### Запуск с PostgreSQL
+### 🚀 Приоритет хранения
+
+Сервис автоматически выбирает тип хранилища по приоритету:
+
+1. **PostgreSQL** (если указан `DATABASE_DSN` или `-d`)
+2. **Файл** (если указан `FILE_STORAGE_PATH` или `-f`)  
+3. **Память** (по умолчанию)
 
 ```bash
-# Через флаг -d
-./server -a=9090 -d="postgres://user:password@localhost:5432/metrics_db?sslmode=disable"
+# PostgreSQL (приоритет 1)
+./server -a=9090 -d="postgres://user:pass@localhost:5432/db"
 
-# Через переменную окружения
-export DATABASE_DSN="postgres://user:password@localhost:5432/metrics_db?sslmode=disable"
+# Файл (приоритет 2) 
+./server -a=9090 -f="/tmp/metrics.json"
+
+# Память (приоритет 3)
 ./server -a=9090
 ```
 
 ### Особенности PostgreSQL реализации
 
+- ✅ **Автоматические миграции** - создание таблиц при запуске
+- ✅ **Контрольные суммы** - проверка целостности миграций
+- ✅ **Настройки PostgreSQL** - автоматическая настройка совместимости
 - ✅ **Connection Pooling** - эффективное управление соединениями
 - ✅ **Атомарные операции** - UPSERT с ON CONFLICT для thread-safety
 - ✅ **Валидация данных** - проверка входных параметров
@@ -520,12 +550,14 @@ graph TB
         REPO[Repository Interface]
         IMR[InMemory Repository]
         PGR[PostgreSQL Repository]
+        MIG[Migration Manager]
     end
     
     subgraph "Data Layer"
         MODELS[Data Models]
         PG[(PostgreSQL)]
         FS[(File System)]
+        MIG_FILES[(Migration Files)]
     end
     
     H --> S
@@ -533,6 +565,8 @@ graph TB
     S --> REPO
     REPO --> IMR
     REPO --> PGR
+    PGR --> MIG
+    MIG --> MIG_FILES
     IMR --> FS
     PGR --> PG
     IMR --> MODELS
@@ -548,9 +582,11 @@ graph TB
     style REPO fill:#e8f5e8
     style IMR fill:#e8f5e8
     style PGR fill:#e8f5e8
+    style MIG fill:#e8f5e8
     style MODELS fill:#fff3e0
     style PG fill:#ffebee
     style FS fill:#ffebee
+    style MIG_FILES fill:#ffebee
 ```
 
 ### Поток обработки запроса

@@ -244,7 +244,29 @@ export RESTORE=true              # Восстановление при стар�
 
 ## 🗄️ PostgreSQL поддержка
 
-Сервер поддерживает хранение метрик в PostgreSQL базе данных с полной функциональностью:
+Сервер поддерживает хранение метрик в PostgreSQL базе данных с **автоматическими миграциями** и полной функциональностью:
+
+### 🆕 Автоматические миграции
+
+Сервис теперь **автоматически создает все необходимые таблицы** при запуске:
+
+```bash
+# Запуск сервера с PostgreSQL - таблицы создаются автоматически!
+./cmd/server/server \
+  -a=localhost:9090 \
+  -d="postgres://user:password@localhost:5432/metrics_db?sslmode=disable"
+```
+
+**Логи автоматических миграций:**
+```
+{"level":"info","message":"Creating PostgreSQL repository with migrations"}
+{"level":"info","message":"Loading migrations from filesystem"}
+{"level":"info","count":1,"message":"Loaded migrations"}
+{"level":"info","message":"Running migrations"}
+{"level":"info","message":"Initializing migrations table"}
+{"level":"info","message":"Migration applied successfully"}
+{"level":"info","message":"All migrations completed successfully"}
+```
 
 ### Конфигурация PostgreSQL
 
@@ -260,30 +282,53 @@ export DB_PING_TIMEOUT=5s
 export DB_HEALTH_CHECK_TIMEOUT=5s
 ```
 
-### Запуск с PostgreSQL
+### 🏗️ Новая схема базы данных
 
-```bash
-# Запуск сервера с PostgreSQL
-./cmd/server/server \
-  -a=localhost:9090 \
-  -d="postgres://user:password@localhost:5432/metrics_db?sslmode=disable"
-```
-
-### Схема базы данных
+**Автоматически создаваемые таблицы:**
 
 ```sql
-CREATE TABLE metrics (
-    name VARCHAR(255) NOT NULL,
-    type VARCHAR(50) NOT NULL,
-    value DOUBLE PRECISION,
-    delta BIGINT,
-    updated_at TIMESTAMP DEFAULT NOW(),
-    PRIMARY KEY (name, type)
+-- Таблица для gauge метрик
+CREATE TABLE gauge_metrics (
+    id VARCHAR(255) PRIMARY KEY,
+    value DOUBLE PRECISION NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Индексы для оптимизации
-CREATE INDEX idx_metrics_type ON metrics(type);
-CREATE INDEX idx_metrics_updated_at ON metrics(updated_at);
+-- Таблица для counter метрик  
+CREATE TABLE counter_metrics (
+    id VARCHAR(255) PRIMARY KEY,
+    value BIGINT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Таблица для отслеживания миграций
+CREATE TABLE schema_migrations (
+    version INTEGER PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    applied_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    checksum VARCHAR(64) NOT NULL
+);
+```
+
+### 🚀 Приоритет хранения
+
+Сервис автоматически выбирает тип хранилища по приоритету:
+
+1. **PostgreSQL** (если указан `DATABASE_DSN` или `-d`)
+2. **Файл** (если указан `FILE_STORAGE_PATH` или `-f`)  
+3. **Память** (по умолчанию)
+
+```bash
+# PostgreSQL (приоритет 1)
+./cmd/server/server -d="postgres://user:pass@localhost:5432/db"
+
+# Файл (приоритет 2) 
+./cmd/server/server -f="/tmp/metrics.json"
+
+# Память (приоритет 3)
+./cmd/server/server
 ```
 
 ### Docker Compose для разработки
@@ -301,12 +346,16 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d  # Автоматические миграции
 volumes:
   postgres_data:
 ```
 
-### Особенности PostgreSQL реализации
+### 🔒 Безопасность и надежность
 
+- ✅ **Автоматические миграции** - создание таблиц при запуске
+- ✅ **Контрольные суммы** - проверка целостности миграций
+- ✅ **Настройки PostgreSQL** - автоматическая настройка совместимости
 - ✅ **Connection Pooling** - эффективное управление соединениями
 - ✅ **Атомарные операции** - UPSERT с ON CONFLICT для thread-safety
 - ✅ **Валидация данных** - проверка входных параметров
