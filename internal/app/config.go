@@ -23,6 +23,23 @@ func NewConfig(addr string, storeInterval int, fileStoragePath string, restore b
 	}, nil
 }
 
+// GetStorageType определяет тип хранилища на основе конфигурации
+// Приоритет: PostgreSQL -> Файл -> Память
+func (c Config) GetStorageType() string {
+	// 1. PostgreSQL - если указан DATABASE_DSN
+	if c.DatabaseDSN != "" {
+		return "postgresql"
+	}
+
+	// 2. Файл - если указан путь к файлу
+	if c.FileStoragePath != "" {
+		return "file"
+	}
+
+	// 3. Память - по умолчанию
+	return "memory"
+}
+
 // parseAddr парсит строку адреса в адрес и порт
 func parseAddr(addr string) (string, string, error) {
 	// Если адрес содержит двоеточие, разделяем на адрес и порт

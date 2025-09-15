@@ -76,49 +76,31 @@ func (a *App) Run() error {
 		"file_storage", a.config.FileStoragePath)
 
 	// Создаем репозиторий в зависимости от конфигурации
-	var repo repository.MetricsRepository
-	var dbConnection *db.Connection
-	var err error
+	// Приоритет: PostgreSQL -> Файл -> Память
+	storageType := a.config.GetStorageType()
+	appLogger.Info("creating repository", "type", storageType)
 
-	if a.config.DatabaseDSN != "" {
-		// Используем PostgreSQL
-		appLogger.Info("initializing PostgreSQL database")
+	repo, dbConnection, err := a.createRepository(storageType, appLogger)
+	if err != nil {
+		return fmt.Errorf("failed to create repository: %w", err)
+	}
 
-		// Создаем конфигурацию БД
-		dbConfig := db.NewConfig()
-		dbConfig.DSN = a.config.DatabaseDSN
-
-		// Создаем подключение к БД
-		dbConnection, err = db.NewConnection(dbConfig, appLogger)
-		if err != nil {
-			return fmt.Errorf("failed to connect to database: %w", err)
+	// Закрываем соединение с БД при завершении
+	defer func() {
+		if dbConnection != nil {
+			dbConnection.Close()
 		}
-		defer func() {
-			if dbConnection != nil {
-				dbConnection.Close()
+	}()
+
+	// Для in-memory репозитория с файловым хранением
+	if storageType == "memory" && a.config.FileStoragePath != "" {
+		// Приводим к типу InMemoryMetricsRepository для настройки
+		if inMemoryRepo, ok := repo.(*repository.InMemoryMetricsRepository); ok {
+			// Устанавливаем синхронное сохранение, если интервал = 0
+			if a.config.StoreInterval == 0 {
+				inMemoryRepo.SetSyncSave(true)
 			}
-		}()
-
-		// Выполняем миграции
-		ctx, cancel := context.WithTimeout(context.Background(), DefaultMigrationTimeout)
-		defer cancel()
-		if err := db.Migrate(ctx, dbConnection, appLogger); err != nil {
-			return fmt.Errorf("failed to run database migrations: %w", err)
 		}
-
-		// Создаем PostgreSQL репозиторий
-		repo = repository.NewPostgreSQLMetricsRepository(dbConnection.Pool(), appLogger)
-		appLogger.Info("using PostgreSQL repository")
-	} else {
-		// Используем in-memory репозиторий как fallback
-		appLogger.Info("using in-memory repository")
-		inMemoryRepo := repository.NewInMemoryMetricsRepository(appLogger, a.config.FileStoragePath, a.config.Restore)
-
-		// Устанавливаем синхронное сохранение, если интервал = 0
-		if a.config.StoreInterval == 0 {
-			inMemoryRepo.SetSyncSave(true)
-		}
-		repo = inMemoryRepo
 	}
 
 	// Создаем сервис
@@ -241,4 +223,65 @@ type noDatabasePinger struct{}
 
 func (p *noDatabasePinger) Ping(ctx context.Context) error {
 	return fmt.Errorf("database not configured")
+}
+
+// createRepository создает репозиторий на основе типа хранилища
+// Приоритет: PostgreSQL -> Файл -> Память
+func (a *App) createRepository(storageType string, logger logger.Logger) (repository.MetricsRepository, *db.Connection, error) {
+	switch storageType {
+	case "postgresql":
+		return a.createPostgreSQLRepository(logger)
+	case "file":
+		return a.createFileRepository(logger)
+	case "memory":
+		return a.createMemoryRepository(logger)
+	default:
+		return nil, nil, fmt.Errorf("unsupported storage type: %s", storageType)
+	}
+}
+
+// createPostgreSQLRepository создает PostgreSQL репозиторий с автоматическими миграциями
+func (a *App) createPostgreSQLRepository(logger logger.Logger) (repository.MetricsRepository, *db.Connection, error) {
+	logger.Info("Creating PostgreSQL repository", "dsn", a.config.DatabaseDSN)
+
+	// Создаем конфигурацию подключения к БД
+	dbConfig := db.NewConfig()
+	dbConfig.DSN = a.config.DatabaseDSN
+
+	// Создаем соединение с БД
+	dbConnection, err := db.NewConnection(dbConfig, logger)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create database connection: %w", err)
+	}
+
+	// Создаем PostgreSQL репозиторий с автоматическими миграциями
+	logger.Info("Creating PostgreSQL repository with migrations")
+	repo, err := repository.NewPostgreSQLMetricsRepositoryWithMigrations(dbConnection.Pool(), logger)
+	if err != nil {
+		logger.Error("Failed to create PostgreSQL repository", "error", err)
+		// Не закрываем соединение здесь, так как оно будет закрыто в defer
+		return nil, nil, fmt.Errorf("failed to create PostgreSQL repository: %w", err)
+	}
+
+	logger.Info("PostgreSQL repository created successfully with migrations")
+	return repo, dbConnection, nil
+}
+
+// createFileRepository создает файловый репозиторий
+func (a *App) createFileRepository(logger logger.Logger) (repository.MetricsRepository, *db.Connection, error) {
+	logger.Info("Creating file repository", "path", a.config.FileStoragePath)
+
+	// TODO: Реализовать файловый репозиторий
+	// Пока возвращаем in-memory репозиторий
+	logger.Warn("File repository not implemented yet, using in-memory repository")
+	return a.createMemoryRepository(logger)
+}
+
+// createMemoryRepository создает in-memory репозиторий
+func (a *App) createMemoryRepository(logger logger.Logger) (repository.MetricsRepository, *db.Connection, error) {
+	logger.Info("Creating in-memory repository")
+	repo := repository.NewInMemoryMetricsRepository(logger, a.config.FileStoragePath, a.config.Restore)
+
+	logger.Info("In-memory repository created successfully")
+	return repo, nil, nil
 }

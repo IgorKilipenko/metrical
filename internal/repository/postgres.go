@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 
+	"github.com/IgorKilipenko/metrical/internal/config/db"
 	"github.com/IgorKilipenko/metrical/internal/logger"
 	models "github.com/IgorKilipenko/metrical/internal/model"
 	"github.com/jackc/pgx/v5"
@@ -114,6 +116,55 @@ func NewPostgreSQLMetricsRepositoryWithPool(pool DatabasePool, logger logger.Log
 	}
 }
 
+// NewPostgreSQLMetricsRepositoryWithMigrations создает новый экземпляр PostgreSQL репозитория с автоматическими миграциями.
+//
+// Принимает:
+// - pool: пул соединений с PostgreSQL базой данных
+// - logger: логгер для записи событий и ошибок
+//
+// Возвращает:
+// - *PostgreSQLMetricsRepository: новый экземпляр репозитория
+// - error: ошибка при выполнении миграций
+//
+// Автоматически выполняет миграции для создания необходимых таблиц.
+func NewPostgreSQLMetricsRepositoryWithMigrations(pool DatabasePool, logger logger.Logger) (*PostgreSQLMetricsRepository, error) {
+	ctx := context.Background()
+
+	// Приводим к конкретному типу для миграций
+	pgxPool, ok := pool.(*pgxpool.Pool)
+	if !ok {
+		return nil, fmt.Errorf("pool must be *pgxpool.Pool for migrations")
+	}
+
+	// Создаем менеджер миграций
+	migrationManager := db.NewMigrationManager(pgxPool, logger)
+
+	// Загружаем миграции из файловой системы
+	logger.Info("Loading migrations from filesystem")
+	migrations, err := migrationManager.LoadMigrationsFromFS(os.DirFS("."), "migrations")
+	if err != nil {
+		logger.Error("Failed to load migrations", "error", err)
+		return nil, fmt.Errorf("failed to load migrations: %w", err)
+	}
+
+	logger.Info("Loaded migrations", "count", len(migrations))
+
+	// Выполняем миграции
+	logger.Info("Running migrations")
+	err = migrationManager.RunMigrations(ctx, migrations)
+	if err != nil {
+		logger.Error("Failed to run migrations", "error", err)
+		return nil, fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	logger.Info("PostgreSQL repository initialized with migrations")
+
+	return &PostgreSQLMetricsRepository{
+		pool:   pgxPool,
+		logger: logger,
+	}, nil
+}
+
 // checkContext проверяет отмену контекста и возвращает ошибку если контекст отменен
 func (r *PostgreSQLMetricsRepository) checkContext(ctx context.Context, operation string) error {
 	select {
@@ -192,12 +243,12 @@ func (r *PostgreSQLMetricsRepository) UpdateGauge(ctx context.Context, name stri
 	}
 
 	query := `
-		INSERT INTO metrics (name, type, value, updated_at) 
-		VALUES ($1, $2, $3, NOW())
-		ON CONFLICT (name, type) 
+		INSERT INTO gauge_metrics (id, value, updated_at) 
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (id) 
 		DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
 
-	_, err := r.pool.Exec(ctx, query, name, models.Gauge, value)
+	_, err := r.pool.Exec(ctx, query, name, value)
 	if err != nil {
 		r.logger.Error("failed to update gauge metric", "name", name, "value", value, "error", err)
 		return err
@@ -256,11 +307,11 @@ func (r *PostgreSQLMetricsRepository) UpdateCounter(ctx context.Context, name st
 
 	// Используем оптимизированный SQL запрос для атомарного обновления
 	_, err := r.pool.Exec(ctx, `
-		INSERT INTO metrics (name, type, delta, updated_at) 
-		VALUES ($1, $2, $3, NOW())
-		ON CONFLICT (name, type) 
-		DO UPDATE SET delta = metrics.delta + EXCLUDED.delta, updated_at = NOW()`,
-		name, models.Counter, value)
+		INSERT INTO counter_metrics (id, value, updated_at) 
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (id) 
+		DO UPDATE SET value = counter_metrics.value + EXCLUDED.value, updated_at = NOW()`,
+		name, value)
 
 	if err != nil {
 		r.logger.Error("failed to update counter metric", "name", name, "value", value, "error", err)
@@ -323,8 +374,8 @@ func (r *PostgreSQLMetricsRepository) GetGauge(ctx context.Context, name string)
 
 	var value float64
 	err := r.pool.QueryRow(ctx,
-		"SELECT value FROM metrics WHERE name = $1 AND type = $2",
-		name, models.Gauge).Scan(&value)
+		"SELECT value FROM gauge_metrics WHERE id = $1",
+		name).Scan(&value)
 
 	if err == pgx.ErrNoRows {
 		r.logger.Debug("gauge metric not found", "name", name)
@@ -396,8 +447,8 @@ func (r *PostgreSQLMetricsRepository) GetCounter(ctx context.Context, name strin
 
 	var value int64
 	err := r.pool.QueryRow(ctx,
-		"SELECT COALESCE(delta, 0) FROM metrics WHERE name = $1 AND type = $2",
-		name, models.Counter).Scan(&value)
+		"SELECT value FROM counter_metrics WHERE id = $1",
+		name).Scan(&value)
 
 	if err == pgx.ErrNoRows {
 		r.logger.Debug("counter metric not found", "name", name)
@@ -460,7 +511,7 @@ func (r *PostgreSQLMetricsRepository) GetAllGauges(ctx context.Context) (models.
 	}
 
 	rows, err := r.pool.Query(ctx,
-		"SELECT name, value FROM metrics WHERE type = $1", models.Gauge)
+		"SELECT id, value FROM gauge_metrics")
 	if err != nil {
 		r.logger.Error("failed to get all gauge metrics", "error", err)
 		return nil, err
@@ -535,7 +586,7 @@ func (r *PostgreSQLMetricsRepository) GetAllCounters(ctx context.Context) (model
 	}
 
 	rows, err := r.pool.Query(ctx,
-		"SELECT name, COALESCE(delta, 0) FROM metrics WHERE type = $1", models.Counter)
+		"SELECT id, value FROM counter_metrics")
 	if err != nil {
 		r.logger.Error("failed to get all counter metrics", "error", err)
 		return nil, err

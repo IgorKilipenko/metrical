@@ -11,6 +11,7 @@ import (
 
 	"github.com/IgorKilipenko/metrical/internal/config/db"
 	"github.com/IgorKilipenko/metrical/internal/logger"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
@@ -37,17 +38,13 @@ func main() {
 	appLogger := logger.NewSlogLogger()
 	appLogger.Info("starting migration tool", "command", *command, "dsn", maskDSN(*dsn))
 
-	// Создаем конфигурацию БД
-	config := db.NewConfig()
-	config.DSN = *dsn
-
-	// Подключаемся к БД
-	conn, err := db.NewConnection(config, appLogger)
+	// Создаем пул соединений
+	pool, err := pgxpool.New(context.Background(), *dsn)
 	if err != nil {
-		appLogger.Error("failed to connect to database", "error", err)
-		log.Fatal("Failed to connect to database:", err)
+		appLogger.Error("failed to create connection pool", "error", err)
+		log.Fatal("Failed to create connection pool:", err)
 	}
-	defer conn.Close()
+	defer pool.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -55,16 +52,16 @@ func main() {
 	// Выполняем команду
 	switch *command {
 	case "migrate":
-		err = runMigrate(ctx, conn, appLogger)
+		err = runMigrate(ctx, pool, appLogger)
 	case "rollback":
 		if *version == 0 {
 			log.Fatal("Version is required for rollback command. Use -version flag")
 		}
-		err = runRollback(ctx, conn, appLogger, *version)
+		err = runRollback(ctx, pool, appLogger, *version)
 	case "stats":
-		err = runStats(ctx, conn, appLogger, *format)
+		err = runStats(ctx, pool, appLogger, *format)
 	case "history":
-		err = runHistory(ctx, conn, appLogger, *format)
+		err = runHistory(ctx, pool, appLogger, *format)
 	default:
 		log.Fatal("Unknown command:", *command)
 	}
@@ -77,18 +74,33 @@ func main() {
 	appLogger.Info("command completed successfully", "command", *command)
 }
 
-func runMigrate(ctx context.Context, conn *db.Connection, logger logger.Logger) error {
+func runMigrate(ctx context.Context, pool *pgxpool.Pool, logger logger.Logger) error {
 	logger.Info("running migrations")
-	return db.Migrate(ctx, conn, logger)
+
+	// Создаем менеджер миграций
+	migrationManager := db.NewMigrationManager(pool, logger)
+
+	// Загружаем миграции из файловой системы
+	migrations, err := migrationManager.LoadMigrationsFromFS(os.DirFS("."), "migrations")
+	if err != nil {
+		return fmt.Errorf("failed to load migrations: %w", err)
+	}
+
+	// Выполняем миграции
+	return migrationManager.RunMigrations(ctx, migrations)
 }
 
-func runRollback(ctx context.Context, conn *db.Connection, logger logger.Logger, version int) error {
+func runRollback(ctx context.Context, pool *pgxpool.Pool, logger logger.Logger, version int) error {
 	logger.Info("rolling back migrations", "target_version", version)
-	return db.RollbackMigration(ctx, conn, logger, version)
+	// TODO: Реализовать rollback
+	return fmt.Errorf("rollback not implemented yet")
 }
 
-func runStats(ctx context.Context, conn *db.Connection, logger logger.Logger, format string) error {
-	stats, err := db.GetMigrationStats(ctx, conn)
+func runStats(ctx context.Context, pool *pgxpool.Pool, logger logger.Logger, format string) error {
+	// Создаем менеджер миграций
+	migrationManager := db.NewMigrationManager(pool, logger)
+
+	stats, err := migrationManager.GetMigrationStats(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get migration stats: %w", err)
 	}
@@ -100,25 +112,21 @@ func runStats(ctx context.Context, conn *db.Connection, logger logger.Logger, fo
 			return fmt.Errorf("failed to marshal stats to JSON: %w", err)
 		}
 		fmt.Println(string(jsonData))
-	case "text":
-		fmt.Printf("Migration Statistics:\n")
-		fmt.Printf("  Total migrations: %d\n", stats.TotalMigrations)
-		fmt.Printf("  Latest version: %d\n", stats.LatestVersion)
-		if !stats.FirstMigration.IsZero() {
-			fmt.Printf("  First migration: %s\n", stats.FirstMigration.Format(time.RFC3339))
-		}
-		if !stats.LastMigration.IsZero() {
-			fmt.Printf("  Last migration: %s\n", stats.LastMigration.Format(time.RFC3339))
-		}
 	default:
-		return fmt.Errorf("unknown format: %s", format)
+		fmt.Printf("Migration Stats:\n")
+		fmt.Printf("  Total migrations: %d\n", stats["total_migrations"])
+		if lastTime, ok := stats["last_migration_time"]; ok && lastTime != nil {
+			fmt.Printf("  Last migration: %v\n", lastTime)
+		}
 	}
-
 	return nil
 }
 
-func runHistory(ctx context.Context, conn *db.Connection, logger logger.Logger, format string) error {
-	history, err := db.GetMigrationHistory(ctx, conn)
+func runHistory(ctx context.Context, pool *pgxpool.Pool, logger logger.Logger, format string) error {
+	// Создаем менеджер миграций
+	migrationManager := db.NewMigrationManager(pool, logger)
+
+	history, err := migrationManager.GetAppliedMigrations(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get migration history: %w", err)
 	}
@@ -130,24 +138,17 @@ func runHistory(ctx context.Context, conn *db.Connection, logger logger.Logger, 
 			return fmt.Errorf("failed to marshal history to JSON: %w", err)
 		}
 		fmt.Println(string(jsonData))
-	case "text":
+	default:
 		fmt.Printf("Migration History:\n")
 		if len(history) == 0 {
 			fmt.Printf("  No migrations found\n")
 			return nil
 		}
-		for _, result := range history {
-			status := "✅"
-			if !result.Success {
-				status = "❌"
-			}
-			fmt.Printf("  %s Version %d: %s (applied at %s)\n",
-				status, result.Version, result.Description, result.AppliedAt.Format(time.RFC3339))
+		for _, migration := range history {
+			fmt.Printf("  %d: %s (applied at: %v)\n",
+				migration.Version, migration.Name, migration.AppliedAt)
 		}
-	default:
-		return fmt.Errorf("unknown format: %s", format)
 	}
-
 	return nil
 }
 

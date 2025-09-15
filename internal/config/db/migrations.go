@@ -3,411 +3,261 @@ package db
 import (
 	"context"
 	"fmt"
+	"io/fs"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/IgorKilipenko/metrical/internal/logger"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// SQL константы для миграций
-const (
-	// Создание таблицы метрик
-	createMetricsTableSQL = `
-CREATE TABLE IF NOT EXISTS metrics (
-	id SERIAL PRIMARY KEY,
-	name VARCHAR(255) NOT NULL,
-	type VARCHAR(50) NOT NULL,
-	value DOUBLE PRECISION,
-	delta BIGINT,
-	created_at TIMESTAMP DEFAULT NOW(),
-	updated_at TIMESTAMP DEFAULT NOW(),
-	UNIQUE(name, type)
-);`
-
-	// Создание индексов для таблицы метрик
-	createMetricsIndexesSQL = `
-CREATE INDEX IF NOT EXISTS idx_metrics_name ON metrics(name);
-CREATE INDEX IF NOT EXISTS idx_metrics_type ON metrics(type);
-CREATE INDEX IF NOT EXISTS idx_metrics_updated_at ON metrics(updated_at);`
-
-	// Создание таблицы миграций
-	createMigrationsTableSQL = `
-CREATE TABLE IF NOT EXISTS schema_migrations (
-	version INTEGER PRIMARY KEY,
-	description VARCHAR(255) NOT NULL,
-	applied_at TIMESTAMP DEFAULT NOW()
-);`
-
-	// Запросы для работы с миграциями
-	selectMigrationsSQL = "SELECT version FROM schema_migrations ORDER BY version"
-	insertMigrationSQL  = "INSERT INTO schema_migrations (version, description, applied_at) VALUES ($1, $2, $3)"
-
-	// Удаление таблиц и индексов (для rollback)
-	dropMetricsTableSQL   = "DROP TABLE IF EXISTS metrics;"
-	dropMetricsIndexesSQL = `
-DROP INDEX IF EXISTS idx_metrics_name;
-DROP INDEX IF EXISTS idx_metrics_type;
-DROP INDEX IF EXISTS idx_metrics_updated_at;`
-
-	// Rollback запросы
-	rollbackMigrationSQL = "DELETE FROM schema_migrations WHERE version = $1"
-
-	// Метрики миграций
-	selectMigrationStatsSQL = `
-SELECT 
-	COUNT(*) as total_migrations,
-	MAX(version) as latest_version,
-	MIN(applied_at) as first_migration,
-	MAX(applied_at) as last_migration
-FROM schema_migrations`
-)
-
-// Migration представляет миграцию базы данных
+// Migration представляет одну миграцию
 type Migration struct {
-	Version     int
-	Description string
-	Up          func(ctx context.Context, tx pgx.Tx) error
-	Down        func(ctx context.Context, tx pgx.Tx) error
+	Version   int
+	Name      string
+	SQL       string
+	AppliedAt *time.Time
+	Checksum  string
 }
 
-// MigrationError представляет ошибку валидации миграции
-type MigrationError struct {
-	Version int
-	Message string
+// MigrationManager управляет миграциями базы данных
+type MigrationManager struct {
+	pool   *pgxpool.Pool
+	logger logger.Logger
 }
 
-func (e *MigrationError) Error() string {
-	return fmt.Sprintf("migration %d: %s", e.Version, e.Message)
+// NewMigrationManager создает новый менеджер миграций
+func NewMigrationManager(pool *pgxpool.Pool, logger logger.Logger) *MigrationManager {
+	return &MigrationManager{
+		pool:   pool,
+		logger: logger,
+	}
 }
 
-// MigrationStats представляет статистику миграций
-type MigrationStats struct {
-	TotalMigrations int       `json:"total_migrations"`
-	LatestVersion   int       `json:"latest_version"`
-	FirstMigration  time.Time `json:"first_migration"`
-	LastMigration   time.Time `json:"last_migration"`
-}
+// InitMigrationsTable создает таблицу для отслеживания миграций
+func (m *MigrationManager) InitMigrationsTable(ctx context.Context) error {
+	query := `
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+			version INTEGER PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			applied_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			checksum VARCHAR(64) NOT NULL
+		);
+	`
 
-// MigrationResult представляет результат выполнения миграции
-type MigrationResult struct {
-	Version     int           `json:"version"`
-	Description string        `json:"description"`
-	AppliedAt   time.Time     `json:"applied_at"`
-	Duration    time.Duration `json:"duration"`
-	Success     bool          `json:"success"`
-	Error       string        `json:"error,omitempty"`
-}
-
-// ValidateMigrations проверяет корректность миграций
-func ValidateMigrations(migrations []Migration) error {
-	if len(migrations) == 0 {
-		return &MigrationError{Version: 0, Message: "no migrations provided"}
+	_, err := m.pool.Exec(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to create migrations table: %w", err)
 	}
 
-	// Проверяем уникальность версий
-	versions := make(map[int]bool)
-	for _, migration := range migrations {
-		if versions[migration.Version] {
-			return &MigrationError{Version: migration.Version, Message: "duplicate version"}
-		}
-		versions[migration.Version] = true
-
-		// Проверяем обязательные поля
-		if migration.Version <= 0 {
-			return &MigrationError{Version: migration.Version, Message: "version must be positive"}
-		}
-		if migration.Description == "" {
-			return &MigrationError{Version: migration.Version, Message: "description cannot be empty"}
-		}
-		if migration.Up == nil {
-			return &MigrationError{Version: migration.Version, Message: "Up function cannot be nil"}
-		}
-		if migration.Down == nil {
-			return &MigrationError{Version: migration.Version, Message: "Down function cannot be nil"}
-		}
-	}
-
-	// Проверяем последовательность версий (опционально)
-	for i := 1; i <= len(migrations); i++ {
-		if !versions[i] {
-			return &MigrationError{Version: i, Message: "missing migration version"}
-		}
-	}
-
+	m.logger.Info("Migrations table initialized")
 	return nil
 }
 
-// CreateMetricsTable создает таблицу метрик
-func CreateMetricsTable(ctx context.Context, tx pgx.Tx) error {
-	_, err := tx.Exec(ctx, createMetricsTableSQL)
-	return err
-}
+// LoadMigrationsFromFS загружает миграции из файловой системы
+func (m *MigrationManager) LoadMigrationsFromFS(fsys fs.FS, dir string) ([]Migration, error) {
+	var migrations []Migration
 
-// CreateMetricsIndexes создает индексы для таблицы метрик
-func CreateMetricsIndexes(ctx context.Context, tx pgx.Tx) error {
-	_, err := tx.Exec(ctx, createMetricsIndexesSQL)
-	return err
-}
-
-// CreateMigrationsTable создает таблицу для отслеживания миграций
-func CreateMigrationsTable(ctx context.Context, tx pgx.Tx) error {
-	_, err := tx.Exec(ctx, createMigrationsTableSQL)
-	return err
-}
-
-// Migrations содержит все миграции
-var Migrations = []Migration{
-	{
-		Version:     1,
-		Description: "Create metrics table",
-		Up:          CreateMetricsTable,
-		Down: func(ctx context.Context, tx pgx.Tx) error {
-			_, err := tx.Exec(ctx, dropMetricsTableSQL)
+	err := fs.WalkDir(fsys, dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
 			return err
-		},
-	},
-	{
-		Version:     2,
-		Description: "Create metrics indexes",
-		Up:          CreateMetricsIndexes,
-		Down: func(ctx context.Context, tx pgx.Tx) error {
-			_, err := tx.Exec(ctx, dropMetricsIndexesSQL)
-			return err
-		},
-	},
-}
+		}
 
-// Migrate выполняет миграции базы данных
-func Migrate(ctx context.Context, conn *Connection, logger logger.Logger) error {
-	logger.Info("starting database migrations")
+		if d.IsDir() || !strings.HasSuffix(path, ".sql") {
+			return nil
+		}
 
-	// Валидируем миграции перед выполнением
-	if err := ValidateMigrations(Migrations); err != nil {
-		return fmt.Errorf("migration validation failed: %w", err)
+		// Парсим имя файла: 001_create_table.sql -> version=1, name=create_table
+		filename := filepath.Base(path)
+		parts := strings.SplitN(filename, "_", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid migration filename format: %s", filename)
+		}
+
+		version, err := strconv.Atoi(parts[0])
+		if err != nil {
+			return fmt.Errorf("invalid migration version: %s", parts[0])
+		}
+
+		name := strings.TrimSuffix(parts[1], ".sql")
+
+		// Читаем содержимое файла
+		content, err := fs.ReadFile(fsys, path)
+		if err != nil {
+			return fmt.Errorf("failed to read migration file %s: %w", path, err)
+		}
+
+		migrations = append(migrations, Migration{
+			Version:  version,
+			Name:     name,
+			SQL:      string(content),
+			Checksum: calculateChecksum(string(content)),
+		})
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to load migrations: %w", err)
 	}
-	logger.Debug("migrations validation passed", "count", len(Migrations))
 
-	// Создаем таблицу миграций
-	logger.Debug("creating migrations table")
-	tx, err := conn.Pool().Begin(ctx)
+	// Сортируем по версии
+	sort.Slice(migrations, func(i, j int) bool {
+		return migrations[i].Version < migrations[j].Version
+	})
+
+	return migrations, nil
+}
+
+// GetAppliedMigrations возвращает список примененных миграций
+func (m *MigrationManager) GetAppliedMigrations(ctx context.Context) (map[int]Migration, error) {
+	query := `
+		SELECT version, name, applied_at, checksum 
+		FROM schema_migrations 
+		ORDER BY version
+	`
+
+	m.logger.Info("Executing query for applied migrations", "query", query)
+	rows, err := m.pool.Query(ctx, query)
+	if err != nil {
+		m.logger.Error("Failed to query applied migrations", "error", err)
+		return nil, fmt.Errorf("failed to query applied migrations: %w", err)
+	}
+	defer rows.Close()
+
+	applied := make(map[int]Migration)
+	for rows.Next() {
+		var migration Migration
+		err := rows.Scan(&migration.Version, &migration.Name, &migration.AppliedAt, &migration.Checksum)
+		if err != nil {
+			m.logger.Error("Failed to scan migration", "error", err)
+			return nil, fmt.Errorf("failed to scan migration: %w", err)
+		}
+		applied[migration.Version] = migration
+	}
+
+	m.logger.Info("Found applied migrations", "count", len(applied))
+	return applied, nil
+}
+
+// ApplyMigration применяет одну миграцию
+func (m *MigrationManager) ApplyMigration(ctx context.Context, migration Migration) error {
+	m.logger.Info("Applying migration", "version", migration.Version, "name", migration.Name)
+
+	// Начинаем транзакцию
+	tx, err := m.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	if err := CreateMigrationsTable(ctx, tx); err != nil {
-		return fmt.Errorf("failed to create migrations table: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit migrations table transaction: %w", err)
-	}
-	logger.Debug("migrations table created successfully")
-
-	// Получаем список примененных миграций
-	appliedMigrations, err := getAppliedMigrations(ctx, conn.Pool())
+	// Выполняем SQL миграции
+	_, err = tx.Exec(ctx, migration.SQL)
 	if err != nil {
-		return fmt.Errorf("failed to get applied migrations: %w", err)
+		return fmt.Errorf("failed to execute migration %d: %w", migration.Version, err)
 	}
 
-	// Применяем новые миграции
-	for _, migration := range Migrations {
-		if _, exists := appliedMigrations[migration.Version]; exists {
-			logger.Debug("migration already applied", "version", migration.Version, "description", migration.Description)
-			continue
-		}
-
-		logger.Info("applying migration", "version", migration.Version, "description", migration.Description)
-
-		startTime := time.Now()
-		tx, err := conn.Pool().Begin(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to begin transaction for migration %d: %w", migration.Version, err)
-		}
-
-		// Выполняем миграцию
-		if err := migration.Up(ctx, tx); err != nil {
-			if rollbackErr := tx.Rollback(ctx); rollbackErr != nil {
-				logger.Error("failed to rollback migration", "version", migration.Version, "error", rollbackErr)
-			}
-			return fmt.Errorf("failed to apply migration %d: %w", migration.Version, err)
-		}
-
-		// Записываем информацию о примененной миграции
-		appliedAt := time.Now()
-		if _, err := tx.Exec(ctx, insertMigrationSQL,
-			migration.Version, migration.Description, appliedAt); err != nil {
-			if rollbackErr := tx.Rollback(ctx); rollbackErr != nil {
-				logger.Error("failed to rollback migration", "version", migration.Version, "error", rollbackErr)
-			}
-			return fmt.Errorf("failed to record migration %d: %w", migration.Version, err)
-		}
-
-		// Коммитим транзакцию
-		if err := tx.Commit(ctx); err != nil {
-			return fmt.Errorf("failed to commit migration %d: %w", migration.Version, err)
-		}
-
-		duration := time.Since(startTime)
-		logger.Info("migration applied successfully",
-			"version", migration.Version,
-			"description", migration.Description,
-			"duration", duration,
-			"applied_at", appliedAt)
+	// Записываем информацию о миграции
+	insertQuery := `
+		INSERT INTO schema_migrations (version, name, checksum) 
+		VALUES ($1, $2, $3)
+	`
+	_, err = tx.Exec(ctx, insertQuery, migration.Version, migration.Name, migration.Checksum)
+	if err != nil {
+		return fmt.Errorf("failed to record migration %d: %w", migration.Version, err)
 	}
 
-	logger.Info("database migrations completed successfully")
+	// Подтверждаем транзакцию
+	err = tx.Commit(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to commit migration %d: %w", migration.Version, err)
+	}
+
+	m.logger.Info("Migration applied successfully", "version", migration.Version, "name", migration.Name)
 	return nil
 }
 
-// getAppliedMigrations возвращает список примененных миграций
-func getAppliedMigrations(ctx context.Context, pool *pgxpool.Pool) (map[int]bool, error) {
-	rows, err := pool.Query(ctx, selectMigrationsSQL)
+// RunMigrations выполняет все непримененные миграции
+func (m *MigrationManager) RunMigrations(ctx context.Context, migrations []Migration) error {
+	// Инициализируем таблицу миграций
+	m.logger.Info("Initializing migrations table")
+	err := m.InitMigrationsTable(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query migrations: %w", err)
-	}
-	defer rows.Close()
-
-	applied := make(map[int]bool)
-	for rows.Next() {
-		var version int
-		if err := rows.Scan(&version); err != nil {
-			return nil, fmt.Errorf("failed to scan migration version: %w", err)
-		}
-		applied[version] = true
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error during rows iteration: %w", err)
-	}
-
-	return applied, nil
-}
-
-// RollbackMigration откатывает миграцию до указанной версии
-func RollbackMigration(ctx context.Context, conn *Connection, logger logger.Logger, targetVersion int) error {
-	logger.Info("starting migration rollback", "target_version", targetVersion)
-
-	// Валидируем миграции
-	if err := ValidateMigrations(Migrations); err != nil {
-		return fmt.Errorf("migration validation failed: %w", err)
+		m.logger.Error("Failed to init migrations table", "error", err)
+		return fmt.Errorf("failed to init migrations table: %w", err)
 	}
 
 	// Получаем список примененных миграций
-	appliedMigrations, err := getAppliedMigrations(ctx, conn.Pool())
+	m.logger.Info("Getting applied migrations")
+	applied, err := m.GetAppliedMigrations(ctx)
 	if err != nil {
+		m.logger.Error("Failed to get applied migrations", "error", err)
 		return fmt.Errorf("failed to get applied migrations: %w", err)
 	}
 
-	// Находим миграции для отката (версии больше targetVersion)
-	var migrationsToRollback []Migration
-	for _, migration := range Migrations {
-		if migration.Version > targetVersion && appliedMigrations[migration.Version] {
-			migrationsToRollback = append(migrationsToRollback, migration)
+	m.logger.Info("Found applied migrations", "count", len(applied))
+
+	// Применяем непримененные миграции
+	for _, migration := range migrations {
+		if appliedMigration, exists := applied[migration.Version]; exists {
+			// Проверяем контрольную сумму
+			if appliedMigration.Checksum != migration.Checksum {
+				return fmt.Errorf("migration %d checksum mismatch: applied=%s, current=%s",
+					migration.Version, appliedMigration.Checksum, migration.Checksum)
+			}
+			m.logger.Info("Migration already applied", "version", migration.Version, "name", migration.Name)
+			continue
 		}
-	}
 
-	if len(migrationsToRollback) == 0 {
-		logger.Info("no migrations to rollback", "target_version", targetVersion)
-		return nil
-	}
-
-	// Сортируем по убыванию версии (откатываем в обратном порядке)
-	for i := len(migrationsToRollback) - 1; i >= 0; i-- {
-		migration := migrationsToRollback[i]
-		logger.Info("rolling back migration", "version", migration.Version, "description", migration.Description)
-
-		startTime := time.Now()
-		tx, err := conn.Pool().Begin(ctx)
+		m.logger.Info("Applying new migration", "version", migration.Version, "name", migration.Name)
+		err := m.ApplyMigration(ctx, migration)
 		if err != nil {
-			return fmt.Errorf("failed to begin transaction for rollback %d: %w", migration.Version, err)
+			m.logger.Error("Failed to apply migration", "version", migration.Version, "error", err)
+			return fmt.Errorf("failed to apply migration %d: %w", migration.Version, err)
 		}
-
-		// Выполняем rollback
-		if err := migration.Down(ctx, tx); err != nil {
-			if rollbackErr := tx.Rollback(ctx); rollbackErr != nil {
-				logger.Error("failed to rollback transaction", "version", migration.Version, "error", rollbackErr)
-			}
-			return fmt.Errorf("failed to rollback migration %d: %w", migration.Version, err)
-		}
-
-		// Удаляем запись о миграции
-		if _, err := tx.Exec(ctx, rollbackMigrationSQL, migration.Version); err != nil {
-			if rollbackErr := tx.Rollback(ctx); rollbackErr != nil {
-				logger.Error("failed to rollback transaction", "version", migration.Version, "error", rollbackErr)
-			}
-			return fmt.Errorf("failed to remove migration record %d: %w", migration.Version, err)
-		}
-
-		// Коммитим транзакцию
-		if err := tx.Commit(ctx); err != nil {
-			return fmt.Errorf("failed to commit rollback %d: %w", migration.Version, err)
-		}
-
-		duration := time.Since(startTime)
-		logger.Info("migration rollback completed",
-			"version", migration.Version,
-			"description", migration.Description,
-			"duration", duration)
 	}
 
-	logger.Info("migration rollback completed successfully", "target_version", targetVersion)
+	m.logger.Info("All migrations completed successfully")
 	return nil
 }
 
 // GetMigrationStats возвращает статистику миграций
-func GetMigrationStats(ctx context.Context, conn *Connection) (*MigrationStats, error) {
-	var stats MigrationStats
-	var firstMigration, lastMigration *time.Time
+func (m *MigrationManager) GetMigrationStats(ctx context.Context) (map[string]interface{}, error) {
+	query := `
+		SELECT 
+			COUNT(*) as total_migrations,
+			MAX(applied_at) as last_migration_time
+		FROM schema_migrations
+	`
 
-	err := conn.Pool().QueryRow(ctx, selectMigrationStatsSQL).Scan(
-		&stats.TotalMigrations,
-		&stats.LatestVersion,
-		&firstMigration,
-		&lastMigration,
-	)
+	var totalMigrations int
+	var lastMigrationTime *time.Time
 
+	err := m.pool.QueryRow(ctx, query).Scan(&totalMigrations, &lastMigrationTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get migration stats: %w", err)
 	}
 
-	if firstMigration != nil {
-		stats.FirstMigration = *firstMigration
-	}
-	if lastMigration != nil {
-		stats.LastMigration = *lastMigration
+	stats := map[string]interface{}{
+		"total_migrations": totalMigrations,
 	}
 
-	return &stats, nil
+	if lastMigrationTime != nil {
+		stats["last_migration_time"] = *lastMigrationTime
+	}
+
+	return stats, nil
 }
 
-// GetMigrationHistory возвращает историю миграций
-func GetMigrationHistory(ctx context.Context, conn *Connection) ([]MigrationResult, error) {
-	query := `
-SELECT version, description, applied_at 
-FROM schema_migrations 
-ORDER BY version DESC`
-
-	rows, err := conn.Pool().Query(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query migration history: %w", err)
+// calculateChecksum вычисляет контрольную сумму для миграции
+func calculateChecksum(content string) string {
+	// Простая контрольная сумма на основе длины и хеша
+	hash := 0
+	for _, b := range []byte(content) {
+		hash = hash*31 + int(b)
 	}
-	defer rows.Close()
-
-	var results []MigrationResult
-	for rows.Next() {
-		var result MigrationResult
-		if err := rows.Scan(&result.Version, &result.Description, &result.AppliedAt); err != nil {
-			return nil, fmt.Errorf("failed to scan migration history: %w", err)
-		}
-		result.Success = true
-		results = append(results, result)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error during rows iteration: %w", err)
-	}
-
-	return results, nil
+	return fmt.Sprintf("%x", hash)
 }
