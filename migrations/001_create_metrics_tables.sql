@@ -2,6 +2,9 @@
 -- Автор: Igor Kilipenko
 -- Описание: Создание базовых таблиц для хранения gauge и counter метрик
 
+-- Настройка PostgreSQL
+SET standard_conforming_strings = on;
+
 -- Создание таблицы для gauge метрик
 CREATE TABLE IF NOT EXISTS gauge_metrics (
     id VARCHAR(255) PRIMARY KEY,
