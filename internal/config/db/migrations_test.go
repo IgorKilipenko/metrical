@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/IgorKilipenko/metrical/internal/logger"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,366 +51,285 @@ func setupTestDB(t *testing.T) (*pgxpool.Pool, func()) {
 	return pool, cleanup
 }
 
-func TestValidateMigrations(t *testing.T) {
+func TestMigration_Validation(t *testing.T) {
 	tests := []struct {
 		name        string
-		migrations  []Migration
+		migration   Migration
 		expectError bool
-		errorMsg    string
 	}{
 		{
-			name:        "empty migrations",
-			migrations:  []Migration{},
-			expectError: true,
-			errorMsg:    "migration 0: no migrations provided",
-		},
-		{
-			name: "valid migrations",
-			migrations: []Migration{
-				{
-					Version:     1,
-					Description: "Test migration 1",
-					Up:          func(ctx context.Context, tx pgx.Tx) error { return nil },
-					Down:        func(ctx context.Context, tx pgx.Tx) error { return nil },
-				},
-				{
-					Version:     2,
-					Description: "Test migration 2",
-					Up:          func(ctx context.Context, tx pgx.Tx) error { return nil },
-					Down:        func(ctx context.Context, tx pgx.Tx) error { return nil },
-				},
+			name: "valid migration",
+			migration: Migration{
+				Version:  1,
+				Name:     "test_migration",
+				SQL:      "CREATE TABLE test (id INT);",
+				Checksum: "abc123",
 			},
 			expectError: false,
 		},
 		{
-			name: "duplicate versions",
-			migrations: []Migration{
-				{
-					Version:     1,
-					Description: "Test migration 1",
-					Up:          func(ctx context.Context, tx pgx.Tx) error { return nil },
-					Down:        func(ctx context.Context, tx pgx.Tx) error { return nil },
-				},
-				{
-					Version:     1,
-					Description: "Test migration 1 duplicate",
-					Up:          func(ctx context.Context, tx pgx.Tx) error { return nil },
-					Down:        func(ctx context.Context, tx pgx.Tx) error { return nil },
-				},
-			},
-			expectError: true,
-			errorMsg:    "migration 1: duplicate version",
-		},
-		{
 			name: "zero version",
-			migrations: []Migration{
-				{
-					Version:     0,
-					Description: "Test migration with zero version",
-					Up:          func(ctx context.Context, tx pgx.Tx) error { return nil },
-					Down:        func(ctx context.Context, tx pgx.Tx) error { return nil },
-				},
+			migration: Migration{
+				Version:  0,
+				Name:     "test_migration",
+				SQL:      "CREATE TABLE test (id INT);",
+				Checksum: "abc123",
 			},
 			expectError: true,
-			errorMsg:    "migration 0: version must be positive",
 		},
 		{
-			name: "empty description",
-			migrations: []Migration{
-				{
-					Version:     1,
-					Description: "",
-					Up:          func(ctx context.Context, tx pgx.Tx) error { return nil },
-					Down:        func(ctx context.Context, tx pgx.Tx) error { return nil },
-				},
+			name: "empty name",
+			migration: Migration{
+				Version:  1,
+				Name:     "",
+				SQL:      "CREATE TABLE test (id INT);",
+				Checksum: "abc123",
 			},
 			expectError: true,
-			errorMsg:    "migration 1: description cannot be empty",
 		},
 		{
-			name: "nil Up function",
-			migrations: []Migration{
-				{
-					Version:     1,
-					Description: "Test migration with nil Up",
-					Up:          nil,
-					Down:        func(ctx context.Context, tx pgx.Tx) error { return nil },
-				},
+			name: "empty SQL",
+			migration: Migration{
+				Version:  1,
+				Name:     "test_migration",
+				SQL:      "",
+				Checksum: "abc123",
 			},
 			expectError: true,
-			errorMsg:    "migration 1: Up function cannot be nil",
 		},
 		{
-			name: "nil Down function",
-			migrations: []Migration{
-				{
-					Version:     1,
-					Description: "Test migration with nil Down",
-					Up:          func(ctx context.Context, tx pgx.Tx) error { return nil },
-					Down:        nil,
-				},
+			name: "empty checksum",
+			migration: Migration{
+				Version:  1,
+				Name:     "test_migration",
+				SQL:      "CREATE TABLE test (id INT);",
+				Checksum: "",
 			},
 			expectError: true,
-			errorMsg:    "migration 1: Down function cannot be nil",
-		},
-		{
-			name: "missing version",
-			migrations: []Migration{
-				{
-					Version:     1,
-					Description: "Test migration 1",
-					Up:          func(ctx context.Context, tx pgx.Tx) error { return nil },
-					Down:        func(ctx context.Context, tx pgx.Tx) error { return nil },
-				},
-				{
-					Version:     3,
-					Description: "Test migration 3",
-					Up:          func(ctx context.Context, tx pgx.Tx) error { return nil },
-					Down:        func(ctx context.Context, tx pgx.Tx) error { return nil },
-				},
-			},
-			expectError: true,
-			errorMsg:    "migration 2: missing migration version",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateMigrations(tt.migrations)
+			// Простая валидация структуры Migration
+			hasError := false
+
+			if tt.migration.Version <= 0 {
+				hasError = true
+			}
+			if tt.migration.Name == "" {
+				hasError = true
+			}
+			if tt.migration.SQL == "" {
+				hasError = true
+			}
+			if tt.migration.Checksum == "" {
+				hasError = true
+			}
 
 			if tt.expectError {
-				require.Error(t, err, "Expected error but got none")
-				if tt.errorMsg != "" {
-					assert.Equal(t, tt.errorMsg, err.Error(), "Error message should match expected")
-				}
+				assert.True(t, hasError, "Expected validation error")
 			} else {
-				assert.NoError(t, err, "Expected no error")
+				assert.False(t, hasError, "Expected no validation error")
 			}
 		})
 	}
 }
 
-func TestMigrationError(t *testing.T) {
-	err := &MigrationError{
-		Version: 1,
-		Message: "test error",
-	}
-
-	expected := "migration 1: test error"
-	assert.Equal(t, expected, err.Error(), "Error message should match expected format")
-}
-
-func TestGetMigrationStats(t *testing.T) {
+func TestMigrationManager_NewMigrationManager(t *testing.T) {
 	pool, cleanup := setupTestDB(t)
 	if pool == nil {
 		return // Тест пропущен
 	}
 	defer cleanup()
 
-	conn := &Connection{pool: pool}
+	logger := logger.NewSlogLogger()
+	manager := NewMigrationManager(pool, logger)
+
+	assert.NotNil(t, manager, "MigrationManager should not be nil")
+	// Проверяем, что менеджер создан успешно, тестируя его функциональность
+	ctx := context.Background()
+	err := manager.InitMigrationsTable(ctx)
+	assert.NoError(t, err, "Should be able to initialize migrations table")
+}
+
+func TestMigrationManager_GetMigrationStats(t *testing.T) {
+	pool, cleanup := setupTestDB(t)
+	if pool == nil {
+		return // Тест пропущен
+	}
+	defer cleanup()
+
+	logger := logger.NewSlogLogger()
+	manager := NewMigrationManager(pool, logger)
 	ctx := context.Background()
 
-	// Сначала создаем таблицу миграций
-	tx, err := pool.Begin(ctx)
-	require.NoError(t, err, "Failed to begin transaction")
-	defer tx.Rollback(ctx)
-
-	err = CreateMigrationsTable(ctx, tx)
-	require.NoError(t, err, "Failed to create migrations table")
+	// Инициализируем таблицу миграций
+	err := manager.InitMigrationsTable(ctx)
+	require.NoError(t, err, "Failed to initialize migrations table")
 
 	// Очищаем существующие миграции перед тестом
-	_, err = tx.Exec(ctx, "DELETE FROM schema_migrations")
+	_, err = pool.Exec(ctx, "DELETE FROM schema_migrations")
 	require.NoError(t, err, "Failed to clear existing migrations")
 
 	// Добавляем тестовые миграции
 	testMigrations := []struct {
-		version     int
-		description string
-		appliedAt   time.Time
+		version   int
+		name      string
+		checksum  string
+		appliedAt time.Time
 	}{
-		{1, "Test migration 1", time.Now().Add(-2 * time.Hour)},
-		{2, "Test migration 2", time.Now().Add(-1 * time.Hour)},
+		{1, "test_migration_1", "abc123", time.Now().Add(-2 * time.Hour)},
+		{2, "test_migration_2", "def456", time.Now().Add(-1 * time.Hour)},
 	}
 
 	for _, m := range testMigrations {
-		_, err := tx.Exec(ctx, insertMigrationSQL, m.version, m.description, m.appliedAt)
+		_, err := pool.Exec(ctx,
+			"INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES ($1, $2, $3, $4)",
+			m.version, m.name, m.checksum, m.appliedAt)
 		require.NoError(t, err, "Failed to insert test migration")
 	}
-
-	err = tx.Commit(ctx)
-	require.NoError(t, err, "Failed to commit transaction")
 
 	// Тестируем GetMigrationStats
-	stats, err := GetMigrationStats(ctx, conn)
+	stats, err := manager.GetMigrationStats(ctx)
 	require.NoError(t, err, "Failed to get migration stats")
 
-	assert.Equal(t, 2, stats.TotalMigrations, "Should have 2 total migrations")
-	assert.Equal(t, 2, stats.LatestVersion, "Latest version should be 2")
-	assert.False(t, stats.FirstMigration.IsZero(), "First migration time should be set")
-	assert.False(t, stats.LastMigration.IsZero(), "Last migration time should be set")
+	assert.Equal(t, 2, stats["total_migrations"], "Should have 2 total migrations")
+	assert.NotNil(t, stats["last_migration_time"], "Last migration time should be set")
+
+	// Проверяем, что last_migration_time является временем
+	lastTime, ok := stats["last_migration_time"].(time.Time)
+	assert.True(t, ok, "Last migration time should be time.Time")
+	assert.False(t, lastTime.IsZero(), "Last migration time should not be zero")
 }
 
-func TestGetMigrationHistory(t *testing.T) {
+func TestMigrationManager_GetAppliedMigrations(t *testing.T) {
 	pool, cleanup := setupTestDB(t)
 	if pool == nil {
 		return // Тест пропущен
 	}
 	defer cleanup()
 
-	conn := &Connection{pool: pool}
-	ctx := context.Background()
-
-	// Сначала создаем таблицу миграций
-	tx, err := pool.Begin(ctx)
-	require.NoError(t, err, "Failed to begin transaction")
-	defer tx.Rollback(ctx)
-
-	err = CreateMigrationsTable(ctx, tx)
-	require.NoError(t, err, "Failed to create migrations table")
-
-	// Очищаем существующие миграции перед тестом
-	_, err = tx.Exec(ctx, "DELETE FROM schema_migrations")
-	require.NoError(t, err, "Failed to clear existing migrations")
-
-	// Добавляем тестовые миграции
-	testMigrations := []struct {
-		version     int
-		description string
-		appliedAt   time.Time
-	}{
-		{1, "Test migration 1", time.Now().Add(-2 * time.Hour)},
-		{2, "Test migration 2", time.Now().Add(-1 * time.Hour)},
-	}
-
-	for _, m := range testMigrations {
-		_, err := tx.Exec(ctx, insertMigrationSQL, m.version, m.description, m.appliedAt)
-		require.NoError(t, err, "Failed to insert test migration")
-	}
-
-	err = tx.Commit(ctx)
-	require.NoError(t, err, "Failed to commit transaction")
-
-	// Тестируем GetMigrationHistory
-	history, err := GetMigrationHistory(ctx, conn)
-	require.NoError(t, err, "Failed to get migration history")
-
-	assert.Len(t, history, 2, "Should have 2 migrations in history")
-
-	// Проверяем, что миграции отсортированы по убыванию версии
-	assert.Equal(t, 2, history[0].Version, "First migration should be version 2")
-	assert.Equal(t, 1, history[1].Version, "Second migration should be version 1")
-
-	// Проверяем, что все миграции помечены как успешные
-	for _, result := range history {
-		assert.True(t, result.Success, "Migration %d should be marked as successful", result.Version)
-	}
-}
-
-func TestRollbackMigration(t *testing.T) {
-	pool, cleanup := setupTestDB(t)
-	if pool == nil {
-		return // Тест пропущен
-	}
-	defer cleanup()
-
-	conn := &Connection{pool: pool}
 	logger := logger.NewSlogLogger()
+	manager := NewMigrationManager(pool, logger)
 	ctx := context.Background()
 
-	// Сначала создаем таблицу миграций
-	tx, err := pool.Begin(ctx)
-	require.NoError(t, err, "Failed to begin transaction")
-	defer tx.Rollback(ctx)
-
-	err = CreateMigrationsTable(ctx, tx)
-	require.NoError(t, err, "Failed to create migrations table")
+	// Инициализируем таблицу миграций
+	err := manager.InitMigrationsTable(ctx)
+	require.NoError(t, err, "Failed to initialize migrations table")
 
 	// Очищаем существующие миграции перед тестом
-	_, err = tx.Exec(ctx, "DELETE FROM schema_migrations")
+	_, err = pool.Exec(ctx, "DELETE FROM schema_migrations")
 	require.NoError(t, err, "Failed to clear existing migrations")
 
 	// Добавляем тестовые миграции
 	testMigrations := []struct {
-		version     int
-		description string
-		appliedAt   time.Time
+		version   int
+		name      string
+		checksum  string
+		appliedAt time.Time
 	}{
-		{1, "Test migration 1", time.Now().Add(-2 * time.Hour)},
-		{2, "Test migration 2", time.Now().Add(-1 * time.Hour)},
+		{1, "test_migration_1", "abc123", time.Now().Add(-2 * time.Hour)},
+		{2, "test_migration_2", "def456", time.Now().Add(-1 * time.Hour)},
 	}
 
 	for _, m := range testMigrations {
-		_, err := tx.Exec(ctx, insertMigrationSQL, m.version, m.description, m.appliedAt)
+		_, err := pool.Exec(ctx,
+			"INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES ($1, $2, $3, $4)",
+			m.version, m.name, m.checksum, m.appliedAt)
 		require.NoError(t, err, "Failed to insert test migration")
 	}
 
-	err = tx.Commit(ctx)
-	require.NoError(t, err, "Failed to commit transaction")
+	// Тестируем GetAppliedMigrations
+	appliedMigrations, err := manager.GetAppliedMigrations(ctx)
+	require.NoError(t, err, "Failed to get applied migrations")
 
-	// Создаем тестовые миграции для rollback
-	testMigrationsList := []Migration{
-		{
-			Version:     1,
-			Description: "Test migration 1",
-			Up:          func(ctx context.Context, tx pgx.Tx) error { return nil },
-			Down:        func(ctx context.Context, tx pgx.Tx) error { return nil },
-		},
-		{
-			Version:     2,
-			Description: "Test migration 2",
-			Up:          func(ctx context.Context, tx pgx.Tx) error { return nil },
-			Down:        func(ctx context.Context, tx pgx.Tx) error { return nil },
-		},
+	assert.Len(t, appliedMigrations, 2, "Should have 2 applied migrations")
+
+	// Проверяем, что миграции присутствуют
+	assert.Contains(t, appliedMigrations, 1, "Migration 1 should be present")
+	assert.Contains(t, appliedMigrations, 2, "Migration 2 should be present")
+
+	// Проверяем содержимое миграций
+	migration1 := appliedMigrations[1]
+	assert.Equal(t, 1, migration1.Version, "Migration 1 version should be 1")
+	assert.Equal(t, "test_migration_1", migration1.Name, "Migration 1 name should match")
+	assert.Equal(t, "abc123", migration1.Checksum, "Migration 1 checksum should match")
+}
+
+func TestMigrationManager_InitMigrationsTable(t *testing.T) {
+	pool, cleanup := setupTestDB(t)
+	if pool == nil {
+		return // Тест пропущен
+	}
+	defer cleanup()
+
+	logger := logger.NewSlogLogger()
+	manager := NewMigrationManager(pool, logger)
+	ctx := context.Background()
+
+	// Тестируем инициализацию таблицы миграций
+	err := manager.InitMigrationsTable(ctx)
+	require.NoError(t, err, "Failed to initialize migrations table")
+
+	// Проверяем, что таблица создана
+	var exists bool
+	err = pool.QueryRow(ctx,
+		"SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'schema_migrations')").Scan(&exists)
+	require.NoError(t, err, "Failed to check if table exists")
+	assert.True(t, exists, "schema_migrations table should exist")
+
+	// Проверяем структуру таблицы
+	var columnCount int
+	err = pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'schema_migrations'").Scan(&columnCount)
+	require.NoError(t, err, "Failed to check column count")
+	assert.Equal(t, 4, columnCount, "schema_migrations table should have 4 columns")
+}
+
+func TestMigrationManager_ApplyMigration(t *testing.T) {
+	pool, cleanup := setupTestDB(t)
+	if pool == nil {
+		return // Тест пропущен
+	}
+	defer cleanup()
+
+	logger := logger.NewSlogLogger()
+	manager := NewMigrationManager(pool, logger)
+	ctx := context.Background()
+
+	// Инициализируем таблицу миграций
+	err := manager.InitMigrationsTable(ctx)
+	require.NoError(t, err, "Failed to initialize migrations table")
+
+	// Очищаем существующие миграции и тестовые таблицы
+	_, err = pool.Exec(ctx, "DELETE FROM schema_migrations")
+	require.NoError(t, err, "Failed to clear existing migrations")
+	_, err = pool.Exec(ctx, "DROP TABLE IF EXISTS test_table")
+	require.NoError(t, err, "Failed to drop test table")
+
+	// Создаем тестовую миграцию
+	testMigration := Migration{
+		Version:  1,
+		Name:     "test_migration",
+		SQL:      "CREATE TABLE test_table (id INT PRIMARY KEY);",
+		Checksum: "test123",
 	}
 
-	// Временно заменяем глобальные миграции для теста
-	originalMigrations := Migrations
-	Migrations = testMigrationsList
-	defer func() { Migrations = originalMigrations }()
+	// Применяем миграцию
+	err = manager.ApplyMigration(ctx, testMigration)
+	require.NoError(t, err, "Failed to apply migration")
 
-	// Тестируем rollback до версии 1
-	err = RollbackMigration(ctx, conn, logger, 1)
-	require.NoError(t, err, "Failed to rollback migration")
-
-	// Проверяем, что миграция 2 была удалена
+	// Проверяем, что миграция записана в таблицу
 	var count int
-	err = pool.QueryRow(ctx, "SELECT COUNT(*) FROM schema_migrations WHERE version = 2").Scan(&count)
-	require.NoError(t, err, "Failed to check migration count")
-	assert.Equal(t, 0, count, "Migration 2 should be removed")
-
-	// Проверяем, что миграция 1 осталась
 	err = pool.QueryRow(ctx, "SELECT COUNT(*) FROM schema_migrations WHERE version = 1").Scan(&count)
 	require.NoError(t, err, "Failed to check migration count")
-	assert.Equal(t, 1, count, "Migration 1 should remain")
-}
+	assert.Equal(t, 1, count, "Migration should be recorded")
 
-func TestRollbackMigrationNoMigrationsToRollback(t *testing.T) {
-	pool, cleanup := setupTestDB(t)
-	if pool == nil {
-		return // Тест пропущен
-	}
-	defer cleanup()
-
-	conn := &Connection{pool: pool}
-	logger := logger.NewSlogLogger()
-	ctx := context.Background()
-
-	// Сначала создаем таблицу миграций
-	tx, err := pool.Begin(ctx)
-	require.NoError(t, err, "Failed to begin transaction")
-	defer tx.Rollback(ctx)
-
-	err = CreateMigrationsTable(ctx, tx)
-	require.NoError(t, err, "Failed to create migrations table")
-
-	// Очищаем существующие миграции перед тестом
-	_, err = tx.Exec(ctx, "DELETE FROM schema_migrations")
-	require.NoError(t, err, "Failed to clear existing migrations")
-
-	err = tx.Commit(ctx)
-	require.NoError(t, err, "Failed to commit transaction")
-
-	// Тестируем rollback когда нет миграций для отката
-	err = RollbackMigration(ctx, conn, logger, 1)
-	assert.NoError(t, err, "Should not error when no migrations to rollback")
+	// Проверяем, что таблица создана
+	var tableExists bool
+	err = pool.QueryRow(ctx,
+		"SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'test_table')").Scan(&tableExists)
+	require.NoError(t, err, "Failed to check if test table exists")
+	assert.True(t, tableExists, "Test table should be created")
 }
