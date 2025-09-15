@@ -45,7 +45,8 @@ help: ## Показать справку по командам
 	@echo "  auto-test-8    - Запустить автотесты итерации 8"
 	@echo "  auto-test-9    - Запустить автотесты итерации 9"
 	@echo "  auto-test-10   - Запустить автотесты итерации 10"
-	@echo "  auto-test-all  - Запустить все автотесты (1-10)"
+	@echo "  auto-test-11   - Запустить автотесты итерации 11"
+	@echo "  auto-test-all  - Запустить все автотесты (1-11)"
 	@echo "  full-test      - Запустить unit тесты + автотесты"
 	@echo ""
 	@echo "$(GREEN)Запуск:$(NC)"
@@ -154,9 +155,14 @@ auto-test-10: build check-deps ## Запустить автотесты итер
 	@$(AUTO_TEST_BINARY) $(AUTO_TEST_FLAGS) -test.run=^TestIteration10[AB]$$ -database-dsn=$(DATABASE_DSN) || (echo "$(RED)АВТОТЕСТЫ ИТЕРАЦИИ 10 НЕ ПРОШЛИ!$(NC)" && exit 1)
 	@echo "$(GREEN)Автотесты итерации 10 прошли успешно!$(NC)"
 
+auto-test-11: build check-deps ## Запустить автотесты итерации 11
+	@echo "$(BLUE)Запуск автотестов итерации 11...$(NC)"
+	@$(AUTO_TEST_BINARY) $(AUTO_TEST_FLAGS) -test.run=^TestIteration11$$ -database-dsn=$(DATABASE_DSN) || (echo "$(RED)АВТОТЕСТЫ ИТЕРАЦИИ 11 НЕ ПРОШЛИ!$(NC)" && exit 1)
+	@echo "$(GREEN)Автотесты итерации 11 прошли успешно!$(NC)"
+
 # Все автотесты
-auto-test-all: build check-deps ## Запустить все автотесты (1-10)
-	@echo "$(BLUE)Запуск всех автотестов (итерации 1-10)...$(NC)"
+auto-test-all: build check-deps ## Запустить все автотесты (1-11)
+	@echo "$(BLUE)Запуск всех автотестов (итерации 1-11)...$(NC)"
 	@echo "$(YELLOW)Это может занять несколько минут...$(NC)"
 	@echo ""
 	@$(MAKE) auto-test-1 || exit 1
@@ -169,6 +175,7 @@ auto-test-all: build check-deps ## Запустить все автотесты 
 	@$(MAKE) auto-test-8 || exit 1
 	@$(MAKE) auto-test-9 || exit 1
 	@$(MAKE) auto-test-10 || exit 1
+	@$(MAKE) auto-test-11 || exit 1
 	@echo ""
 	@echo "$(GREEN)🎉 ВСЕ АВТОТЕСТЫ ПРОШЛИ УСПЕШНО! 🎉$(NC)"
 
