@@ -35,6 +35,7 @@ help: ## Показать справку по командам
 	@echo "$(GREEN)Тестирование:$(NC)"
 	@echo "  test           - Запустить все unit тесты"
 	@echo "  test-coverage  - Запустить тесты с покрытием"
+	@echo "  test-db        - Запустить тесты с PostgreSQL"
 	@echo "  auto-test-1    - Запустить автотесты итерации 1"
 	@echo "  auto-test-2    - Запустить автотесты итерации 2"
 	@echo "  auto-test-3    - Запустить автотесты итерации 3"
@@ -44,8 +45,8 @@ help: ## Показать справку по командам
 	@echo "  auto-test-7    - Запустить автотесты итерации 7"
 	@echo "  auto-test-8    - Запустить автотесты итерации 8"
 	@echo "  auto-test-9    - Запустить автотесты итерации 9"
-	@echo "  auto-test-10   - Запустить автотесты итерации 10"
-	@echo "  auto-test-11   - Запустить автотесты итерации 11"
+	@echo "  auto-test-10   - Запустить автотесты итерации 10 (с БД)"
+	@echo "  auto-test-11   - Запустить автотесты итерации 11 (с БД)"
 	@echo "  auto-test-all  - Запустить все автотесты (1-11)"
 	@echo "  full-test      - Запустить unit тесты + автотесты"
 	@echo ""
@@ -226,13 +227,23 @@ auto-test-9: build check-deps ## Запустить автотесты итер�
 
 auto-test-10: build check-deps ## Запустить автотесты итерации 10
 	@echo "$(BLUE)Запуск автотестов итерации 10...$(NC)"
-	@$(AUTO_TEST_BINARY) $(AUTO_TEST_FLAGS) -test.run=^TestIteration10[AB]$$ -database-dsn=$(DATABASE_DSN) || (echo "$(RED)АВТОТЕСТЫ ИТЕРАЦИИ 10 НЕ ПРОШЛИ!$(NC)" && exit 1)
+	@echo "$(YELLOW)Запуск БД и сервера для автотестов...$(NC)"
+	@$(MAKE) db-up
+	@echo "$(YELLOW)Ожидание готовности сервера...$(NC)"
+	@sleep 3
+	@$(AUTO_TEST_BINARY) $(AUTO_TEST_FLAGS) -test.run=^TestIteration10[AB]$$ -database-dsn=$(DATABASE_DSN) || (echo "$(RED)АВТОТЕСТЫ ИТЕРАЦИИ 10 НЕ ПРОШЛИ!$(NC)" && $(MAKE) db-down && exit 1)
 	@echo "$(GREEN)Автотесты итерации 10 прошли успешно!$(NC)"
+	@$(MAKE) db-down
 
 auto-test-11: build check-deps ## Запустить автотесты итерации 11
 	@echo "$(BLUE)Запуск автотестов итерации 11...$(NC)"
-	@$(AUTO_TEST_BINARY) $(AUTO_TEST_FLAGS) -test.run=^TestIteration11$$ -database-dsn=$(DATABASE_DSN) || (echo "$(RED)АВТОТЕСТЫ ИТЕРАЦИИ 11 НЕ ПРОШЛИ!$(NC)" && exit 1)
+	@echo "$(YELLOW)Запуск БД и сервера для автотестов...$(NC)"
+	@$(MAKE) db-up
+	@echo "$(YELLOW)Ожидание готовности сервера...$(NC)"
+	@sleep 3
+	@$(AUTO_TEST_BINARY) $(AUTO_TEST_FLAGS) -test.run=^TestIteration11$$ -database-dsn=$(DATABASE_DSN) || (echo "$(RED)АВТОТЕСТЫ ИТЕРАЦИИ 11 НЕ ПРОШЛИ!$(NC)" && $(MAKE) db-down && exit 1)
 	@echo "$(GREEN)Автотесты итерации 11 прошли успешно!$(NC)"
+	@$(MAKE) db-down
 
 # Все автотесты
 auto-test-all: build check-deps ## Запустить все автотесты (1-11)
