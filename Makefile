@@ -270,8 +270,8 @@ full-test: test auto-test-all ## Запустить unit тесты + автот
 
 # Запуск приложений
 run-server: build-server ## Запустить сервер
-	@echo "$(BLUE)Запуск сервера на localhost:9090...$(NC)"
-	@$(SERVER_BINARY) -a=localhost:9090 -d=$(DATABASE_DSN)
+	@echo "$(BLUE)Запуск сервера на localhost:$(SERVER_PORT)...$(NC)"
+	@$(SERVER_BINARY) -a=localhost:$(SERVER_PORT) -d=$(DATABASE_DSN)
 
 run-agent: build-agent ## Запустить агент
 	@echo "$(BLUE)Запуск агента на localhost:8080...$(NC)"
@@ -279,7 +279,7 @@ run-agent: build-agent ## Запустить агент
 
 run-full: db-up run-server ## Запустить БД + сервер
 	@echo "$(GREEN)Система запущена!$(NC)"
-	@echo "$(YELLOW)Сервер: http://localhost:9090$(NC)"
+	@echo "$(YELLOW)Сервер: http://localhost:$(SERVER_PORT)$(NC)"
 	@echo "$(YELLOW)БД: localhost:5434$(NC)"
 
 stop-all: ## Остановить все сервисы
