@@ -2,7 +2,89 @@
 
 Сервер для сбора рантайм-метрик, принимает репорты от агентов по протоколу HTTP.
 
+## 🎯 Примеры использования
+
+### Быстрый старт с Docker
+```bash
+# 1. Запуск всей системы
+make run-full
+
+# 2. Проверка статуса
+make status
+
+# 3. Тестирование API
+curl http://localhost:9090/ping
+
+# 4. Остановка системы
+make stop-all
+```
+
+### Разработка с тестами
+```bash
+# 1. Запуск тестов с Docker
+make test-db
+
+# 2. Быстрые unit тесты
+make quick-test
+
+# 3. Проверка покрытия
+go test ./... -v -cover
+```
+
+### Работа с базой данных
+```bash
+# 1. Запуск основной БД
+make db-up
+
+# 2. Подключение к БД
+make db-shell
+
+# 3. Просмотр логов
+make db-logs
+
+# 4. Остановка БД
+make db-down
+```
+
+## 🔧 Конфигурация портов
+
+| Сервис | Порт | Описание |
+|--------|------|----------|
+| **Сервер** | 9090 | HTTP API сервера |
+| **Основная БД** | 5434 | PostgreSQL для продакшена |
+| **Тестовая БД** | 5433 | PostgreSQL для тестов |
+
+### Переменные окружения
+```bash
+# Основная база данных
+export DATABASE_DSN="postgres://metricaldb:Secret@localhost:5434/metricaldb?sslmode=disable"
+
+# Тестовая база данных
+export TEST_DATABASE_URL="postgres://test:test@localhost:5433/testdb?sslmode=disable"
+```
+
 ## 🚀 Быстрый старт
+
+### 🐳 Docker инфраструктура (Рекомендуется)
+
+Проект теперь включает полную Docker инфраструктуру для разработки и тестирования:
+
+```bash
+# Запуск всей системы (БД + сервер)
+make run-full
+
+# Проверка статуса сервисов
+make status
+
+# Остановка всех сервисов
+make stop-all
+
+# Управление базой данных
+make db-up          # Запустить БД
+make db-down        # Остановить БД
+make db-logs        # Просмотр логов БД
+make db-shell       # Подключение к БД
+```
 
 ### VS Code задачи
 
@@ -331,24 +413,79 @@ CREATE TABLE schema_migrations (
 ./cmd/server/server
 ```
 
-### Docker Compose для разработки
+### 🐳 Docker Compose инфраструктура
 
+Проект включает две Docker Compose конфигурации:
+
+#### Основная база данных (`docker-compose.yml`)
 ```yaml
 version: '3.8'
 services:
   postgres:
-    image: postgres:15
+    image: postgres:15-alpine
+    container_name: metrics-main-db
+    restart: always
     environment:
-      POSTGRES_DB: metrics_db
-      POSTGRES_USER: metrics_user
-      POSTGRES_PASSWORD: metrics_password
+      POSTGRES_DB: metricaldb
+      POSTGRES_USER: metricaldb
+      POSTGRES_PASSWORD: Secret
     ports:
-      - "5432:5432"
+      - "5434:5432"  # Основной порт PostgreSQL
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d  # Автоматические миграции
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metricaldb -d metricaldb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
+```
+
+#### Тестовая база данных (`docker-compose.test.yml`)
+```yaml
+version: '3.8'
+services:
+  postgres-test:
+    image: postgres:15-alpine
+    container_name: metrics-test-db
+    environment:
+      POSTGRES_DB: testdb
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+    ports:
+      - "5433:5432"  # Тестовый порт PostgreSQL
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d testdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    tmpfs:
+      - /var/lib/postgresql/data:rw  # Быстрая работа и автоматическая очистка
+```
+
+#### Команды управления Docker
+
+```bash
+# Основная БД
+make db-up          # Запустить основную БД
+make db-down        # Остановить основную БД
+make db-logs        # Просмотр логов основной БД
+make db-shell       # Подключение к основной БД
+make db-reset       # Сбросить основную БД
+
+# Тестовая БД
+make test-db        # Полный цикл тестов (up → test → down)
+make test-db-up     # Запустить тестовую БД
+make test-db-down   # Остановить тестовую БД
+make test-db-run    # Запустить тесты с БД
+
+# Управление сервисами
+make run-full       # Запустить БД + сервер
+make stop-all       # Остановить все сервисы
+make status         # Показать статус всех сервисов
 ```
 
 ### 🔒 Безопасность и надежность
@@ -549,7 +686,24 @@ GET /
 # Открыть в браузере: http://localhost:8080/
 ```
 
-## Тестирование
+## 🧪 Тестирование
+
+### 🐳 Docker тестирование (Рекомендуется)
+
+Проект включает полную Docker инфраструктуру для тестирования:
+
+```bash
+# Полный цикл тестов с Docker
+make test-db        # Запустить тестовую БД → тесты → остановить БД
+
+# Управление тестовой БД
+make test-db-up     # Запустить тестовую БД
+make test-db-run    # Запустить тесты с БД
+make test-db-down   # Остановить тестовую БД
+
+# Быстрые тесты
+make quick-test     # Только unit тесты (без БД)
+```
 
 ### VS Code задачи
 ```bash
@@ -575,7 +729,8 @@ go test ./... -v -cover
 go test ./internal/middleware/... -v
 go test ./internal/agent/... -v
 
-# Тесты PostgreSQL репозитория
+# Тесты PostgreSQL репозитория (требует тестовую БД)
+TEST_DATABASE_URL="postgres://test:test@localhost:5433/testdb?sslmode=disable" \
 go test ./internal/repository/... -v
 
 # Тесты конфигурации базы данных
@@ -587,6 +742,26 @@ go test -bench=. -benchmem ./internal/repository
 # Тесты с профилированием
 go test -cpuprofile=cpu.prof -bench=.
 go test -memprofile=mem.prof -bench=.
+```
+
+### 🔧 Настройка тестовой среды
+
+#### Переменные окружения для тестов
+```bash
+# Тестовая база данных
+export TEST_DATABASE_URL="postgres://test:test@localhost:5433/testdb?sslmode=disable"
+
+# Основная база данных
+export DATABASE_DSN="postgres://metricaldb:Secret@localhost:5434/metricaldb?sslmode=disable"
+```
+
+#### Скрипты для тестирования
+```bash
+# Запуск тестов с автоматической настройкой БД
+./scripts/test-db.sh
+
+# Остановка всех сервисов
+./scripts/stop-all.sh
 ```
 
 ## Документация пакетов
@@ -617,3 +792,16 @@ go test -memprofile=mem.prof -bench=.
 - ✅ **Retry логика** - автоматические повторы при сбоях
 - ✅ **Health checks** - проверка состояния БД
 
+### 🐳 Docker инфраструктура
+- ✅ **Docker Compose** - полная инфраструктура для разработки
+- ✅ **Изолированные тесты** - отдельная тестовая БД в Docker
+- ✅ **Автоматические миграции** - создание схемы при запуске
+- ✅ **Health checks** - проверка готовности контейнеров
+- ✅ **Управление сервисами** - простые команды make для всех операций
+
+### 🛠️ Улучшенное управление сервисами
+- ✅ **make run-full** - запуск всей системы одной командой
+- ✅ **make stop-all** - надежная остановка всех сервисов
+- ✅ **make status** - проверка статуса всех компонентов
+- ✅ **Автоматические скрипты** - упрощение рутинных операций
+- ✅ **Цветной вывод** - информативные сообщения с эмодзи

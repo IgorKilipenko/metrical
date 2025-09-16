@@ -41,5 +41,6 @@ test-*.db
 test-*.sqlite
 test-*.sqlite3
 
-# Docker test volumes
+# Docker volumes
 docker-test-data/
+postgres_data/

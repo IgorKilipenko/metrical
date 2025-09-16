@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: metrics-main-db
+    environment:
+      POSTGRES_DB: metricaldb
+      POSTGRES_USER: metricaldb
+      POSTGRES_PASSWORD: Secret
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    ports:
+      - "5434:5432"  # Основной порт PostgreSQL (изменен на 5434)
+    volumes:
+      # Постоянное хранение данных
+      - postgres_data:/var/lib/postgresql/data
+      # Инициализационные скрипты
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metricaldb -d metricaldb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    # Настройки производительности
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_stat_statements
+      -c pg_stat_statements.track=all
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+
+volumes:
+  postgres_data:
+    driver: local

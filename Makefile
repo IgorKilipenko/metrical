@@ -7,7 +7,7 @@ AUTO_TEST_BINARY := ../auto-tests/metricstest_v2
 SERVER_BINARY := bin/server
 AGENT_BINARY := bin/agent
 SERVER_PORT := 9091
-DATABASE_DSN := 'postgres://metricaldb:Secret@localhost:5432/metricaldb?sslmode=disable'
+DATABASE_DSN := 'postgres://metricaldb:Secret@localhost:5434/metricaldb?sslmode=disable'
 FILE_STORAGE_PATH := /tmp/iteration9-metrics.json
 
 # Цвета для вывода
@@ -49,9 +49,19 @@ help: ## Показать справку по командам
 	@echo "  auto-test-all  - Запустить все автотесты (1-11)"
 	@echo "  full-test      - Запустить unit тесты + автотесты"
 	@echo ""
+	@echo "$(GREEN)База данных:$(NC)"
+	@echo "  db-up          - Запустить основную БД"
+	@echo "  db-down        - Остановить основную БД"
+	@echo "  db-logs        - Показать логи БД"
+	@echo "  db-shell       - Подключиться к БД"
+	@echo "  db-reset       - Сбросить БД (удалить данные)"
+	@echo ""
 	@echo "$(GREEN)Запуск:$(NC)"
 	@echo "  run-server     - Запустить сервер"
 	@echo "  run-agent      - Запустить агент"
+	@echo "  run-full       - Запустить БД + сервер"
+	@echo "  stop-all       - Остановить все сервисы"
+	@echo "  status         - Показать статус сервисов"
 	@echo ""
 	@echo "$(GREEN)Утилиты:$(NC)"
 	@echo "  check-deps     - Проверить зависимости"
@@ -87,6 +97,40 @@ test-coverage: ## Запустить тесты с покрытием
 	@echo "$(BLUE)Запуск тестов с покрытием...$(NC)"
 	@go test -v -cover ./...
 	@echo "$(GREEN)Тесты с покрытием завершены$(NC)"
+
+# Основная база данных
+db-up: ## Запустить основную PostgreSQL БД
+	@echo "$(BLUE)Запуск основной PostgreSQL...$(NC)"
+	@docker-compose up -d postgres
+	@echo "$(YELLOW)Ожидание готовности БД...$(NC)"
+	@for i in $$(seq 1 30); do \
+		if docker-compose exec -T postgres pg_isready -U metricaldb -d metricaldb >/dev/null 2>&1; then \
+			echo "$(GREEN)Основная БД готова$(NC)"; \
+			exit 0; \
+		fi; \
+		echo "Ожидание... ($$i/30)"; \
+		sleep 1; \
+	done; \
+	echo "$(RED)БД не готова через 30 секунд$(NC)"; \
+	exit 1
+
+db-down: ## Остановить основную PostgreSQL БД
+	@echo "$(BLUE)Остановка основной PostgreSQL...$(NC)"
+	@docker-compose down
+	@echo "$(GREEN)Основная БД остановлена$(NC)"
+
+db-logs: ## Показать логи основной БД
+	@docker-compose logs -f postgres
+
+db-shell: ## Подключиться к основной БД
+	@docker-compose exec postgres psql -U metricaldb -d metricaldb
+
+db-reset: ## Сбросить основную БД (удалить все данные)
+	@echo "$(YELLOW)ВНИМАНИЕ: Это удалит все данные!$(NC)"
+	@read -p "Продолжить? (y/N): " confirm && [ "$$confirm" = "y" ] || exit 1
+	@docker-compose down -v
+	@docker volume rm go-metrics_postgres_data 2>/dev/null || true
+	@echo "$(GREEN)БД сброшена$(NC)"
 
 # Тесты с базой данных
 test-db: test-db-up test-db-run test-db-down ## Запустить тесты с PostgreSQL
@@ -216,11 +260,45 @@ full-test: test auto-test-all ## Запустить unit тесты + автот
 # Запуск приложений
 run-server: build-server ## Запустить сервер
 	@echo "$(BLUE)Запуск сервера на localhost:9090...$(NC)"
-	@$(SERVER_BINARY) -a=localhost:9090
+	@$(SERVER_BINARY) -a=localhost:9090 -d=$(DATABASE_DSN)
 
 run-agent: build-agent ## Запустить агент
 	@echo "$(BLUE)Запуск агента на localhost:8080...$(NC)"
 	@$(AGENT_BINARY) -a=localhost:8080 -r=2s
+
+run-full: db-up run-server ## Запустить БД + сервер
+	@echo "$(GREEN)Система запущена!$(NC)"
+	@echo "$(YELLOW)Сервер: http://localhost:9090$(NC)"
+	@echo "$(YELLOW)БД: localhost:5434$(NC)"
+
+stop-all: ## Остановить все сервисы
+	@./scripts/stop-all.sh
+
+status: ## Показать статус всех сервисов
+	@echo "$(BLUE)Статус сервисов:$(NC)"
+	@echo ""
+	@echo "$(YELLOW)Сервер:$(NC)"
+	@if ps aux | grep -v grep | grep -q "$(SERVER_BINARY)"; then \
+		SERVER_PID=$$(ps aux | grep -v grep | grep "$(SERVER_BINARY)" | awk '{print $$2}' | head -1); \
+		echo "  ✅ Запущен (PID: $$SERVER_PID)"; \
+	else \
+		echo "  ❌ Не запущен"; \
+	fi
+	@echo ""
+	@echo "$(YELLOW)Агент:$(NC)"
+	@if ps aux | grep -v grep | grep -q "$(AGENT_BINARY)"; then \
+		AGENT_PID=$$(ps aux | grep -v grep | grep "$(AGENT_BINARY)" | awk '{print $$2}' | head -1); \
+		echo "  ✅ Запущен (PID: $$AGENT_PID)"; \
+	else \
+		echo "  ❌ Не запущен"; \
+	fi
+	@echo ""
+	@echo "$(YELLOW)База данных:$(NC)"
+	@if docker-compose ps postgres 2>/dev/null | grep -q "Up"; then \
+		echo "  ✅ Запущена (Docker)"; \
+	else \
+		echo "  ❌ Не запущена"; \
+	fi
 
 # Быстрые команды для разработки
 quick-test: ## Быстрый тест (только unit тесты)
