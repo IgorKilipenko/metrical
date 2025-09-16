@@ -13,8 +13,8 @@ import (
 
 // setupTestDB создает тестовую БД для тестов миграций
 func setupTestDB(t *testing.T) (*pgxpool.Pool, func()) {
-	// Используем основную БД для тестов (создаем временные таблицы)
-	dsn := "postgres://metricaldb:Secret@localhost:5432/metricaldb?sslmode=disable"
+	// Используем тестовую БД для изоляции тестов
+	dsn := "postgres://test:test@localhost:5433/testdb?sslmode=disable"
 
 	config, err := pgxpool.ParseConfig(dsn)
 	require.NoError(t, err, "Failed to parse test DSN")
@@ -78,6 +78,16 @@ func TestMigration_Validation(t *testing.T) {
 			expectError: true,
 		},
 		{
+			name: "negative version",
+			migration: Migration{
+				Version:  -1,
+				Name:     "test_migration",
+				SQL:      "CREATE TABLE test (id INT);",
+				Checksum: "abc123",
+			},
+			expectError: true,
+		},
+		{
 			name: "empty name",
 			migration: Migration{
 				Version:  1,
@@ -111,27 +121,44 @@ func TestMigration_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Простая валидация структуры Migration
-			hasError := false
-
-			if tt.migration.Version <= 0 {
-				hasError = true
-			}
-			if tt.migration.Name == "" {
-				hasError = true
-			}
-			if tt.migration.SQL == "" {
-				hasError = true
-			}
-			if tt.migration.Checksum == "" {
-				hasError = true
-			}
-
+			err := tt.migration.Validate()
 			if tt.expectError {
-				assert.True(t, hasError, "Expected validation error")
+				assert.Error(t, err, "Expected validation error")
 			} else {
-				assert.False(t, hasError, "Expected no validation error")
+				assert.NoError(t, err, "Expected no validation error")
 			}
+		})
+	}
+}
+
+func TestCalculateChecksum(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		expected string
+	}{
+		{
+			name:     "empty content",
+			content:  "",
+			expected: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		},
+		{
+			name:     "simple content",
+			content:  "CREATE TABLE test (id INT);",
+			expected: "789141b85942dc7961d826bf7df365f2ba88215dcc8111dfda4dcd6208899121",
+		},
+		{
+			name:     "complex content",
+			content:  "CREATE TABLE users (id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, email VARCHAR(255) UNIQUE);",
+			expected: "c984e830f9ea9216c29dfdf2f224446200d75f798784d61c374c3a656ef1ddb1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := calculateChecksum(tt.content)
+			assert.Equal(t, tt.expected, result, "Checksum should match expected value")
+			assert.Len(t, result, 64, "SHA-256 checksum should be 64 characters long")
 		})
 	}
 }

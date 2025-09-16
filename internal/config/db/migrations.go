@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -21,6 +22,23 @@ type Migration struct {
 	SQL       string
 	AppliedAt *time.Time
 	Checksum  string
+}
+
+// Validate проверяет корректность миграции
+func (m *Migration) Validate() error {
+	if m.Version <= 0 {
+		return fmt.Errorf("invalid version: %d (must be positive)", m.Version)
+	}
+	if m.Name == "" {
+		return fmt.Errorf("name cannot be empty")
+	}
+	if m.SQL == "" {
+		return fmt.Errorf("SQL cannot be empty")
+	}
+	if m.Checksum == "" {
+		return fmt.Errorf("checksum cannot be empty")
+	}
+	return nil
 }
 
 // MigrationManager управляет миграциями базы данных
@@ -145,6 +163,11 @@ func (m *MigrationManager) GetAppliedMigrations(ctx context.Context) (map[int]Mi
 
 // ApplyMigration применяет одну миграцию
 func (m *MigrationManager) ApplyMigration(ctx context.Context, migration Migration) error {
+	// Валидируем миграцию перед применением
+	if err := migration.Validate(); err != nil {
+		return fmt.Errorf("invalid migration: %w", err)
+	}
+
 	m.logger.Info("Applying migration", "version", migration.Version, "name", migration.Name)
 
 	// Начинаем транзакцию
@@ -254,10 +277,7 @@ func (m *MigrationManager) GetMigrationStats(ctx context.Context) (map[string]in
 
 // calculateChecksum вычисляет контрольную сумму для миграции
 func calculateChecksum(content string) string {
-	// Простая контрольная сумма на основе длины и хеша
-	hash := 0
-	for _, b := range []byte(content) {
-		hash = hash*31 + int(b)
-	}
+	// Используем SHA-256 для надежной контрольной суммы
+	hash := sha256.Sum256([]byte(content))
 	return fmt.Sprintf("%x", hash)
 }
