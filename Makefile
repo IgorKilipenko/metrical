@@ -88,6 +88,36 @@ test-coverage: ## Запустить тесты с покрытием
 	@go test -v -cover ./...
 	@echo "$(GREEN)Тесты с покрытием завершены$(NC)"
 
+# Тесты с базой данных
+test-db: test-db-up test-db-run test-db-down ## Запустить тесты с PostgreSQL
+
+test-db-up: ## Запустить тестовую БД
+	@echo "$(BLUE)Запуск тестовой PostgreSQL...$(NC)"
+	@docker-compose -f docker-compose.test.yml up -d
+	@echo "$(YELLOW)Ожидание готовности БД...$(NC)"
+	@for i in $$(seq 1 30); do \
+		if docker-compose -f docker-compose.test.yml exec -T postgres-test pg_isready -U test -d testdb >/dev/null 2>&1; then \
+			echo "$(GREEN)Тестовая БД готова$(NC)"; \
+			exit 0; \
+		fi; \
+		echo "Ожидание... ($$i/30)"; \
+		sleep 1; \
+	done; \
+	echo "$(RED)БД не готова через 30 секунд$(NC)"; \
+	exit 1
+
+test-db-run: ## Запустить тесты с БД
+	@echo "$(BLUE)Запуск тестов с PostgreSQL...$(NC)"
+	@TEST_DATABASE_URL="postgres://test:test@localhost:5433/testdb?sslmode=disable" go test -v ./internal/repository/ -run TestPostgreSQL
+	@echo "$(GREEN)Тесты с БД завершены$(NC)"
+
+test-db-down: ## Остановить тестовую БД
+	@echo "$(BLUE)Остановка тестовой PostgreSQL...$(NC)"
+	@docker-compose -f docker-compose.test.yml down -v
+	@echo "$(GREEN)Тестовая БД остановлена$(NC)"
+
+test-integration: test-db ## Алиас для интеграционных тестов
+
 # Проверка зависимостей
 check-deps: ## Проверить зависимости
 	@echo "$(BLUE)Проверка зависимостей...$(NC)"

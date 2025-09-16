@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 	"testing"
 	"time"
 
@@ -337,26 +338,22 @@ func TestPostgreSQLMetricsRepository_EdgeCases(t *testing.T) {
 
 	t.Run("Special float values", func(t *testing.T) {
 		// Тестируем специальные значения float
-		specialValues := []float64{
+		// Бесконечные значения должны вызывать ошибку валидации
+		infiniteValues := []float64{
 			math.Inf(1),  // +Inf
 			math.Inf(-1), // -Inf
-			math.NaN(),   // NaN
 		}
 
-		for i, val := range specialValues {
-			err := repo.UpdateGauge(ctx, fmt.Sprintf("special_%d", i), val)
-			require.NoError(t, err)
-
-			value, exists, err := repo.GetGauge(ctx, fmt.Sprintf("special_%d", i))
-			require.NoError(t, err)
-			assert.True(t, exists)
-
-			if math.IsNaN(val) {
-				assert.True(t, math.IsNaN(value), "NaN should be preserved")
-			} else {
-				assert.Equal(t, val, value, "Special float value should be preserved")
-			}
+		for i, val := range infiniteValues {
+			err := repo.UpdateGauge(ctx, fmt.Sprintf("infinite_%d", i), val)
+			assert.Error(t, err, "Infinite values should be rejected")
+			assert.Contains(t, err.Error(), "infinite", "Error should mention infinite values")
 		}
+
+		// NaN также должен вызывать ошибку валидации
+		err := repo.UpdateGauge(ctx, "nan_value", math.NaN())
+		assert.Error(t, err, "NaN values should be rejected")
+		assert.Contains(t, err.Error(), "NaN", "Error should mention NaN")
 	})
 }
 
@@ -385,7 +382,10 @@ func setupTestPostgreSQLRepo(t *testing.T) (*PostgreSQLMetricsRepository, func()
 	t.Helper()
 
 	// Проверяем, доступна ли тестовая БД
-	testDSN := "postgres://test:test@localhost:5432/testdb?sslmode=disable"
+	testDSN := os.Getenv("TEST_DATABASE_URL")
+	if testDSN == "" {
+		testDSN = "postgres://test:test@localhost:5433/testdb?sslmode=disable"
+	}
 
 	// Пытаемся подключиться к тестовой БД
 	pool, err := pgxpool.New(context.Background(), testDSN)
@@ -419,9 +419,16 @@ func setupTestPostgreSQLRepo(t *testing.T) (*PostgreSQLMetricsRepository, func()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		_, err := pool.Exec(ctx, "DELETE FROM metrics")
-		if err != nil {
-			t.Logf("Failed to clean up test data: %v", err)
+		// Очищаем обе таблицы
+		cleanupQueries := []string{
+			"DELETE FROM gauge_metrics",
+			"DELETE FROM counter_metrics",
+		}
+
+		for _, query := range cleanupQueries {
+			if _, err := pool.Exec(ctx, query); err != nil {
+				t.Logf("Failed to clean up test data with query '%s': %v", query, err)
+			}
 		}
 
 		pool.Close()
@@ -430,18 +437,31 @@ func setupTestPostgreSQLRepo(t *testing.T) (*PostgreSQLMetricsRepository, func()
 	return repo, cleanup
 }
 
-// createTestTable создает тестовую таблицу
+// createTestTable создает тестовые таблицы в соответствии с реальной схемой
 func createTestTable(ctx context.Context, pool *pgxpool.Pool) error {
-	query := `
-		CREATE TABLE IF NOT EXISTS metrics (
-			name VARCHAR(255) NOT NULL,
-			type VARCHAR(50) NOT NULL,
-			value DOUBLE PRECISION,
-			delta BIGINT,
-			updated_at TIMESTAMP DEFAULT NOW(),
-			PRIMARY KEY (name, type)
-		)`
+	queries := []string{
+		`CREATE TABLE IF NOT EXISTS gauge_metrics (
+			id VARCHAR(255) PRIMARY KEY,
+			value DOUBLE PRECISION NOT NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS counter_metrics (
+			id VARCHAR(255) PRIMARY KEY,
+			value BIGINT NOT NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_gauge_metrics_id ON gauge_metrics(id)`,
+		`CREATE INDEX IF NOT EXISTS idx_counter_metrics_id ON counter_metrics(id)`,
+		`CREATE INDEX IF NOT EXISTS idx_gauge_metrics_updated_at ON gauge_metrics(updated_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_counter_metrics_updated_at ON counter_metrics(updated_at)`,
+	}
 
-	_, err := pool.Exec(ctx, query)
-	return err
+	for _, query := range queries {
+		if _, err := pool.Exec(ctx, query); err != nil {
+			return fmt.Errorf("failed to execute query: %s, error: %w", query, err)
+		}
+	}
+	return nil
 }
