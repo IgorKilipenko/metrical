@@ -1,8 +1,11 @@
 package app
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	models "github.com/IgorKilipenko/metrical/internal/model"
 	"github.com/IgorKilipenko/metrical/internal/testutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -218,3 +221,206 @@ func TestConfig_GetStorageType(t *testing.T) {
 		})
 	}
 }
+
+func TestApp_validateConfig(t *testing.T) {
+	tests := []struct {
+		name        string
+		config      Config
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "Valid config",
+			config: Config{
+				Addr: "localhost",
+				Port: "8080",
+			},
+			expectError: false,
+		},
+		{
+			name: "Empty address",
+			config: Config{
+				Addr: "",
+				Port: "8080",
+			},
+			expectError: true,
+			errorMsg:    "address cannot be empty",
+		},
+		{
+			name: "Empty port",
+			config: Config{
+				Addr: "localhost",
+				Port: "",
+			},
+			expectError: true,
+			errorMsg:    "port cannot be empty",
+		},
+		{
+			name: "Invalid port - too high",
+			config: Config{
+				Addr: "localhost",
+				Port: "70000",
+			},
+			expectError: true,
+			errorMsg:    "invalid port: 70000 (must be 1-65535)",
+		},
+		{
+			name: "Invalid port - zero",
+			config: Config{
+				Addr: "localhost",
+				Port: "0",
+			},
+			expectError: true,
+			errorMsg:    "invalid port: 0 (must be 1-65535)",
+		},
+		{
+			name: "Invalid port - negative",
+			config: Config{
+				Addr: "localhost",
+				Port: "-1",
+			},
+			expectError: true,
+			errorMsg:    "invalid port: -1 (must be 1-65535)",
+		},
+		{
+			name: "Invalid port - not a number",
+			config: Config{
+				Addr: "localhost",
+				Port: "abc",
+			},
+			expectError: true,
+			errorMsg:    "invalid port: abc (must be 1-65535)",
+		},
+		{
+			name: "Valid IP address",
+			config: Config{
+				Addr: "127.0.0.1",
+				Port: "8080",
+			},
+			expectError: false,
+		},
+		{
+			name: "Valid localhost",
+			config: Config{
+				Addr: "localhost",
+				Port: "8080",
+			},
+			expectError: false,
+		},
+		{
+			name: "Valid 0.0.0.0",
+			config: Config{
+				Addr: "0.0.0.0",
+				Port: "8080",
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := &App{config: tt.config}
+			err := app.validateConfig()
+
+			if tt.expectError {
+				assert.Error(t, err, "Expected error, got nil")
+				if tt.errorMsg != "" {
+					assert.Contains(t, err.Error(), tt.errorMsg, "Error message should contain expected text")
+				}
+			} else {
+				assert.NoError(t, err, "Unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestApp_waitForServerReady(t *testing.T) {
+	tests := []struct {
+		name        string
+		addr        string
+		timeout     time.Duration
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "Invalid address format",
+			addr:        "invalid:address",
+			timeout:     100 * time.Millisecond,
+			expectError: true,
+			errorMsg:    "server startup timeout",
+		},
+		{
+			name:        "Unreachable address",
+			addr:        "localhost:99999", // Invalid port
+			timeout:     100 * time.Millisecond,
+			expectError: true,
+			errorMsg:    "server startup timeout",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := &App{addr: tt.addr}
+			ctx := context.Background()
+
+			err := app.waitForServerReady(ctx, tt.timeout)
+
+			if tt.expectError {
+				assert.Error(t, err, "Expected error, got nil")
+				if tt.errorMsg != "" {
+					assert.Contains(t, err.Error(), tt.errorMsg, "Error message should contain expected text")
+				}
+			} else {
+				assert.NoError(t, err, "Unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestApp_saveMetrics(t *testing.T) {
+	// Создаем мок репозитория
+	mockRepo := &mockMetricsRepository{}
+	app := &App{}
+
+	// Используем существующий мок логгера из testutils
+	mockLogger := testutils.NewMockLogger()
+
+	// Тестируем сохранение с контекстом
+	app.saveMetrics(mockRepo, mockLogger, "test_context")
+
+	// Проверяем, что SaveToFile был вызван
+	assert.True(t, mockRepo.saveToFileCalled, "SaveToFile should be called")
+}
+
+// Мок репозитория для тестирования
+type mockMetricsRepository struct {
+	saveToFileCalled bool
+	saveToFileError  error
+}
+
+func (m *mockMetricsRepository) SaveToFile() error {
+	m.saveToFileCalled = true
+	return m.saveToFileError
+}
+
+// Заглушки для остальных методов интерфейса MetricsRepository
+func (m *mockMetricsRepository) UpdateGauge(ctx context.Context, name string, value float64) error {
+	return nil
+}
+func (m *mockMetricsRepository) UpdateCounter(ctx context.Context, name string, value int64) error {
+	return nil
+}
+func (m *mockMetricsRepository) GetGauge(ctx context.Context, name string) (float64, bool, error) {
+	return 0, false, nil
+}
+func (m *mockMetricsRepository) GetCounter(ctx context.Context, name string) (int64, bool, error) {
+	return 0, false, nil
+}
+func (m *mockMetricsRepository) GetAllGauges(ctx context.Context) (models.GaugeMetrics, error) {
+	return nil, nil
+}
+func (m *mockMetricsRepository) GetAllCounters(ctx context.Context) (models.CounterMetrics, error) {
+	return nil, nil
+}
+func (m *mockMetricsRepository) LoadFromFile() error   { return nil }
+func (m *mockMetricsRepository) SetSyncSave(sync bool) {}

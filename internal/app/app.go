@@ -3,8 +3,10 @@ package app
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -57,6 +59,22 @@ func (a *App) validateConfig() error {
 	if a.config.Port == "" {
 		return fmt.Errorf("port cannot be empty")
 	}
+
+	// Валидация порта
+	if port, err := strconv.Atoi(a.config.Port); err != nil || port < 1 || port > 65535 {
+		return fmt.Errorf("invalid port: %s (must be 1-65535)", a.config.Port)
+	}
+
+	// Валидация адреса (базовая проверка)
+	if a.config.Addr != "localhost" && a.config.Addr != "0.0.0.0" {
+		if net.ParseIP(a.config.Addr) == nil {
+			// Проверяем, что это валидный hostname
+			if _, err := net.LookupHost(a.config.Addr); err != nil {
+				return fmt.Errorf("invalid address: %s (must be valid IP or hostname)", a.config.Addr)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -93,7 +111,7 @@ func (a *App) Run() error {
 	}()
 
 	// Для in-memory репозитория с файловым хранением
-	if storageType == "memory" && a.config.FileStoragePath != "" {
+	if storageType == StorageTypeMemory && a.config.FileStoragePath != "" {
 		// Приводим к типу InMemoryMetricsRepository для настройки
 		if inMemoryRepo, ok := repo.(*repository.InMemoryMetricsRepository); ok {
 			// Устанавливаем синхронное сохранение, если интервал = 0
@@ -130,7 +148,7 @@ func (a *App) Run() error {
 	a.server = server
 
 	// Запускаем периодическое сохранение метрик только для in-memory репозитория
-	if a.config.DatabaseDSN == "" && a.config.StoreInterval > 0 {
+	if storageType == StorageTypeMemory && a.config.StoreInterval > 0 {
 		go a.startPeriodicSaving(repo, appLogger)
 	}
 
@@ -146,8 +164,50 @@ func (a *App) Run() error {
 		}
 	}()
 
+	// Ожидаем готовности сервера
+	if err := a.waitForServerReady(ctx, 5*time.Second); err != nil {
+		appLogger.Error("server failed to start", "error", err)
+		return err
+	}
+
+	appLogger.Info("server is ready and accepting connections")
+
 	// Ожидаем сигналы для graceful shutdown
 	return a.waitForShutdown(ctx, repo, appLogger)
+}
+
+// waitForServerReady ожидает готовности сервера
+func (a *App) waitForServerReady(ctx context.Context, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("server startup cancelled")
+		case <-ticker.C:
+			if time.Now().After(deadline) {
+				return fmt.Errorf("server startup timeout after %v", timeout)
+			}
+
+			// Проверяем, что сервер слушает на указанном адресе
+			conn, err := net.DialTimeout("tcp", a.addr, 100*time.Millisecond)
+			if err == nil {
+				conn.Close()
+				return nil
+			}
+		}
+	}
+}
+
+// saveMetrics сохраняет метрики с контекстом
+func (a *App) saveMetrics(repo repository.MetricsRepository, logger logger.Logger, context string) {
+	if err := repo.SaveToFile(); err != nil {
+		logger.Error("failed to save metrics to file", "error", err, "context", context)
+	} else {
+		logger.Debug("metrics saved to file successfully", "context", context)
+	}
 }
 
 // startPeriodicSaving запускает периодическое сохранение метрик
@@ -156,11 +216,7 @@ func (a *App) startPeriodicSaving(repo repository.MetricsRepository, logger logg
 	defer ticker.Stop()
 
 	for range ticker.C {
-		if err := repo.SaveToFile(); err != nil {
-			logger.Error("failed to save metrics to file", "error", err)
-		} else {
-			logger.Debug("metrics saved to file successfully")
-		}
+		a.saveMetrics(repo, logger, "periodic")
 	}
 }
 
@@ -176,21 +232,13 @@ func (a *App) waitForShutdown(ctx context.Context, repo repository.MetricsReposi
 		logger.Info("received signal, shutting down gracefully", "signal", sig)
 		// Останавливаем периодическое сохранение перед завершением
 		if a.config.StoreInterval > 0 {
-			if err := repo.SaveToFile(); err != nil {
-				logger.Error("failed to save metrics to file on shutdown", "error", err)
-			} else {
-				logger.Debug("metrics saved to file on shutdown successfully")
-			}
+			a.saveMetrics(repo, logger, "shutdown")
 		}
 	case <-ctx.Done():
 		logger.Info("server stopped, shutting down")
 		// Останавливаем периодическое сохранение перед завершением
 		if a.config.StoreInterval > 0 {
-			if err := repo.SaveToFile(); err != nil {
-				logger.Error("failed to save metrics to file on graceful shutdown", "error", err)
-			} else {
-				logger.Debug("metrics saved to file on graceful shutdown successfully")
-			}
+			a.saveMetrics(repo, logger, "graceful_shutdown")
 		}
 	}
 
@@ -229,11 +277,11 @@ func (p *noDatabasePinger) Ping(ctx context.Context) error {
 // Приоритет: PostgreSQL -> Файл -> Память
 func (a *App) createRepository(storageType string, logger logger.Logger) (repository.MetricsRepository, *db.Connection, error) {
 	switch storageType {
-	case "postgresql":
+	case StorageTypePostgres:
 		return a.createPostgreSQLRepository(logger)
-	case "file":
+	case StorageTypeFile:
 		return a.createFileRepository(logger)
-	case "memory":
+	case StorageTypeMemory:
 		return a.createMemoryRepository(logger)
 	default:
 		return nil, nil, fmt.Errorf("unsupported storage type: %s", storageType)
