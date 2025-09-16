@@ -164,3 +164,80 @@ func TestApp_GetPort(t *testing.T) {
 		t.Errorf("GetPort() = %s, want localhost:8080", addr)
 	}
 }
+
+func TestConfig_GetStorageType(t *testing.T) {
+	tests := []struct {
+		name         string
+		config       Config
+		expectedType string
+		description  string
+	}{
+		{
+			name: "PostgreSQL storage type",
+			config: Config{
+				DatabaseDSN: "postgres://user:pass@localhost:5432/db",
+			},
+			expectedType: StorageTypePostgres,
+			description:  "Должен возвращать postgresql когда указан DATABASE_DSN",
+		},
+		{
+			name: "File storage type",
+			config: Config{
+				FileStoragePath: "/tmp/metrics.json",
+			},
+			expectedType: StorageTypeFile,
+			description:  "Должен возвращать file когда указан FileStoragePath",
+		},
+		{
+			name:   "Memory storage type (default)",
+			config: Config{
+				// Пустая конфигурация
+			},
+			expectedType: StorageTypeMemory,
+			description:  "Должен возвращать memory по умолчанию",
+		},
+		{
+			name: "PostgreSQL priority over file",
+			config: Config{
+				DatabaseDSN:     "postgres://user:pass@localhost:5432/db",
+				FileStoragePath: "/tmp/metrics.json",
+			},
+			expectedType: StorageTypePostgres,
+			description:  "PostgreSQL должен иметь приоритет над файловым хранилищем",
+		},
+		{
+			name: "File priority over memory",
+			config: Config{
+				FileStoragePath: "/tmp/metrics.json",
+				// DatabaseDSN не указан
+			},
+			expectedType: StorageTypeFile,
+			description:  "Файловое хранилище должно иметь приоритет над памятью",
+		},
+		{
+			name: "Empty database DSN should not trigger PostgreSQL",
+			config: Config{
+				DatabaseDSN: "",
+			},
+			expectedType: StorageTypeMemory,
+			description:  "Пустая строка DATABASE_DSN не должна активировать PostgreSQL",
+		},
+		{
+			name: "Empty file path should not trigger file storage",
+			config: Config{
+				FileStoragePath: "",
+			},
+			expectedType: StorageTypeMemory,
+			description:  "Пустая строка FileStoragePath не должна активировать файловое хранилище",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.GetStorageType()
+			if result != tt.expectedType {
+				t.Errorf("GetStorageType() = %s, want %s. %s", result, tt.expectedType, tt.description)
+			}
+		})
+	}
+}

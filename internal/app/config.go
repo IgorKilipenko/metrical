@@ -5,6 +5,13 @@ import (
 	"strings"
 )
 
+// Константы для типов хранилища
+const (
+	StorageTypeMemory   = "memory"
+	StorageTypeFile     = "file"
+	StorageTypePostgres = "postgresql"
+)
+
 // NewConfig создает конфигурацию из строки адреса и дополнительных параметров
 func NewConfig(addr string, storeInterval int, fileStoragePath string, restore bool, databaseDSN string) (Config, error) {
 	// Парсим адрес и порт
@@ -28,16 +35,16 @@ func NewConfig(addr string, storeInterval int, fileStoragePath string, restore b
 func (c Config) GetStorageType() string {
 	// 1. PostgreSQL - если указан DATABASE_DSN
 	if c.DatabaseDSN != "" {
-		return "postgresql"
+		return StorageTypePostgres
 	}
 
 	// 2. Файл - если указан путь к файлу
 	if c.FileStoragePath != "" {
-		return "file"
+		return StorageTypeFile
 	}
 
 	// 3. Память - по умолчанию
-	return "memory"
+	return StorageTypeMemory
 }
 
 // parseAddr парсит строку адреса в адрес и порт
