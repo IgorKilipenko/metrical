@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/IgorKilipenko/metrical/internal/testutils"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewConfig(t *testing.T) {
@@ -63,19 +65,11 @@ func TestNewConfig(t *testing.T) {
 			config, err := NewConfig(tt.input, 300, testutils.TestMetricsFile, true, "")
 
 			if tt.expectError {
-				if err == nil {
-					t.Errorf("Expected error, got nil")
-				}
+				assert.Error(t, err, "Expected error, got nil")
 			} else {
-				if err != nil {
-					t.Errorf("Unexpected error: %v", err)
-				}
-				if config.Addr != tt.expectedAddr {
-					t.Errorf("Expected address %s, got %s", tt.expectedAddr, config.Addr)
-				}
-				if config.Port != tt.expectedPort {
-					t.Errorf("Expected port %s, got %s", tt.expectedPort, config.Port)
-				}
+				require.NoError(t, err, "Unexpected error")
+				assert.Equal(t, tt.expectedAddr, config.Addr, "Address should match")
+				assert.Equal(t, tt.expectedPort, config.Port, "Port should match")
 			}
 		})
 	}
@@ -124,19 +118,11 @@ func TestParseAddr(t *testing.T) {
 			addr, port, err := parseAddr(tt.input)
 
 			if tt.expectError {
-				if err == nil {
-					t.Errorf("Expected error, got nil")
-				}
+				assert.Error(t, err, "Expected error, got nil")
 			} else {
-				if err != nil {
-					t.Errorf("Unexpected error: %v", err)
-				}
-				if addr != tt.expectedAddr {
-					t.Errorf("Expected address %s, got %s", tt.expectedAddr, addr)
-				}
-				if port != tt.expectedPort {
-					t.Errorf("Expected port %s, got %s", tt.expectedPort, port)
-				}
+				require.NoError(t, err, "Unexpected error")
+				assert.Equal(t, tt.expectedAddr, addr, "Address should match")
+				assert.Equal(t, tt.expectedPort, port, "Port should match")
 			}
 		})
 	}
@@ -146,13 +132,8 @@ func TestNew(t *testing.T) {
 	config := Config{Addr: "localhost", Port: "9090"}
 	app := New(config)
 
-	if app.GetPort() != "localhost:9090" {
-		t.Errorf("New() addr = %s, want localhost:9090", app.GetPort())
-	}
-
-	if app.GetServer() != nil {
-		t.Error("New() server should be nil before Run()")
-	}
+	assert.Equal(t, "localhost:9090", app.GetPort(), "Port should be correctly formatted")
+	assert.Nil(t, app.GetServer(), "Server should be nil before Run()")
 }
 
 func TestApp_GetPort(t *testing.T) {
@@ -160,9 +141,7 @@ func TestApp_GetPort(t *testing.T) {
 	app := New(config)
 
 	addr := app.GetPort()
-	if addr != "localhost:8080" {
-		t.Errorf("GetPort() = %s, want localhost:8080", addr)
-	}
+	assert.Equal(t, "localhost:8080", addr, "GetPort() should return correctly formatted address")
 }
 
 func TestConfig_GetStorageType(t *testing.T) {
@@ -235,9 +214,7 @@ func TestConfig_GetStorageType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := tt.config.GetStorageType()
-			if result != tt.expectedType {
-				t.Errorf("GetStorageType() = %s, want %s. %s", result, tt.expectedType, tt.description)
-			}
+			assert.Equal(t, tt.expectedType, result, tt.description)
 		})
 	}
 }
