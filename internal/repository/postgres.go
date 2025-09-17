@@ -103,17 +103,17 @@ func NewPostgreSQLMetricsRepository(pool *pgxpool.Pool, logger logger.Logger) *P
 
 // NewPostgreSQLMetricsRepositoryWithPool создает новый экземпляр с интерфейсом DatabasePool
 // Используется для лучшей тестируемости
-func NewPostgreSQLMetricsRepositoryWithPool(pool DatabasePool, logger logger.Logger) *PostgreSQLMetricsRepository {
+func NewPostgreSQLMetricsRepositoryWithPool(pool DatabasePool, logger logger.Logger) (*PostgreSQLMetricsRepository, error) {
 	// Приводим к конкретному типу для внутреннего использования
 	pgxPool, ok := pool.(*pgxpool.Pool)
 	if !ok {
-		panic("pool must be *pgxpool.Pool")
+		return nil, fmt.Errorf("pool must be *pgxpool.Pool, got %T", pool)
 	}
 
 	return &PostgreSQLMetricsRepository{
 		pool:   pgxPool,
 		logger: logger,
-	}
+	}, nil
 }
 
 // NewPostgreSQLMetricsRepositoryWithMigrations создает новый экземпляр PostgreSQL репозитория с автоматическими миграциями.
@@ -386,14 +386,30 @@ func (r *PostgreSQLMetricsRepository) UpdateMetricsBatch(ctx context.Context, me
 	var txErr error
 	defer func() {
 		if txErr != nil {
+			// Откатываем транзакцию при ошибке
 			if rollbackErr := tx.Rollback(ctx); rollbackErr != nil {
 				r.logger.Error("failed to rollback transaction", "error", rollbackErr)
+			}
+		} else {
+			// Коммитим транзакцию при успехе
+			if commitErr := tx.Commit(ctx); commitErr != nil {
+				r.logger.Error("failed to commit transaction", "error", commitErr)
+				// Если коммит не удался, пытаемся откатить
+				if rollbackErr := tx.Rollback(ctx); rollbackErr != nil {
+					r.logger.Error("failed to rollback after commit failure", "error", rollbackErr)
+				}
 			}
 		}
 	}()
 
 	// Обновляем все метрики в рамках транзакции
 	for _, metric := range metrics {
+		// Валидируем имя метрики
+		if err := r.validateMetricName(metric.ID); err != nil {
+			txErr = fmt.Errorf("validation error for metric %s: %w", metric.ID, err)
+			return txErr
+		}
+
 		switch metric.MType {
 		case models.Gauge:
 			if metric.Value == nil {
@@ -443,12 +459,7 @@ func (r *PostgreSQLMetricsRepository) UpdateMetricsBatch(ctx context.Context, me
 		}
 	}
 
-	// Коммитим транзакцию
-	if err = tx.Commit(ctx); err != nil {
-		r.logger.Error("failed to commit transaction for batch update", "error", err)
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
+	// Транзакция будет закоммичена в defer функции
 	r.logger.Debug("batch update completed successfully", "count", len(metrics))
 	return nil
 }
