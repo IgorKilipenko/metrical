@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"time"
 
 	"github.com/IgorKilipenko/metrical/internal/config/db"
 	"github.com/IgorKilipenko/metrical/internal/logger"
@@ -41,6 +42,12 @@ const (
 
 	selectAllCountersQuery = `
 		SELECT id, value FROM counter_metrics`
+)
+
+// Ограничения для операций
+const (
+	// Максимальный размер батча для обновления метрик
+	maxBatchSize = 1000
 )
 
 // DatabasePool интерфейс для работы с пулом соединений базы данных.
@@ -258,6 +265,12 @@ func (r *PostgreSQLMetricsRepository) validateGaugeValue(value float64) error {
 //   - context.Canceled: операция отменена
 //   - Ошибки базы данных: проблемы с подключением или SQL
 func (r *PostgreSQLMetricsRepository) UpdateGauge(ctx context.Context, name string, value float64) error {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		r.logger.Debug("operation completed", "operation", "UpdateGauge", "duration", duration)
+	}()
+
 	// Проверяем валидность входных данных
 	if err := r.validateMetricName(name); err != nil {
 		return err
@@ -318,6 +331,12 @@ func (r *PostgreSQLMetricsRepository) UpdateGauge(ctx context.Context, name stri
 //   - context.Canceled: операция отменена
 //   - Ошибки базы данных: проблемы с подключением или SQL
 func (r *PostgreSQLMetricsRepository) UpdateCounter(ctx context.Context, name string, value int64) error {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		r.logger.Debug("operation completed", "operation", "UpdateCounter", "duration", duration)
+	}()
+
 	// Проверяем валидность входных данных
 	if err := r.validateMetricName(name); err != nil {
 		return err
@@ -376,16 +395,26 @@ func (r *PostgreSQLMetricsRepository) UpdateCounter(ctx context.Context, name st
 // Возможные ошибки:
 //   - "metrics slice cannot be nil": nil слайс метрик
 //   - "metrics slice cannot be empty": пустой слайс метрик
+//   - "batch size X exceeds maximum allowed size 1000": превышен лимит размера батча
 //   - context.DeadlineExceeded: превышен таймаут
 //   - context.Canceled: операция отменена
 //   - Ошибки базы данных: проблемы с подключением или SQL
 func (r *PostgreSQLMetricsRepository) UpdateMetricsBatch(ctx context.Context, metrics []models.Metrics) error {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		r.logger.Debug("operation completed", "operation", "UpdateMetricsBatch", "duration", duration, "count", len(metrics))
+	}()
+
 	// Валидируем входные параметры
 	if metrics == nil {
 		return fmt.Errorf("metrics slice cannot be nil")
 	}
 	if len(metrics) == 0 {
 		return fmt.Errorf("metrics slice cannot be empty")
+	}
+	if len(metrics) > maxBatchSize {
+		return fmt.Errorf("batch size %d exceeds maximum allowed size %d", len(metrics), maxBatchSize)
 	}
 
 	// Проверяем отмену контекста
@@ -662,11 +691,15 @@ func (r *PostgreSQLMetricsRepository) GetAllGauges(ctx context.Context) (models.
 	defer rows.Close()
 
 	result := make(models.GaugeMetrics)
+	iterationCount := 0
 	for rows.Next() {
-		// Проверяем отмену контекста в цикле
-		if err := r.checkContext(ctx, "getAllGauges iteration"); err != nil {
-			return nil, err
+		// Проверяем отмену контекста периодически (каждые 100 итераций)
+		if iterationCount%100 == 0 {
+			if err := r.checkContext(ctx, "getAllGauges iteration"); err != nil {
+				return nil, err
+			}
 		}
+		iterationCount++
 
 		var name string
 		var value float64
@@ -740,11 +773,15 @@ func (r *PostgreSQLMetricsRepository) GetAllCounters(ctx context.Context) (model
 	defer rows.Close()
 
 	result := make(models.CounterMetrics)
+	iterationCount := 0
 	for rows.Next() {
-		// Проверяем отмену контекста в цикле
-		if err := r.checkContext(ctx, "getAllCounters iteration"); err != nil {
-			return nil, err
+		// Проверяем отмену контекста периодически (каждые 100 итераций)
+		if iterationCount%100 == 0 {
+			if err := r.checkContext(ctx, "getAllCounters iteration"); err != nil {
+				return nil, err
+			}
 		}
+		iterationCount++
 
 		var name string
 		var value int64

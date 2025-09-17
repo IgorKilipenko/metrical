@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -766,5 +767,53 @@ func TestPostgreSQLMetricsRepository_UpdateMetricsBatch_NilValues(t *testing.T) 
 		err := repo.UpdateMetricsBatch(ctx, metrics)
 		assert.Error(t, err, "Expected error for nil counter delta")
 		assert.Contains(t, err.Error(), "delta is required", "Error should mention delta is required")
+	})
+}
+
+// TestPostgreSQLMetricsRepository_UpdateMetricsBatch_BatchSizeLimit тестирует лимит размера батча
+func TestPostgreSQLMetricsRepository_UpdateMetricsBatch_BatchSizeLimit(t *testing.T) {
+	repo, cleanup := setupTestPostgreSQLRepo(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	t.Run("Batch size exceeds limit", func(t *testing.T) {
+		// Создаем батч размером больше лимита (1001 > 1000)
+		metrics := make([]models.Metrics, 1001)
+		for i := 0; i < 1001; i++ {
+			value := float64(i)
+			metrics[i] = models.Metrics{
+				ID:    fmt.Sprintf("metric_%d", i),
+				MType: "gauge",
+				Value: &value,
+			}
+		}
+
+		err := repo.UpdateMetricsBatch(ctx, metrics)
+		if err == nil {
+			t.Error("Expected error for batch size exceeding limit, got nil")
+		}
+
+		// Проверяем, что ошибка содержит информацию о превышении лимита
+		if !strings.Contains(err.Error(), "exceeds maximum allowed size") {
+			t.Errorf("Expected error about batch size limit, got: %v", err)
+		}
+	})
+
+	t.Run("Batch size at limit", func(t *testing.T) {
+		// Создаем батч размером равным лимиту (1000)
+		metrics := make([]models.Metrics, 1000)
+		for i := 0; i < 1000; i++ {
+			value := float64(i)
+			metrics[i] = models.Metrics{
+				ID:    fmt.Sprintf("metric_%d", i),
+				MType: "gauge",
+				Value: &value,
+			}
+		}
+
+		err := repo.UpdateMetricsBatch(ctx, metrics)
+		if err != nil {
+			t.Errorf("Expected no error for batch at limit, got: %v", err)
+		}
 	})
 }
