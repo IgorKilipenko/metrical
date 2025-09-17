@@ -444,3 +444,71 @@ func (s *MetricsService) GetMetricJSON(ctx context.Context, metric *models.Metri
 
 	return result, nil
 }
+
+// UpdateMetricsBatch обновляет множество метрик в рамках одной транзакции.
+//
+// Функция принимает слайс метрик и обновляет их все в рамках одной транзакции.
+// Это позволяет избежать race conditions и обеспечивает атомарность операции.
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//   - metrics: слайс метрик для обновления
+//
+// Возвращает:
+//   - error: ошибка операции или nil при успехе
+//
+// Пример использования:
+//
+//	metrics := []models.Metrics{
+//	    {ID: "temperature", MType: "gauge", Value: &temp},
+//	    {ID: "requests", MType: "counter", Delta: &count},
+//	}
+//	err := service.UpdateMetricsBatch(ctx, metrics)
+func (s *MetricsService) UpdateMetricsBatch(ctx context.Context, metrics []models.Metrics) error {
+	// Проверяем отмену контекста
+	if err := s.checkContextCancellation(ctx); err != nil {
+		return err
+	}
+
+	// Валидируем входные параметры
+	if metrics == nil {
+		return fmt.Errorf("metrics slice cannot be nil")
+	}
+
+	// Проверяем, что слайс не пустой
+	if len(metrics) == 0 {
+		return fmt.Errorf("metrics slice cannot be empty")
+	}
+
+	s.logger.Info("updating metrics batch", "count", len(metrics))
+
+	// Валидируем каждую метрику в батче
+	for i, metric := range metrics {
+		if err := s.validateMetricID(metric.ID); err != nil {
+			return fmt.Errorf("validation error for metric at index %d: %w", i, err)
+		}
+
+		switch metric.MType {
+		case models.Gauge:
+			if metric.Value == nil {
+				return fmt.Errorf("validation error for metric at index %d: value is required for gauge metric", i)
+			}
+		case models.Counter:
+			if metric.Delta == nil {
+				return fmt.Errorf("validation error for metric at index %d: delta is required for counter metric", i)
+			}
+		default:
+			return fmt.Errorf("validation error for metric at index %d: unsupported metric type: %s", i, metric.MType)
+		}
+	}
+
+	// Обновляем все метрики в рамках одной транзакции
+	err := s.repository.UpdateMetricsBatch(ctx, metrics)
+	if err != nil {
+		s.logger.Error("failed to update metrics batch", "count", len(metrics), "error", err)
+		return err
+	}
+
+	s.logger.Info("metrics batch updated successfully", "count", len(metrics))
+	return nil
+}

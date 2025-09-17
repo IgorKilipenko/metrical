@@ -88,3 +88,64 @@ func ValidateMetricType(metricType string) error {
 	}
 	return nil
 }
+
+// ValidateMetricsBatch валидирует батч метрик
+func ValidateMetricsBatch(metrics []models.Metrics) error {
+	if metrics == nil {
+		return models.ValidationError{
+			Field:   "metrics",
+			Value:   "nil",
+			Message: "metrics slice cannot be nil",
+		}
+	}
+
+	if len(metrics) == 0 {
+		return models.ValidationError{
+			Field:   "metrics",
+			Value:   "empty slice",
+			Message: "metrics slice cannot be empty",
+		}
+	}
+
+	for i, metric := range metrics {
+		// Валидируем ID метрики
+		if err := ValidateMetricName(metric.ID); err != nil {
+			return models.ValidationError{
+				Field:   "id",
+				Value:   metric.ID,
+				Message: "validation error for metric at index " + strconv.Itoa(i) + ": " + err.Error(),
+			}
+		}
+
+		// Валидируем тип метрики
+		if err := ValidateMetricType(metric.MType); err != nil {
+			return models.ValidationError{
+				Field:   "type",
+				Value:   metric.MType,
+				Message: "validation error for metric at index " + strconv.Itoa(i) + ": " + err.Error(),
+			}
+		}
+
+		// Валидируем значения в зависимости от типа
+		switch metric.MType {
+		case models.Gauge:
+			if metric.Value == nil {
+				return models.ValidationError{
+					Field:   "value",
+					Value:   "nil",
+					Message: "validation error for metric at index " + strconv.Itoa(i) + ": value is required for gauge metric",
+				}
+			}
+		case models.Counter:
+			if metric.Delta == nil {
+				return models.ValidationError{
+					Field:   "delta",
+					Value:   "nil",
+					Message: "validation error for metric at index " + strconv.Itoa(i) + ": delta is required for counter metric",
+				}
+			}
+		}
+	}
+
+	return nil
+}

@@ -322,6 +322,124 @@ func (r *PostgreSQLMetricsRepository) UpdateCounter(ctx context.Context, name st
 	return nil
 }
 
+// UpdateMetricsBatch обновляет множество метрик в рамках одной транзакции.
+//
+// Функция принимает слайс метрик и обновляет их все в рамках одной транзакции.
+// Это позволяет избежать race conditions и обеспечивает атомарность операции.
+//
+// Функция выполняет следующие действия:
+//  1. Валидирует входные параметры
+//  2. Проверяет отмену контекста
+//  3. Начинает транзакцию
+//  4. Обновляет все метрики в рамках транзакции
+//  5. Коммитит транзакцию или откатывает при ошибке
+//  6. Логирует результат операции
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//   - metrics: слайс метрик для обновления
+//
+// Возвращает:
+//   - error: ошибка операции или nil при успехе
+//
+// Пример использования:
+//
+//	metrics := []models.Metrics{
+//	    {ID: "temperature", MType: "gauge", Value: &temp},
+//	    {ID: "requests", MType: "counter", Delta: &count},
+//	}
+//	err := repo.UpdateMetricsBatch(ctx, metrics)
+//
+// Примечания:
+//   - Все операции выполняются в рамках одной транзакции
+//   - При ошибке в любой метрике вся транзакция откатывается
+//   - Операция атомарна - нет race conditions
+//
+// Возможные ошибки:
+//   - "metrics slice cannot be nil": nil слайс метрик
+//   - "metrics slice cannot be empty": пустой слайс метрик
+//   - context.DeadlineExceeded: превышен таймаут
+//   - context.Canceled: операция отменена
+//   - Ошибки базы данных: проблемы с подключением или SQL
+func (r *PostgreSQLMetricsRepository) UpdateMetricsBatch(ctx context.Context, metrics []models.Metrics) error {
+	// Валидируем входные параметры
+	if metrics == nil {
+		return fmt.Errorf("metrics slice cannot be nil")
+	}
+	if len(metrics) == 0 {
+		return fmt.Errorf("metrics slice cannot be empty")
+	}
+
+	// Проверяем отмену контекста
+	if err := r.checkContext(ctx, "batch update"); err != nil {
+		return err
+	}
+
+	// Начинаем транзакцию
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		r.logger.Error("failed to begin transaction for batch update", "error", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			if rollbackErr := tx.Rollback(ctx); rollbackErr != nil {
+				r.logger.Error("failed to rollback transaction", "error", rollbackErr)
+			}
+		}
+	}()
+
+	// Обновляем все метрики в рамках транзакции
+	for _, metric := range metrics {
+		switch metric.MType {
+		case models.Gauge:
+			if metric.Value != nil {
+				// Валидируем значение gauge
+				if err := r.validateGaugeValue(*metric.Value); err != nil {
+					return fmt.Errorf("validation error for gauge metric %s: %w", metric.ID, err)
+				}
+
+				query := `
+					INSERT INTO gauge_metrics (id, value, updated_at) 
+					VALUES ($1, $2, NOW())
+					ON CONFLICT (id) 
+					DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+
+				_, err = tx.Exec(ctx, query, metric.ID, *metric.Value)
+				if err != nil {
+					r.logger.Error("failed to update gauge metric in batch", "id", metric.ID, "value", *metric.Value, "error", err)
+					return fmt.Errorf("failed to update gauge metric %s: %w", metric.ID, err)
+				}
+			}
+		case models.Counter:
+			if metric.Delta != nil {
+				query := `
+					INSERT INTO counter_metrics (id, value, updated_at) 
+					VALUES ($1, $2, NOW())
+					ON CONFLICT (id) 
+					DO UPDATE SET value = counter_metrics.value + EXCLUDED.value, updated_at = NOW()`
+
+				_, err = tx.Exec(ctx, query, metric.ID, *metric.Delta)
+				if err != nil {
+					r.logger.Error("failed to update counter metric in batch", "id", metric.ID, "delta", *metric.Delta, "error", err)
+					return fmt.Errorf("failed to update counter metric %s: %w", metric.ID, err)
+				}
+			}
+		default:
+			return fmt.Errorf("unsupported metric type: %s", metric.MType)
+		}
+	}
+
+	// Коммитим транзакцию
+	if err = tx.Commit(ctx); err != nil {
+		r.logger.Error("failed to commit transaction for batch update", "error", err)
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	r.logger.Debug("batch update completed successfully", "count", len(metrics))
+	return nil
+}
+
 // GetGauge возвращает значение gauge метрики из базы данных.
 //
 // Функция выполняет поиск gauge метрики по имени и возвращает её значение.

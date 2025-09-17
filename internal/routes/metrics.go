@@ -45,6 +45,7 @@ func SetupMetricsRoutes(handler *handler.MetricsHandler, pinger handler.Database
 
 	// JSON API маршруты
 	r.Post("/update", handler.UpdateMetricJSON)
+	r.Post("/updates", handler.UpdateMetricsBatch)
 	r.Post("/value", handler.GetMetricJSON)
 
 	return r

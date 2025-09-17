@@ -10,6 +10,7 @@ import (
 type MetricsRepository interface {
 	UpdateGauge(ctx context.Context, name string, value float64) error
 	UpdateCounter(ctx context.Context, name string, value int64) error
+	UpdateMetricsBatch(ctx context.Context, metrics []models.Metrics) error
 	GetGauge(ctx context.Context, name string) (float64, bool, error)
 	GetCounter(ctx context.Context, name string) (int64, bool, error)
 	GetAllGauges(ctx context.Context) (models.GaugeMetrics, error)

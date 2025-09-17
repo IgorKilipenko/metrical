@@ -147,6 +147,40 @@ func (a *Agent) sendMetrics() {
 	metrics := a.metrics.GetAllMetrics()
 	a.mu.RUnlock()
 
+	// Проверяем, есть ли метрики для отправки
+	if len(metrics) == 0 {
+		a.logger.Debug("no metrics to send")
+		return
+	}
+
+	// Отправляем метрики батчем
+	if err := a.sendMetricsBatch(metrics); err != nil {
+		a.logger.Error("failed to send metrics batch", "error", err)
+		// Fallback: отправляем по одной метрике
+		a.sendMetricsIndividually(metrics)
+	} else {
+		a.logger.Info("successfully sent metrics batch", "count", len(metrics))
+	}
+}
+
+// sendMetricsBatch отправляет все метрики одним батчем
+func (a *Agent) sendMetricsBatch(metrics map[string]interface{}) error {
+	// Подготавливаем метрики в JSON формате
+	metricsList, err := a.prepareMetricsBatch(metrics)
+	if err != nil {
+		return fmt.Errorf("failed to prepare metrics batch: %w", err)
+	}
+
+	// Отправляем HTTP запрос
+	if err := a.sendBatchJSONRequest(metricsList); err != nil {
+		return fmt.Errorf("failed to send metrics batch: %w", err)
+	}
+
+	return nil
+}
+
+// sendMetricsIndividually отправляет метрики по одной (fallback)
+func (a *Agent) sendMetricsIndividually(metrics map[string]interface{}) {
 	successCount := 0
 	errorCount := 0
 
@@ -164,11 +198,11 @@ func (a *Agent) sendMetrics() {
 
 	// Логируем итоговую статистику
 	if errorCount > 0 {
-		a.logger.Warn("sent metrics with errors",
+		a.logger.Warn("sent metrics individually with errors",
 			"successful", successCount,
 			"failed", errorCount)
 	} else {
-		a.logger.Info("successfully sent metrics", "count", successCount)
+		a.logger.Info("successfully sent metrics individually", "count", successCount)
 	}
 }
 
@@ -213,6 +247,21 @@ func (a *Agent) prepareMetricJSON(name string, value interface{}) (*models.Metri
 	}
 
 	return &metric, nil
+}
+
+// prepareMetricsBatch подготавливает батч метрик в JSON формате
+func (a *Agent) prepareMetricsBatch(metrics map[string]interface{}) ([]models.Metrics, error) {
+	var metricsList []models.Metrics
+
+	for name, value := range metrics {
+		metric, err := a.prepareMetricJSON(name, value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to prepare metric %s: %w", name, err)
+		}
+		metricsList = append(metricsList, *metric)
+	}
+
+	return metricsList, nil
 }
 
 // compressData сжимает данные с помощью gzip
@@ -280,4 +329,40 @@ func (a *Agent) sendHTTPRequestWithRetry(req *http.Request) error {
 	}
 
 	return nil
+}
+
+// sendBatchJSONRequest отправляет батч метрик в JSON формате на сервер
+func (a *Agent) sendBatchJSONRequest(metrics []models.Metrics) error {
+	// Убеждаемся, что URL содержит протокол
+	serverURL := a.config.ServerURL
+	if !strings.HasPrefix(serverURL, "http://") && !strings.HasPrefix(serverURL, "https://") {
+		serverURL = "http://" + serverURL
+	}
+	url := fmt.Sprintf("%s/updates", serverURL)
+
+	// Кодируем метрики в JSON
+	jsonData, err := json.Marshal(metrics)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metrics batch: %w", err)
+	}
+
+	// Сжимаем данные
+	compressedData, err := a.compressData(jsonData)
+	if err != nil {
+		return fmt.Errorf("failed to compress data: %w", err)
+	}
+
+	// Создаем запрос
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(compressedData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Устанавливаем заголовки
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set("Accept-Encoding", "gzip")
+
+	// Выполняем запрос с retry логикой
+	return a.sendHTTPRequestWithRetry(req)
 }

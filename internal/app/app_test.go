@@ -410,6 +410,9 @@ func (m *mockMetricsRepository) UpdateGauge(ctx context.Context, name string, va
 func (m *mockMetricsRepository) UpdateCounter(ctx context.Context, name string, value int64) error {
 	return nil
 }
+func (m *mockMetricsRepository) UpdateMetricsBatch(ctx context.Context, metrics []models.Metrics) error {
+	return nil
+}
 func (m *mockMetricsRepository) GetGauge(ctx context.Context, name string) (float64, bool, error) {
 	return 0, false, nil
 }
