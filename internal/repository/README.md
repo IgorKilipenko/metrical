@@ -30,6 +30,7 @@
 type MetricsRepository interface {
     UpdateGauge(ctx context.Context, name string, value float64) error
     UpdateCounter(ctx context.Context, name string, value int64) error
+    UpdateMetricsBatch(ctx context.Context, metrics []models.Metrics) error // НОВОЕ: батчевое обновление
     GetGauge(ctx context.Context, name string) (float64, bool, error)
     GetCounter(ctx context.Context, name string) (int64, bool, error)
     GetAllGauges(ctx context.Context) (models.GaugeMetrics, error)
@@ -167,6 +168,21 @@ value, exists, err := repo.GetCounter(ctx, "requests")
 // Получение всех метрик с контекстом
 gauges, err := repo.GetAllGauges(ctx)
 counters, err := repo.GetAllCounters(ctx)
+
+// Батчевое обновление метрик (НОВОЕ)
+metrics := []models.Metrics{
+    {
+        ID:    "temperature",
+        MType: "gauge",
+        Value: func() *float64 { v := 23.5; return &v }(),
+    },
+    {
+        ID:    "requests_total",
+        MType: "counter",
+        Delta: func() *int64 { v := int64(100); return &v }(),
+    },
+}
+err = repo.UpdateMetricsBatch(ctx, metrics)
 ```
 
 ### Работа с таймаутами и отменой
@@ -368,6 +384,27 @@ INSERT INTO metrics (name, type, delta, updated_at)
 VALUES ($1, $2, $3, NOW())
 ON CONFLICT (name, type) 
 DO UPDATE SET delta = metrics.delta + EXCLUDED.delta, updated_at = NOW()
+```
+
+#### Батчевое обновление (НОВОЕ)
+```sql
+-- Начинаем транзакцию
+BEGIN;
+
+-- Обновляем gauge метрики
+INSERT INTO gauge_metrics (id, value, updated_at) 
+VALUES ($1, $2, NOW())
+ON CONFLICT (id) 
+DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
+
+-- Обновляем counter метрики
+INSERT INTO counter_metrics (id, value, updated_at) 
+VALUES ($1, $2, NOW())
+ON CONFLICT (id) 
+DO UPDATE SET value = counter_metrics.value + EXCLUDED.value, updated_at = NOW();
+
+-- Коммитим транзакцию
+COMMIT;
 ```
 
 ### Валидация данных

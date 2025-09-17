@@ -132,11 +132,24 @@ func (s *MetricsService) UpdateMetricJSON(ctx context.Context, metric *models.Me
 func (s *MetricsService) GetMetricJSON(ctx context.Context, metric *models.Metrics) (*models.Metrics, error)
 ```
 
+#### UpdateMetricsBatch
+**НОВОЕ**: Батчевое обновление метрик:
+```go
+func (s *MetricsService) UpdateMetricsBatch(ctx context.Context, metrics []models.Metrics) error
+```
+
 **Особенности JSON API:**
 - Работает с `models.Metrics` структурой
 - Поддерживает контекст для отмены и таймаутов
 - Валидирует данные перед обработкой
 - Возвращает полную структуру метрики с значениями
+
+**Особенности батчевого API:**
+- Обновляет множество метрик за одну операцию
+- Транзакционность: все метрики обновляются атомарно
+- Валидация каждой метрики в батче
+- Поддержка контекста для отмены и таймаутов
+- Эффективность: меньше сетевых запросов
 
 ### updateGaugeMetric / updateCounterMetric
 Приватные методы для обновления конкретных типов метрик с контекстом:
@@ -201,6 +214,21 @@ value, exists, err := service.GetCounter(ctx, "requests")
 // Получение всех метрик с контекстом
 gauges, err := service.GetAllGauges(ctx)
 counters, err := service.GetAllCounters(ctx)
+
+// Батчевое обновление метрик (НОВОЕ)
+metrics := []models.Metrics{
+    {
+        ID:    "temperature",
+        MType: "gauge",
+        Value: func() *float64 { v := 23.5; return &v }(),
+    },
+    {
+        ID:    "requests_total",
+        MType: "counter",
+        Delta: func() *int64 { v := int64(100); return &v }(),
+    },
+}
+err = service.UpdateMetricsBatch(ctx, metrics)
 ```
 
 ### Работа с таймаутами и отменой

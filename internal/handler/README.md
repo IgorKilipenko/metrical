@@ -116,6 +116,7 @@ type MetricsHandler struct {
 
 - `UpdateMetricJSON(w, r)` - обновление метрики через JSON API
 - `GetMetricJSON(w, r)` - получение метрики через JSON API
+- `UpdateMetricsBatch(w, r)` - **НОВОЕ**: батчевое обновление метрик через JSON API
 - `validateMetricJSON(metric)` - валидация JSON метрики
 - `validateMetricRequestJSON(metric)` - валидация JSON запроса
 
@@ -232,6 +233,56 @@ if err == context.DeadlineExceeded {
 4. **Ресурсосбережение** - освобождение ресурсов при отмене
 5. **Пользовательский опыт** - быстрая обратная связь при таймаутах
 6. **Мониторинг** - возможность отслеживать время выполнения операций
+
+## Новый API endpoint: POST /updates
+
+### Батчевое обновление метрик
+
+Новый endpoint `POST /updates` позволяет обновлять несколько метрик за один запрос:
+
+```go
+// Пример запроса
+POST /updates
+Content-Type: application/json
+Content-Encoding: gzip
+
+[
+  {
+    "id": "temperature",
+    "type": "gauge",
+    "value": 23.5
+  },
+  {
+    "id": "requests_total",
+    "type": "counter",
+    "delta": 100
+  }
+]
+```
+
+### Особенности реализации
+
+- **Транзакционность**: Все метрики обновляются в рамках одной транзакции
+- **Gzip поддержка**: Автоматическое сжатие/распаковка данных
+- **Валидация**: Проверка каждой метрики в батче
+- **Контекст**: Поддержка таймаутов и отмены операций
+- **Обратная совместимость**: Старые endpoint'ы продолжают работать
+
+### Обработка ошибок
+
+```go
+// При ошибке валидации - 400 Bad Request
+{
+  "error": "validation error for metric at index 0: value is required for gauge metric"
+}
+
+// При ошибке сервера - 500 Internal Server Error
+{
+  "error": "Internal Server Error"
+}
+
+// При успехе - 200 OK (без тела ответа)
+```
 
 ## Тестирование
 

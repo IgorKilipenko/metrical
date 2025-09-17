@@ -21,6 +21,7 @@ func SetupMetricsRoutes(handler *handler.MetricsHandler) *chi.Mux
 - `POST /update/{type}/{name}/{value}` - обновление метрики (legacy)
 - `GET /value/{type}/{name}` - получение значения метрики (legacy)
 - `POST /update` - обновление метрики через JSON API
+- `POST /updates` - **НОВОЕ**: батчевое обновление метрик через JSON API
 - `POST /value` - получение метрики через JSON API
 
 ### Архитектура маршрутов
@@ -37,6 +38,9 @@ graph TB
         GET_ALL[GET /]
         POST_UPDATE[POST /update/{type}/{name}/{value}]
         GET_VALUE[GET /value/{type}/{name}]
+        POST_UPDATE_JSON[POST /update]
+        POST_UPDATES_BATCH[POST /updates]
+        POST_VALUE_JSON[POST /value]
         GET_HEALTH[GET /health]
     end
     
@@ -50,11 +54,17 @@ graph TB
     CHI --> GET_ALL
     CHI --> POST_UPDATE
     CHI --> GET_VALUE
+    CHI --> POST_UPDATE_JSON
+    CHI --> POST_UPDATES_BATCH
+    CHI --> POST_VALUE_JSON
     CHI --> GET_HEALTH
     
     GET_ALL --> MH
     POST_UPDATE --> MH
     GET_VALUE --> MH
+    POST_UPDATE_JSON --> MH
+    POST_UPDATES_BATCH --> MH
+    POST_VALUE_JSON --> MH
     GET_HEALTH --> HH
     
     style MR fill:#f3e5f5
