@@ -381,8 +381,11 @@ func (r *PostgreSQLMetricsRepository) UpdateMetricsBatch(ctx context.Context, me
 		r.logger.Error("failed to begin transaction for batch update", "error", err)
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+
+	// Используем отдельную переменную для отслеживания ошибок
+	var txErr error
 	defer func() {
-		if err != nil {
+		if txErr != nil {
 			if rollbackErr := tx.Rollback(ctx); rollbackErr != nil {
 				r.logger.Error("failed to rollback transaction", "error", rollbackErr)
 			}
@@ -393,40 +396,50 @@ func (r *PostgreSQLMetricsRepository) UpdateMetricsBatch(ctx context.Context, me
 	for _, metric := range metrics {
 		switch metric.MType {
 		case models.Gauge:
-			if metric.Value != nil {
-				// Валидируем значение gauge
-				if err := r.validateGaugeValue(*metric.Value); err != nil {
-					return fmt.Errorf("validation error for gauge metric %s: %w", metric.ID, err)
-				}
+			if metric.Value == nil {
+				txErr = fmt.Errorf("validation error for gauge metric %s: value is required", metric.ID)
+				return txErr
+			}
 
-				query := `
-					INSERT INTO gauge_metrics (id, value, updated_at) 
-					VALUES ($1, $2, NOW())
-					ON CONFLICT (id) 
-					DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+			// Валидируем значение gauge
+			if err := r.validateGaugeValue(*metric.Value); err != nil {
+				txErr = fmt.Errorf("validation error for gauge metric %s: %w", metric.ID, err)
+				return txErr
+			}
 
-				_, err = tx.Exec(ctx, query, metric.ID, *metric.Value)
-				if err != nil {
-					r.logger.Error("failed to update gauge metric in batch", "id", metric.ID, "value", *metric.Value, "error", err)
-					return fmt.Errorf("failed to update gauge metric %s: %w", metric.ID, err)
-				}
+			query := `
+				INSERT INTO gauge_metrics (id, value, updated_at) 
+				VALUES ($1, $2, NOW())
+				ON CONFLICT (id) 
+				DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+
+			_, err = tx.Exec(ctx, query, metric.ID, *metric.Value)
+			if err != nil {
+				r.logger.Error("failed to update gauge metric in batch", "id", metric.ID, "value", *metric.Value, "error", err)
+				txErr = fmt.Errorf("failed to update gauge metric %s: %w", metric.ID, err)
+				return txErr
 			}
 		case models.Counter:
-			if metric.Delta != nil {
-				query := `
-					INSERT INTO counter_metrics (id, value, updated_at) 
-					VALUES ($1, $2, NOW())
-					ON CONFLICT (id) 
-					DO UPDATE SET value = counter_metrics.value + EXCLUDED.value, updated_at = NOW()`
+			if metric.Delta == nil {
+				txErr = fmt.Errorf("validation error for counter metric %s: delta is required", metric.ID)
+				return txErr
+			}
 
-				_, err = tx.Exec(ctx, query, metric.ID, *metric.Delta)
-				if err != nil {
-					r.logger.Error("failed to update counter metric in batch", "id", metric.ID, "delta", *metric.Delta, "error", err)
-					return fmt.Errorf("failed to update counter metric %s: %w", metric.ID, err)
-				}
+			query := `
+				INSERT INTO counter_metrics (id, value, updated_at) 
+				VALUES ($1, $2, NOW())
+				ON CONFLICT (id) 
+				DO UPDATE SET value = counter_metrics.value + EXCLUDED.value, updated_at = NOW()`
+
+			_, err = tx.Exec(ctx, query, metric.ID, *metric.Delta)
+			if err != nil {
+				r.logger.Error("failed to update counter metric in batch", "id", metric.ID, "delta", *metric.Delta, "error", err)
+				txErr = fmt.Errorf("failed to update counter metric %s: %w", metric.ID, err)
+				return txErr
 			}
 		default:
-			return fmt.Errorf("unsupported metric type: %s", metric.MType)
+			txErr = fmt.Errorf("unsupported metric type: %s", metric.MType)
+			return txErr
 		}
 	}
 

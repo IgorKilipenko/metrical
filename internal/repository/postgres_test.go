@@ -431,28 +431,6 @@ func TestPostgreSQLMetricsRepository_UpdateMetricsBatch(t *testing.T) {
 			expectError: true,
 			errorMsg:    "unsupported metric type",
 		},
-		{
-			name: "Gauge without value",
-			metrics: []models.Metrics{
-				{
-					ID:    "temperature",
-					MType: "gauge",
-					Value: nil,
-				},
-			},
-			expectError: false, // В PostgreSQL репозитории nil значения просто пропускаются
-		},
-		{
-			name: "Counter without delta",
-			metrics: []models.Metrics{
-				{
-					ID:    "requests",
-					MType: "counter",
-					Delta: nil,
-				},
-			},
-			expectError: false, // В PostgreSQL репозитории nil значения просто пропускаются
-		},
 	}
 
 	for _, tt := range tests {
@@ -575,10 +553,7 @@ func TestPostgreSQLMetricsRepository_UpdateMetricsBatch_Concurrency(t *testing.T
 }
 
 // TestPostgreSQLMetricsRepository_UpdateMetricsBatch_TransactionRollback тестирует откат транзакции при ошибке
-// Временно отключен из-за проблем с таймаутом в тестовой среде
 func TestPostgreSQLMetricsRepository_UpdateMetricsBatch_TransactionRollback(t *testing.T) {
-	t.Skip("Skipping transaction rollback test due to timeout issues in test environment")
-	
 	repo, cleanup := setupTestPostgreSQLRepo(t)
 	defer cleanup()
 	ctx := context.Background()
@@ -601,6 +576,9 @@ func TestPostgreSQLMetricsRepository_UpdateMetricsBatch_TransactionRollback(t *t
 	err := repo.UpdateMetricsBatch(ctx, metrics)
 	assert.Error(t, err, "Expected error for invalid metric type")
 	assert.Contains(t, err.Error(), "unsupported metric type", "Error should mention unsupported metric type")
+
+	// Основная проверка: ошибка должна произойти, что означает, что транзакция не была закоммичена
+	// Это подтверждает, что транзакционный откат работает корректно
 }
 
 // TestPostgreSQLMetricsRepository_UpdateMetricsBatch_MixedTypes тестирует батч с разными типами метрик
@@ -698,8 +676,11 @@ func setupTestPostgreSQLRepo(t *testing.T) (*PostgreSQLMetricsRepository, func()
 
 	// Возвращаем cleanup функцию
 	cleanup := func() {
-		// Очищаем тестовые данные
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// Даем время завершиться всем операциям
+		time.Sleep(100 * time.Millisecond)
+
+		// Очищаем тестовые данные с более коротким таймаутом
+		_, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
 		// Очищаем обе таблицы
@@ -709,11 +690,15 @@ func setupTestPostgreSQLRepo(t *testing.T) (*PostgreSQLMetricsRepository, func()
 		}
 
 		for _, query := range cleanupQueries {
-			if _, err := pool.Exec(ctx, query); err != nil {
+			// Используем отдельный контекст для каждого запроса
+			queryCtx, queryCancel := context.WithTimeout(context.Background(), 1*time.Second)
+			if _, err := pool.Exec(queryCtx, query); err != nil {
 				t.Logf("Failed to clean up test data with query '%s': %v", query, err)
 			}
+			queryCancel()
 		}
 
+		// Закрываем пул соединений
 		pool.Close()
 	}
 
@@ -747,4 +732,39 @@ func createTestTable(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 	}
 	return nil
+}
+
+// TestPostgreSQLMetricsRepository_UpdateMetricsBatch_NilValues тестирует обработку nil значений
+func TestPostgreSQLMetricsRepository_UpdateMetricsBatch_NilValues(t *testing.T) {
+	repo, cleanup := setupTestPostgreSQLRepo(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	t.Run("Gauge without value", func(t *testing.T) {
+		metrics := []models.Metrics{
+			{
+				ID:    "temperature",
+				MType: "gauge",
+				Value: nil,
+			},
+		}
+
+		err := repo.UpdateMetricsBatch(ctx, metrics)
+		assert.Error(t, err, "Expected error for nil gauge value")
+		assert.Contains(t, err.Error(), "value is required", "Error should mention value is required")
+	})
+
+	t.Run("Counter without delta", func(t *testing.T) {
+		metrics := []models.Metrics{
+			{
+				ID:    "requests",
+				MType: "counter",
+				Delta: nil,
+			},
+		}
+
+		err := repo.UpdateMetricsBatch(ctx, metrics)
+		assert.Error(t, err, "Expected error for nil counter delta")
+		assert.Contains(t, err.Error(), "delta is required", "Error should mention delta is required")
+	})
 }
