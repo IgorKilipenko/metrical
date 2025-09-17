@@ -14,6 +14,35 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// SQL запросы для работы с метриками
+const (
+	// Запросы для gauge метрик
+	insertGaugeQuery = `
+		INSERT INTO gauge_metrics (id, value, updated_at) 
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (id) 
+		DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+
+	selectGaugeQuery = `
+		SELECT value FROM gauge_metrics WHERE id = $1`
+
+	selectAllGaugesQuery = `
+		SELECT id, value FROM gauge_metrics`
+
+	// Запросы для counter метрик
+	insertCounterQuery = `
+		INSERT INTO counter_metrics (id, value, updated_at) 
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (id) 
+		DO UPDATE SET value = counter_metrics.value + EXCLUDED.value, updated_at = NOW()`
+
+	selectCounterQuery = `
+		SELECT value FROM counter_metrics WHERE id = $1`
+
+	selectAllCountersQuery = `
+		SELECT id, value FROM counter_metrics`
+)
+
 // DatabasePool интерфейс для работы с пулом соединений базы данных.
 //
 // Предоставляет абстракцию для лучшей тестируемости и позволяет
@@ -242,13 +271,7 @@ func (r *PostgreSQLMetricsRepository) UpdateGauge(ctx context.Context, name stri
 		return err
 	}
 
-	query := `
-		INSERT INTO gauge_metrics (id, value, updated_at) 
-		VALUES ($1, $2, NOW())
-		ON CONFLICT (id) 
-		DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
-
-	_, err := r.pool.Exec(ctx, query, name, value)
+	_, err := r.pool.Exec(ctx, insertGaugeQuery, name, value)
 	if err != nil {
 		r.logger.Error("failed to update gauge metric", "name", name, "value", value, "error", err)
 		return err
@@ -306,12 +329,7 @@ func (r *PostgreSQLMetricsRepository) UpdateCounter(ctx context.Context, name st
 	}
 
 	// Используем оптимизированный SQL запрос для атомарного обновления
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO counter_metrics (id, value, updated_at) 
-		VALUES ($1, $2, NOW())
-		ON CONFLICT (id) 
-		DO UPDATE SET value = counter_metrics.value + EXCLUDED.value, updated_at = NOW()`,
-		name, value)
+	_, err := r.pool.Exec(ctx, insertCounterQuery, name, value)
 
 	if err != nil {
 		r.logger.Error("failed to update counter metric", "name", name, "value", value, "error", err)
@@ -423,13 +441,7 @@ func (r *PostgreSQLMetricsRepository) UpdateMetricsBatch(ctx context.Context, me
 				return txErr
 			}
 
-			query := `
-				INSERT INTO gauge_metrics (id, value, updated_at) 
-				VALUES ($1, $2, NOW())
-				ON CONFLICT (id) 
-				DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
-
-			_, err = tx.Exec(ctx, query, metric.ID, *metric.Value)
+			_, err = tx.Exec(ctx, insertGaugeQuery, metric.ID, *metric.Value)
 			if err != nil {
 				r.logger.Error("failed to update gauge metric in batch", "id", metric.ID, "value", *metric.Value, "error", err)
 				txErr = fmt.Errorf("failed to update gauge metric %s: %w", metric.ID, err)
@@ -441,13 +453,7 @@ func (r *PostgreSQLMetricsRepository) UpdateMetricsBatch(ctx context.Context, me
 				return txErr
 			}
 
-			query := `
-				INSERT INTO counter_metrics (id, value, updated_at) 
-				VALUES ($1, $2, NOW())
-				ON CONFLICT (id) 
-				DO UPDATE SET value = counter_metrics.value + EXCLUDED.value, updated_at = NOW()`
-
-			_, err = tx.Exec(ctx, query, metric.ID, *metric.Delta)
+			_, err = tx.Exec(ctx, insertCounterQuery, metric.ID, *metric.Delta)
 			if err != nil {
 				r.logger.Error("failed to update counter metric in batch", "id", metric.ID, "delta", *metric.Delta, "error", err)
 				txErr = fmt.Errorf("failed to update counter metric %s: %w", metric.ID, err)
@@ -515,9 +521,7 @@ func (r *PostgreSQLMetricsRepository) GetGauge(ctx context.Context, name string)
 	}
 
 	var value float64
-	err := r.pool.QueryRow(ctx,
-		"SELECT value FROM gauge_metrics WHERE id = $1",
-		name).Scan(&value)
+	err := r.pool.QueryRow(ctx, selectGaugeQuery, name).Scan(&value)
 
 	if err == pgx.ErrNoRows {
 		r.logger.Debug("gauge metric not found", "name", name)
@@ -588,9 +592,7 @@ func (r *PostgreSQLMetricsRepository) GetCounter(ctx context.Context, name strin
 	}
 
 	var value int64
-	err := r.pool.QueryRow(ctx,
-		"SELECT value FROM counter_metrics WHERE id = $1",
-		name).Scan(&value)
+	err := r.pool.QueryRow(ctx, selectCounterQuery, name).Scan(&value)
 
 	if err == pgx.ErrNoRows {
 		r.logger.Debug("counter metric not found", "name", name)
@@ -652,8 +654,7 @@ func (r *PostgreSQLMetricsRepository) GetAllGauges(ctx context.Context) (models.
 		return nil, err
 	}
 
-	rows, err := r.pool.Query(ctx,
-		"SELECT id, value FROM gauge_metrics")
+	rows, err := r.pool.Query(ctx, selectAllGaugesQuery)
 	if err != nil {
 		r.logger.Error("failed to get all gauge metrics", "error", err)
 		return nil, err
@@ -731,8 +732,7 @@ func (r *PostgreSQLMetricsRepository) GetAllCounters(ctx context.Context) (model
 		return nil, err
 	}
 
-	rows, err := r.pool.Query(ctx,
-		"SELECT id, value FROM counter_metrics")
+	rows, err := r.pool.Query(ctx, selectAllCountersQuery)
 	if err != nil {
 		r.logger.Error("failed to get all counter metrics", "error", err)
 		return nil, err
