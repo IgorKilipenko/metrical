@@ -119,6 +119,144 @@ func TestMetricsService_UpdateMetric_CounterAccumulation(t *testing.T) {
 	assert.Equal(t, int64(150), value, "Counter value should accumulate")
 }
 
+func TestMetricsService_UpdateMetricsBatch(t *testing.T) {
+	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger(), testutils.TestMetricsFile, false)
+	service := NewMetricsService(repository, testutils.NewMockLogger())
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		metrics     []models.Metrics
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "Valid batch with gauge and counter",
+			metrics: []models.Metrics{
+				{
+					ID:    "temperature",
+					MType: "gauge",
+					Value: func() *float64 { v := 23.5; return &v }(),
+				},
+				{
+					ID:    "requests",
+					MType: "counter",
+					Delta: func() *int64 { v := int64(100); return &v }(),
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:        "Empty batch",
+			metrics:     []models.Metrics{},
+			expectError: true,
+			errorMsg:    "metrics slice cannot be empty",
+		},
+		{
+			name:        "Nil batch",
+			metrics:     nil,
+			expectError: true,
+			errorMsg:    "metrics slice cannot be nil",
+		},
+		{
+			name: "Invalid metric type",
+			metrics: []models.Metrics{
+				{
+					ID:    "invalid",
+					MType: "invalid_type",
+					Value: func() *float64 { v := 23.5; return &v }(),
+				},
+			},
+			expectError: true,
+			errorMsg:    "unsupported metric type",
+		},
+		{
+			name: "Gauge without value",
+			metrics: []models.Metrics{
+				{
+					ID:    "temperature",
+					MType: "gauge",
+					Value: nil,
+				},
+			},
+			expectError: true,
+			errorMsg:    "value is required for gauge metric",
+		},
+		{
+			name: "Counter without delta",
+			metrics: []models.Metrics{
+				{
+					ID:    "requests",
+					MType: "counter",
+					Delta: nil,
+				},
+			},
+			expectError: true,
+			errorMsg:    "delta is required for counter metric",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := service.UpdateMetricsBatch(ctx, tt.metrics)
+
+			if tt.expectError {
+				assert.Error(t, err, "Expected error, got nil")
+				if tt.errorMsg != "" {
+					assert.Contains(t, err.Error(), tt.errorMsg, "Error message should contain expected text")
+				}
+			} else {
+				assert.NoError(t, err, "Expected no error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestMetricsService_UpdateMetricsBatch_ContextCancellation(t *testing.T) {
+	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger(), testutils.TestMetricsFile, false)
+	service := NewMetricsService(repository, testutils.NewMockLogger())
+
+	// Создаем отмененный контекст
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	metrics := []models.Metrics{
+		{
+			ID:    "temperature",
+			MType: "gauge",
+			Value: func() *float64 { v := 23.5; return &v }(),
+		},
+	}
+
+	err := service.UpdateMetricsBatch(ctx, metrics)
+	assert.Error(t, err, "Expected error for cancelled context")
+	assert.Equal(t, context.Canceled, err, "Expected context.Canceled error")
+}
+
+func TestMetricsService_UpdateMetricsBatch_ContextTimeout(t *testing.T) {
+	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger(), testutils.TestMetricsFile, false)
+	service := NewMetricsService(repository, testutils.NewMockLogger())
+
+	// Создаем контекст с очень коротким таймаутом
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+	defer cancel()
+
+	// Ждем, чтобы таймаут точно истек
+	time.Sleep(1 * time.Millisecond)
+
+	metrics := []models.Metrics{
+		{
+			ID:    "temperature",
+			MType: "gauge",
+			Value: func() *float64 { v := 23.5; return &v }(),
+		},
+	}
+
+	err := service.UpdateMetricsBatch(ctx, metrics)
+	assert.Error(t, err, "Expected error for timed out context")
+	assert.Equal(t, context.DeadlineExceeded, err, "Expected context.DeadlineExceeded error")
+}
+
 func TestMetricsService_GetGauge(t *testing.T) {
 	repository := repository.NewInMemoryMetricsRepository(testutils.NewMockLogger(), testutils.TestMetricsFile, false)
 	service := NewMetricsService(repository, testutils.NewMockLogger())

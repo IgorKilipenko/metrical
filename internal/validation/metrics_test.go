@@ -187,3 +187,121 @@ func TestValidateMetricType(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateMetricsBatch(t *testing.T) {
+	tests := []struct {
+		name        string
+		metrics     []models.Metrics
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "Valid batch with gauge and counter",
+			metrics: []models.Metrics{
+				{
+					ID:    "temperature",
+					MType: "gauge",
+					Value: func() *float64 { v := 23.5; return &v }(),
+				},
+				{
+					ID:    "requests",
+					MType: "counter",
+					Delta: func() *int64 { v := int64(100); return &v }(),
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:        "Empty batch",
+			metrics:     []models.Metrics{},
+			expectError: true,
+			errorMsg:    "metrics slice cannot be empty",
+		},
+		{
+			name:        "Nil batch",
+			metrics:     nil,
+			expectError: true,
+			errorMsg:    "metrics slice cannot be nil",
+		},
+		{
+			name: "Invalid metric type",
+			metrics: []models.Metrics{
+				{
+					ID:    "invalid",
+					MType: "invalid_type",
+					Value: func() *float64 { v := 23.5; return &v }(),
+				},
+			},
+			expectError: true,
+			errorMsg:    "validation error for metric at index 0",
+		},
+		{
+			name: "Empty metric ID",
+			metrics: []models.Metrics{
+				{
+					ID:    "",
+					MType: "gauge",
+					Value: func() *float64 { v := 23.5; return &v }(),
+				},
+			},
+			expectError: true,
+			errorMsg:    "validation error for metric at index 0",
+		},
+		{
+			name: "Gauge without value",
+			metrics: []models.Metrics{
+				{
+					ID:    "temperature",
+					MType: "gauge",
+					Value: nil,
+				},
+			},
+			expectError: true,
+			errorMsg:    "validation error for metric at index 0",
+		},
+		{
+			name: "Counter without delta",
+			metrics: []models.Metrics{
+				{
+					ID:    "requests",
+					MType: "counter",
+					Delta: nil,
+				},
+			},
+			expectError: true,
+			errorMsg:    "validation error for metric at index 0",
+		},
+		{
+			name: "Multiple metrics with one invalid",
+			metrics: []models.Metrics{
+				{
+					ID:    "valid",
+					MType: "gauge",
+					Value: func() *float64 { v := 23.5; return &v }(),
+				},
+				{
+					ID:    "invalid",
+					MType: "invalid_type",
+					Value: func() *float64 { v := 23.5; return &v }(),
+				},
+			},
+			expectError: true,
+			errorMsg:    "validation error for metric at index 1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateMetricsBatch(tt.metrics)
+
+			if tt.expectError {
+				assert.Error(t, err, "Expected error, got nil")
+				if tt.errorMsg != "" {
+					assert.Contains(t, err.Error(), tt.errorMsg, "Error message should contain expected text")
+				}
+			} else {
+				assert.NoError(t, err, "Expected no error, got %v", err)
+			}
+		})
+	}
+}

@@ -638,6 +638,11 @@ func (r *PostgreSQLMetricsRepository) GetAllGauges(ctx context.Context) (models.
 
 	result := make(models.GaugeMetrics)
 	for rows.Next() {
+		// Проверяем отмену контекста в цикле
+		if err := r.checkContext(ctx, "getAllGauges iteration"); err != nil {
+			return nil, err
+		}
+
 		var name string
 		var value float64
 		if err := rows.Scan(&name, &value); err != nil {
@@ -712,6 +717,11 @@ func (r *PostgreSQLMetricsRepository) GetAllCounters(ctx context.Context) (model
 
 	result := make(models.CounterMetrics)
 	for rows.Next() {
+		// Проверяем отмену контекста в цикле
+		if err := r.checkContext(ctx, "getAllCounters iteration"); err != nil {
+			return nil, err
+		}
+
 		var name string
 		var value int64
 		if err := rows.Scan(&name, &value); err != nil {

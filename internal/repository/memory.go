@@ -113,6 +113,14 @@ func (r *InMemoryMetricsRepository) UpdateCounter(ctx context.Context, name stri
 
 // UpdateMetricsBatch обновляет множество метрик в рамках одной транзакции
 func (r *InMemoryMetricsRepository) UpdateMetricsBatch(ctx context.Context, metrics []models.Metrics) error {
+	// Валидируем входные параметры
+	if metrics == nil {
+		return fmt.Errorf("metrics slice cannot be nil")
+	}
+	if len(metrics) == 0 {
+		return fmt.Errorf("metrics slice cannot be empty")
+	}
+
 	// Проверяем отмену контекста
 	select {
 	case <-ctx.Done():
