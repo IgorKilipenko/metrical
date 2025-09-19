@@ -258,7 +258,10 @@ func TestRetry_AllAttemptsFailed(t *testing.T) {
 	duration := time.Since(start)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "operation failed after 3 attempts")
+
+	var retryErr *RetryExhaustedError
+	assert.True(t, errors.As(err, &retryErr))
+	assert.Equal(t, 3, retryErr.Attempts)
 	assert.Equal(t, 3, attempts)
 	// Проверяем, что прошло достаточно времени для всех retry (10ms + 20ms = 30ms минимум)
 	assert.GreaterOrEqual(t, duration, 30*time.Millisecond)
@@ -382,7 +385,10 @@ func TestRetryWithResult_AllAttemptsFailed(t *testing.T) {
 	result, err := RetryWithResult(ctx, logger, config, operation)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "operation failed after 3 attempts")
+
+	var retryErr *RetryExhaustedError
+	assert.True(t, errors.As(err, &retryErr))
+	assert.Equal(t, 3, retryErr.Attempts)
 	assert.False(t, result)
 	assert.Equal(t, 3, attempts)
 }
@@ -487,7 +493,7 @@ func TestRetry_EmptyDelays(t *testing.T) {
 	// Это должно вернуть ошибку валидации
 	err := Retry(ctx, logger, config, operation)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Delays cannot be empty")
+	assert.ErrorIs(t, err, ErrInvalidConfig)
 }
 
 func TestRetry_ZeroMaxAttempts(t *testing.T) {
@@ -508,7 +514,7 @@ func TestRetry_ZeroMaxAttempts(t *testing.T) {
 	err := Retry(ctx, logger, config, operation)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "MaxAttempts must be greater than 0, got 0")
+	assert.ErrorIs(t, err, ErrInvalidConfig)
 	assert.Equal(t, 0, attempts)
 }
 
@@ -530,7 +536,10 @@ func TestRetry_OneMaxAttempt(t *testing.T) {
 	err := Retry(ctx, logger, config, operation)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "operation failed after 1 attempts")
+
+	var retryErr *RetryExhaustedError
+	assert.True(t, errors.As(err, &retryErr))
+	assert.Equal(t, 1, retryErr.Attempts)
 	assert.Equal(t, 1, attempts)
 }
 
@@ -665,7 +674,10 @@ func TestRetryWithResult3_AllAttemptsFailed(t *testing.T) {
 	result, exists, err := RetryWithResult3(ctx, logger, config, operation)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "operation failed after 3 attempts")
+
+	var retryErr *RetryExhaustedError
+	assert.True(t, errors.As(err, &retryErr))
+	assert.Equal(t, 3, retryErr.Attempts)
 	assert.False(t, result)
 	assert.False(t, exists)
 	assert.Equal(t, 3, attempts)
@@ -739,4 +751,52 @@ func BenchmarkRetryWithResult3_Success(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		RetryWithResult3(ctx, logger, DefaultRetryConfig, operation)
 	}
+}
+
+// Тесты для новых типов ошибок
+func TestErrInvalidConfig(t *testing.T) {
+	logger := testutils.NewMockLogger()
+	ctx := context.Background()
+
+	// Тест с неверной конфигурацией
+	config := RetryConfig{
+		MaxAttempts: 0,
+		Delays:      []time.Duration{1 * time.Second},
+	}
+
+	operation := func() error {
+		return nil
+	}
+
+	err := Retry(ctx, logger, config, operation)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidConfig)
+}
+
+func TestRetryExhaustedError(t *testing.T) {
+	logger := testutils.NewMockLogger()
+	ctx := context.Background()
+
+	config := RetryConfig{
+		MaxAttempts: 2,
+		Delays:      []time.Duration{10 * time.Millisecond},
+	}
+
+	attempts := 0
+	operation := func() error {
+		attempts++
+		return NewRetryableError(errors.New("persistent error"))
+	}
+
+	err := Retry(ctx, logger, config, operation)
+	assert.Error(t, err)
+
+	var retryErr *RetryExhaustedError
+	assert.True(t, errors.As(err, &retryErr))
+	assert.Equal(t, 2, retryErr.Attempts)
+	assert.Equal(t, "persistent error", retryErr.LastError.Error())
+	assert.Equal(t, 2, attempts)
+
+	// Проверяем Unwrap
+	assert.Equal(t, retryErr.LastError, errors.Unwrap(retryErr))
 }

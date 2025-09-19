@@ -57,9 +57,46 @@ if retry.IsRetryableError(err) {
 }
 ```
 
-## Поддерживаемые типы ошибок
+## Типы ошибок
 
-### PostgreSQL Connection Errors (Class 08)
+### Публичные ошибки
+
+Пакет предоставляет типизированные ошибки для обработки пользователями:
+
+#### ErrInvalidConfig
+```go
+var ErrInvalidConfig = errors.New("invalid retry configuration")
+```
+
+Возвращается при неверной конфигурации retry (например, MaxAttempts <= 0).
+
+#### RetryExhaustedError
+```go
+type RetryExhaustedError struct {
+    Attempts  int
+    LastError error
+}
+```
+
+Возвращается когда исчерпаны все попытки retry. Содержит:
+- `Attempts` - количество выполненных попыток
+- `LastError` - последняя ошибка, которая привела к неудаче
+
+Пример использования:
+```go
+err := retry.Retry(ctx, logger, config, operation)
+if err != nil {
+    var retryErr *retry.RetryExhaustedError
+    if errors.As(err, &retryErr) {
+        log.Printf("Failed after %d attempts, last error: %v", 
+            retryErr.Attempts, retryErr.LastError)
+    }
+}
+```
+
+### Автоматически определяемые retryable ошибки
+
+#### PostgreSQL Connection Errors (Class 08)
 
 Автоматически определяются как retryable:
 - `ConnectionException` (08000)
@@ -235,9 +272,38 @@ go test -v ./internal/retry/
 1. **Используйте контекст** - всегда передавайте context.Context
 2. **Настройте логирование** - используйте структурированное логирование
 3. **Обрабатывайте финальные ошибки** - не игнорируйте ошибки после всех попыток
-4. **Тестируйте retry логику** - убедитесь, что retry работает корректно
-5. **Мониторьте метрики** - отслеживайте количество retry в production
-6. **Настройте конфигурацию** - адаптируйте под ваши нужды
+4. **Используйте типизированные ошибки** - проверяйте `ErrInvalidConfig` и `RetryExhaustedError`
+5. **Тестируйте retry логику** - убедитесь, что retry работает корректно
+6. **Мониторьте метрики** - отслеживайте количество retry в production
+7. **Настройте конфигурацию** - адаптируйте под ваши нужды
+
+### Обработка ошибок
+
+```go
+err := retry.Retry(ctx, logger, config, operation)
+if err != nil {
+    // Проверяем тип ошибки
+    if errors.Is(err, retry.ErrInvalidConfig) {
+        // Обработка неверной конфигурации
+        log.Error("Invalid retry configuration", "error", err)
+        return err
+    }
+    
+    var retryErr *retry.RetryExhaustedError
+    if errors.As(err, &retryErr) {
+        // Обработка исчерпания попыток
+        log.Error("All retry attempts exhausted", 
+            "attempts", retryErr.Attempts,
+            "last_error", retryErr.LastError)
+        
+        // Можно попробовать альтернативную стратегию
+        return handleRetryExhaustion(retryErr)
+    }
+    
+    // Другие ошибки
+    return err
+}
+```
 
 ## Troubleshooting
 

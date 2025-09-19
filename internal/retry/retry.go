@@ -72,6 +72,26 @@ func NewRetryableError(err error) RetryableError {
 	return &retryableError{err: err}
 }
 
+// Публичные ошибки для пользователей пакета
+var (
+	// ErrInvalidConfig возвращается при неверной конфигурации retry
+	ErrInvalidConfig = errors.New("invalid retry configuration")
+)
+
+// RetryExhaustedError возвращается когда исчерпаны все попытки retry
+type RetryExhaustedError struct {
+	Attempts  int
+	LastError error
+}
+
+func (e *RetryExhaustedError) Error() string {
+	return fmt.Sprintf("operation failed after %d attempts: %v", e.Attempts, e.LastError)
+}
+
+func (e *RetryExhaustedError) Unwrap() error {
+	return e.LastError
+}
+
 // IsRetryableError проверяет, является ли ошибка retryable
 func IsRetryableError(err error) bool {
 	var retryableErr RetryableError
@@ -148,7 +168,7 @@ func getDelay(config RetryConfig, attempt int) (time.Duration, error) {
 // Retry выполняет операцию с retry логикой
 func Retry(ctx context.Context, logger logger.Logger, config RetryConfig, operation func() error) error {
 	if err := config.Validate(); err != nil {
-		return fmt.Errorf("invalid retry config: %w", err)
+		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 	}
 
 	var lastErr error
@@ -182,7 +202,10 @@ func Retry(ctx context.Context, logger logger.Logger, config RetryConfig, operat
 			logger.Error("operation failed after all retry attempts",
 				"error", err,
 				"total_attempts", config.MaxAttempts)
-			return fmt.Errorf("operation failed after %d attempts: %w", config.MaxAttempts, err)
+			return &RetryExhaustedError{
+				Attempts:  config.MaxAttempts,
+				LastError: err,
+			}
 		}
 
 		// Ждем перед следующей попыткой
@@ -204,14 +227,17 @@ func Retry(ctx context.Context, logger logger.Logger, config RetryConfig, operat
 		}
 	}
 
-	return fmt.Errorf("operation failed after %d attempts: %w", config.MaxAttempts, lastErr)
+	return &RetryExhaustedError{
+		Attempts:  config.MaxAttempts,
+		LastError: lastErr,
+	}
 }
 
 // RetryWithResult выполняет операцию с retry логикой и возвращает результат
 func RetryWithResult[T any](ctx context.Context, logger logger.Logger, config RetryConfig, operation func() (T, error)) (T, error) {
 	if err := config.Validate(); err != nil {
 		var zero T
-		return zero, fmt.Errorf("invalid retry config: %w", err)
+		return zero, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 	}
 
 	var zero T
@@ -246,7 +272,10 @@ func RetryWithResult[T any](ctx context.Context, logger logger.Logger, config Re
 			logger.Error("operation failed after all retry attempts",
 				"error", err,
 				"total_attempts", config.MaxAttempts)
-			return zero, fmt.Errorf("operation failed after %d attempts: %w", config.MaxAttempts, err)
+			return zero, &RetryExhaustedError{
+				Attempts:  config.MaxAttempts,
+				LastError: err,
+			}
 		}
 
 		// Ждем перед следующей попыткой
@@ -268,13 +297,16 @@ func RetryWithResult[T any](ctx context.Context, logger logger.Logger, config Re
 		}
 	}
 
-	return zero, fmt.Errorf("operation failed after %d attempts: %w", config.MaxAttempts, lastErr)
+	return zero, &RetryExhaustedError{
+		Attempts:  config.MaxAttempts,
+		LastError: lastErr,
+	}
 }
 
 // RetryHTTP выполняет HTTP операцию с retry логикой
 func RetryHTTP(ctx context.Context, logger logger.Logger, config RetryConfig, operation func() (*http.Response, error)) (*http.Response, error) {
 	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid retry config: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 	}
 
 	var lastErr error
@@ -321,7 +353,10 @@ func RetryHTTP(ctx context.Context, logger logger.Logger, config RetryConfig, op
 			logger.Error("HTTP operation failed after all retry attempts",
 				"error", err,
 				"total_attempts", config.MaxAttempts)
-			return nil, fmt.Errorf("HTTP operation failed after %d attempts: %w", config.MaxAttempts, err)
+			return nil, &RetryExhaustedError{
+				Attempts:  config.MaxAttempts,
+				LastError: err,
+			}
 		}
 
 		// Ждем перед следующей попыткой
@@ -343,14 +378,17 @@ func RetryHTTP(ctx context.Context, logger logger.Logger, config RetryConfig, op
 		}
 	}
 
-	return nil, fmt.Errorf("HTTP operation failed after %d attempts: %w", config.MaxAttempts, lastErr)
+	return nil, &RetryExhaustedError{
+		Attempts:  config.MaxAttempts,
+		LastError: lastErr,
+	}
 }
 
 // RetryWithResult3 выполняет операцию с retry логикой и возвращает результат с тремя значениями
 func RetryWithResult3[T any](ctx context.Context, logger logger.Logger, config RetryConfig, operation func() (T, bool, error)) (T, bool, error) {
 	if err := config.Validate(); err != nil {
 		var zero T
-		return zero, false, fmt.Errorf("invalid retry config: %w", err)
+		return zero, false, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 	}
 
 	var zero T
@@ -385,7 +423,10 @@ func RetryWithResult3[T any](ctx context.Context, logger logger.Logger, config R
 			logger.Error("operation failed after all retry attempts",
 				"error", err,
 				"total_attempts", config.MaxAttempts)
-			return zero, false, fmt.Errorf("operation failed after %d attempts: %w", config.MaxAttempts, err)
+			return zero, false, &RetryExhaustedError{
+				Attempts:  config.MaxAttempts,
+				LastError: err,
+			}
 		}
 
 		// Ждем перед следующей попыткой
@@ -407,5 +448,8 @@ func RetryWithResult3[T any](ctx context.Context, logger logger.Logger, config R
 		}
 	}
 
-	return zero, false, fmt.Errorf("operation failed after %d attempts: %w", config.MaxAttempts, lastErr)
+	return zero, false, &RetryExhaustedError{
+		Attempts:  config.MaxAttempts,
+		LastError: lastErr,
+	}
 }
