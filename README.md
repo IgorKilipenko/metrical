@@ -46,6 +46,49 @@ make db-logs
 make db-down
 ```
 
+## 🔄 Retry логика
+
+Система использует интеллектуальную retry логику для обработки временных ошибок:
+
+### Конфигурация
+- **Количество попыток**: 4 (1 основная + 3 повтора)
+- **Интервалы**: 1s, 3s, 5s (экспоненциальный backoff)
+- **Поддержка контекста**: корректная обработка отмены и таймаутов
+
+### Retryable ошибки
+
+#### HTTP/Network ошибки
+- `connection refused`
+- `connection reset`
+- `connection timeout`
+- `no such host`
+- `network is unreachable`
+- `temporary failure`
+- `i/o timeout`
+- `context deadline exceeded`
+- `connection lost`
+- `broken pipe`
+- HTTP 5xx ошибки сервера
+
+#### PostgreSQL connection errors (Class 08)
+- `ConnectionException` (08000)
+- `ConnectionDoesNotExist` (08003)
+- `ConnectionFailure` (08006)
+- `SQLClientUnableToEstablishSQLConnection` (08001)
+- `SQLServerRejectedEstablishmentOfSQLConnection` (08004)
+- `TransactionResolutionUnknown` (08007)
+- `ProtocolViolation` (08P01)
+
+### Не-retryable ошибки
+- HTTP 4xx клиентские ошибки
+- Ошибки валидации данных
+- Ошибки бизнес-логики
+
+### Применение
+- **Agent**: HTTP запросы к серверу
+- **PostgreSQL Repository**: операции с базой данных
+- **Service Layer**: делегирует retry логику в репозиторий
+
 ## 🔧 Конфигурация портов
 
 | Сервис | Порт | Описание |
@@ -189,7 +232,7 @@ type Metrics struct {
 - **Gzip Middleware** - автоматическое сжатие/распаковка HTTP данных
 - **Database Abstraction** - интерфейсы для легкого переключения между хранилищами
 - **Connection Pooling** - эффективное управление соединениями с БД
-- **Retry Logic** - автоматические повторы при сбоях
+- **Retry Logic** - интеллектуальные повторы при сбоях с экспоненциальным backoff
 
 ### Архитектура
 

@@ -11,6 +11,23 @@
 - кэши (Redis, Memcached)
 - другие источники данных.
 
+## Retry логика
+
+PostgreSQL репозиторий использует интеллектуальную retry логику для обработки временных ошибок:
+
+- **Количество попыток**: 4 (1 основная + 3 повтора)
+- **Интервалы**: 1s, 3s, 5s (экспоненциальный backoff)
+- **Retryable ошибки**:
+  - PostgreSQL connection errors (Class 08)
+  - ConnectionException (08000)
+  - ConnectionDoesNotExist (08003)
+  - ConnectionFailure (08006)
+  - SQLClientUnableToEstablishSQLConnection (08001)
+  - SQLServerRejectedEstablishmentOfSQLConnection (08004)
+  - TransactionResolutionUnknown (08007)
+  - ProtocolViolation (08P01)
+- **Применяется к**: UpdateGauge, UpdateCounter, GetGauge, GetCounter, UpdateMetricsBatch
+
 ## Архитектура
 
 ```

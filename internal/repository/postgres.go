@@ -10,6 +10,7 @@ import (
 	"github.com/IgorKilipenko/metrical/internal/config/db"
 	"github.com/IgorKilipenko/metrical/internal/logger"
 	models "github.com/IgorKilipenko/metrical/internal/model"
+	"github.com/IgorKilipenko/metrical/internal/retry"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -284,14 +285,17 @@ func (r *PostgreSQLMetricsRepository) UpdateGauge(ctx context.Context, name stri
 		return err
 	}
 
-	_, err := r.pool.Exec(ctx, insertGaugeQuery, name, value)
-	if err != nil {
-		r.logger.Error("failed to update gauge metric", "name", name, "value", value, "error", err)
-		return err
-	}
+	// Используем retry логику для операций с базой данных
+	return retry.Retry(ctx, r.logger, retry.DefaultRetryConfig, func() error {
+		_, err := r.pool.Exec(ctx, insertGaugeQuery, name, value)
+		if err != nil {
+			r.logger.Error("failed to update gauge metric", "name", name, "value", value, "error", err)
+			return err
+		}
 
-	r.logger.Debug("updated gauge metric", "name", name, "value", value)
-	return nil
+		r.logger.Debug("updated gauge metric", "name", name, "value", value)
+		return nil
+	})
 }
 
 // UpdateCounter добавляет значение к counter метрике в базе данных.
@@ -347,16 +351,19 @@ func (r *PostgreSQLMetricsRepository) UpdateCounter(ctx context.Context, name st
 		return err
 	}
 
-	// Используем оптимизированный SQL запрос для атомарного обновления
-	_, err := r.pool.Exec(ctx, insertCounterQuery, name, value)
+	// Используем retry логику для операций с базой данных
+	return retry.Retry(ctx, r.logger, retry.DefaultRetryConfig, func() error {
+		// Используем оптимизированный SQL запрос для атомарного обновления
+		_, err := r.pool.Exec(ctx, insertCounterQuery, name, value)
 
-	if err != nil {
-		r.logger.Error("failed to update counter metric", "name", name, "value", value, "error", err)
-		return err
-	}
+		if err != nil {
+			r.logger.Error("failed to update counter metric", "name", name, "value", value, "error", err)
+			return err
+		}
 
-	r.logger.Debug("updated counter metric", "name", name, "value", value)
-	return nil
+		r.logger.Debug("updated counter metric", "name", name, "value", value)
+		return nil
+	})
 }
 
 // UpdateMetricsBatch обновляет множество метрик в рамках одной транзакции.
@@ -422,11 +429,19 @@ func (r *PostgreSQLMetricsRepository) UpdateMetricsBatch(ctx context.Context, me
 		return err
 	}
 
-	// Начинаем транзакцию
-	tx, err := r.pool.Begin(ctx)
+	// Начинаем транзакцию с retry логикой
+	var tx pgx.Tx
+	err := retry.Retry(ctx, r.logger, retry.DefaultRetryConfig, func() error {
+		var beginErr error
+		tx, beginErr = r.pool.Begin(ctx)
+		if beginErr != nil {
+			r.logger.Error("failed to begin transaction for batch update", "error", beginErr)
+			return fmt.Errorf("failed to begin transaction: %w", beginErr)
+		}
+		return nil
+	})
 	if err != nil {
-		r.logger.Error("failed to begin transaction for batch update", "error", err)
-		return fmt.Errorf("failed to begin transaction: %w", err)
+		return err
 	}
 
 	// Используем отдельную переменную для отслеживания ошибок
@@ -549,21 +564,24 @@ func (r *PostgreSQLMetricsRepository) GetGauge(ctx context.Context, name string)
 		return 0, false, err
 	}
 
-	var value float64
-	err := r.pool.QueryRow(ctx, selectGaugeQuery, name).Scan(&value)
+	// Используем retry логику для операций с базой данных
+	return retry.RetryWithResult3(ctx, r.logger, retry.DefaultRetryConfig, func() (float64, bool, error) {
+		var value float64
+		err := r.pool.QueryRow(ctx, selectGaugeQuery, name).Scan(&value)
 
-	if err == pgx.ErrNoRows {
-		r.logger.Debug("gauge metric not found", "name", name)
-		return 0, false, nil
-	}
+		if err == pgx.ErrNoRows {
+			r.logger.Debug("gauge metric not found", "name", name)
+			return 0, false, nil
+		}
 
-	if err != nil {
-		r.logger.Error("failed to get gauge metric", "name", name, "error", err)
-		return 0, false, err
-	}
+		if err != nil {
+			r.logger.Error("failed to get gauge metric", "name", name, "error", err)
+			return 0, false, err
+		}
 
-	r.logger.Debug("retrieved gauge metric", "name", name, "value", value)
-	return value, true, nil
+		r.logger.Debug("retrieved gauge metric", "name", name, "value", value)
+		return value, true, nil
+	})
 }
 
 // GetCounter возвращает значение counter метрики из базы данных.
@@ -620,21 +638,24 @@ func (r *PostgreSQLMetricsRepository) GetCounter(ctx context.Context, name strin
 		return 0, false, err
 	}
 
-	var value int64
-	err := r.pool.QueryRow(ctx, selectCounterQuery, name).Scan(&value)
+	// Используем retry логику для операций с базой данных
+	return retry.RetryWithResult3(ctx, r.logger, retry.DefaultRetryConfig, func() (int64, bool, error) {
+		var value int64
+		err := r.pool.QueryRow(ctx, selectCounterQuery, name).Scan(&value)
 
-	if err == pgx.ErrNoRows {
-		r.logger.Debug("counter metric not found", "name", name)
-		return 0, false, nil
-	}
+		if err == pgx.ErrNoRows {
+			r.logger.Debug("counter metric not found", "name", name)
+			return 0, false, nil
+		}
 
-	if err != nil {
-		r.logger.Error("failed to get counter metric", "name", name, "error", err)
-		return 0, false, err
-	}
+		if err != nil {
+			r.logger.Error("failed to get counter metric", "name", name, "error", err)
+			return 0, false, err
+		}
 
-	r.logger.Debug("retrieved counter metric", "name", name, "value", value)
-	return value, true, nil
+		r.logger.Debug("retrieved counter metric", "name", name, "value", value)
+		return value, true, nil
+	})
 }
 
 // GetAllGauges возвращает все gauge метрики из базы данных.

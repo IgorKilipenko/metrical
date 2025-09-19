@@ -15,12 +15,6 @@ import (
 	models "github.com/IgorKilipenko/metrical/internal/model"
 )
 
-// Константы для retry логики
-const (
-	DefaultMaxRetries = 2
-	DefaultRetryDelay = 100 * time.Millisecond
-)
-
 // MetricValue структура для хранения метрики
 type MetricValue struct {
 	Value     float64
@@ -50,7 +44,7 @@ func NewAgent(config *Config, agentLogger logger.Logger) *Agent {
 	}
 
 	// Обертываем в retry клиент
-	retryClient := NewRetryHTTPClient(baseClient, DefaultMaxRetries, DefaultRetryDelay, agentLogger)
+	retryClient := NewRetryHTTPClient(baseClient, agentLogger)
 
 	return &Agent{
 		config:     config,
