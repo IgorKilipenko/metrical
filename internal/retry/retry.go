@@ -22,18 +22,18 @@ type RetryConfig struct {
 // Validate проверяет корректность конфигурации retry
 func (c *RetryConfig) Validate() error {
 	if c.MaxAttempts <= 0 {
-		return fmt.Errorf("MaxAttempts must be greater than 0, got %d", c.MaxAttempts)
+		return fmt.Errorf("maxAttempts must be greater than 0, got %d", c.MaxAttempts)
 	}
 	// Для MaxAttempts=1 delays может быть пустым
 	if c.MaxAttempts > 1 && len(c.Delays) == 0 {
-		return fmt.Errorf("Delays cannot be empty")
+		return fmt.Errorf("delays cannot be empty")
 	}
 	if len(c.Delays) < c.MaxAttempts-1 {
-		return fmt.Errorf("Delays length (%d) must be at least MaxAttempts-1 (%d)", len(c.Delays), c.MaxAttempts-1)
+		return fmt.Errorf("delays length (%d) must be at least MaxAttempts-1 (%d)", len(c.Delays), c.MaxAttempts-1)
 	}
 	for i, delay := range c.Delays {
 		if delay < 0 {
-			return fmt.Errorf("Delay at index %d cannot be negative, got %v", i, delay)
+			return fmt.Errorf("delay at index %d cannot be negative, got %v", i, delay)
 		}
 	}
 	return nil

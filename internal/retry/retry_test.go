@@ -779,6 +779,7 @@ func TestRetryHTTP_Success(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
+	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, 1, attempts)
 }
@@ -812,6 +813,7 @@ func TestRetryHTTP_SuccessAfterRetries(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
+	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, 3, attempts)
 	// Проверяем, что прошло достаточно времени для retry
@@ -869,6 +871,7 @@ func TestRetryHTTP_4xxNoRetry(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
+	defer resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	assert.Equal(t, 1, attempts) // Должна быть только одна попытка
 }
@@ -904,6 +907,7 @@ func TestRetryHTTP_NetworkError(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
+	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, 3, attempts)
 }
@@ -980,7 +984,7 @@ func TestRetryConfig_Validate(t *testing.T) {
 				Delays:      []time.Duration{1 * time.Second},
 			},
 			wantErr: true,
-			errMsg:  "MaxAttempts must be greater than 0, got 0",
+			errMsg:  "maxAttempts must be greater than 0, got 0",
 		},
 		{
 			name: "negative max attempts",
@@ -989,7 +993,7 @@ func TestRetryConfig_Validate(t *testing.T) {
 				Delays:      []time.Duration{1 * time.Second},
 			},
 			wantErr: true,
-			errMsg:  "MaxAttempts must be greater than 0, got -1",
+			errMsg:  "maxAttempts must be greater than 0, got -1",
 		},
 		{
 			name: "empty delays",
@@ -998,7 +1002,7 @@ func TestRetryConfig_Validate(t *testing.T) {
 				Delays:      []time.Duration{},
 			},
 			wantErr: true,
-			errMsg:  "Delays cannot be empty",
+			errMsg:  "delays cannot be empty",
 		},
 		{
 			name: "nil delays",
@@ -1007,7 +1011,7 @@ func TestRetryConfig_Validate(t *testing.T) {
 				Delays:      nil,
 			},
 			wantErr: true,
-			errMsg:  "Delays cannot be empty",
+			errMsg:  "delays cannot be empty",
 		},
 		{
 			name: "insufficient delays",
@@ -1016,7 +1020,7 @@ func TestRetryConfig_Validate(t *testing.T) {
 				Delays:      []time.Duration{1 * time.Second},
 			},
 			wantErr: true,
-			errMsg:  "Delays length (1) must be at least MaxAttempts-1 (3)",
+			errMsg:  "delays length (1) must be at least MaxAttempts-1 (3)",
 		},
 		{
 			name: "negative delay",
@@ -1025,7 +1029,7 @@ func TestRetryConfig_Validate(t *testing.T) {
 				Delays:      []time.Duration{1 * time.Second, -2 * time.Second},
 			},
 			wantErr: true,
-			errMsg:  "Delay at index 1 cannot be negative, got -2s",
+			errMsg:  "delay at index 1 cannot be negative, got -2s",
 		},
 		{
 			name: "zero delay",
@@ -1103,8 +1107,7 @@ func TestRetry_EmptyOperation(t *testing.T) {
 	ctx := context.Background()
 
 	// Тест с nil операцией
-	var operation func() error
-	operation = nil
+	var operation func() error = nil
 
 	// Это должно вызвать панику, но мы не тестируем панику в этом тесте
 	// В реальном коде это должно быть обработано на уровне вызова
