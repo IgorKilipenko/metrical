@@ -159,7 +159,8 @@ test-db-up: ## Запустить тестовую БД
 
 test-db-run: ## Запустить тесты с БД
 	@echo "$(BLUE)Запуск тестов с PostgreSQL...$(NC)"
-	@TEST_DATABASE_URL="postgres://test:test@localhost:5433/testdb?sslmode=disable" go test -v ./internal/repository/ -run TestPostgreSQL
+	@echo "$(YELLOW)Используется значение по умолчанию для TEST_DATABASE_URL$(NC)"
+	@go test -v ./internal/repository/ -run TestPostgreSQL -timeout 30s
 	@echo "$(GREEN)Тесты с БД завершены$(NC)"
 
 test-db-down: ## Остановить тестовую БД

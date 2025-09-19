@@ -28,6 +28,35 @@ PostgreSQL репозиторий использует интеллектуал�
   - ProtocolViolation (08P01)
 - **Применяется к**: UpdateGauge, UpdateCounter, GetGauge, GetCounter, UpdateMetricsBatch
 
+## Тестирование
+
+### PostgreSQL тесты
+
+PostgreSQL тесты автоматически используют значение по умолчанию для подключения к тестовой БД:
+
+- **По умолчанию**: `postgres://test:test@localhost:5433/testdb?sslmode=disable`
+- **Переменная окружения**: `TEST_DATABASE_URL` (опционально)
+- **Автоматическое создание таблиц**: Тесты создают необходимые таблицы автоматически
+
+#### Запуск тестов
+
+```bash
+# Запуск всех PostgreSQL тестов (используется значение по умолчанию)
+make test-db
+
+# Или напрямую
+go test -v ./internal/repository/ -run TestPostgreSQL
+
+# С кастомной БД
+TEST_DATABASE_URL="postgres://user:pass@localhost:5432/mydb" go test -v ./internal/repository/ -run TestPostgreSQL
+```
+
+#### Требования
+
+- Тестовая PostgreSQL БД должна быть запущена на порту 5433
+- База данных `testdb` должна существовать
+- Пользователь `test` с паролем `test` должен иметь доступ к БД
+
 ## Архитектура
 
 ```

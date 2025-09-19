@@ -772,9 +772,11 @@ go test ./... -v -cover
 go test ./internal/middleware/... -v
 go test ./internal/agent/... -v
 
-# Тесты PostgreSQL репозитория (требует тестовую БД)
-TEST_DATABASE_URL="postgres://test:test@localhost:5433/testdb?sslmode=disable" \
+# Тесты PostgreSQL репозитория (автоматически использует значение по умолчанию)
 go test ./internal/repository/... -v
+
+# Или с кастомной БД
+TEST_DATABASE_URL="postgres://user:pass@localhost:5432/mydb" go test ./internal/repository/... -v
 
 # Тесты конфигурации базы данных
 go test ./internal/config/db/... -v
@@ -791,12 +793,14 @@ go test -memprofile=mem.prof -bench=.
 
 #### Переменные окружения для тестов
 ```bash
-# Тестовая база данных
+# Тестовая база данных (опционально - есть значение по умолчанию)
 export TEST_DATABASE_URL="postgres://test:test@localhost:5433/testdb?sslmode=disable"
 
 # Основная база данных
 export DATABASE_DSN="postgres://metricaldb:Secret@localhost:5434/metricaldb?sslmode=disable"
 ```
+
+**Примечание**: `TEST_DATABASE_URL` не обязательна - тесты автоматически используют значение по умолчанию `postgres://test:test@localhost:5433/testdb?sslmode=disable`
 
 #### Скрипты для тестирования
 ```bash

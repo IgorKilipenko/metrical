@@ -380,6 +380,17 @@ func TestPostgreSQLMetricsRepository_InterfaceCompatibility(t *testing.T) {
 	// SetSyncSave не должен паниковать
 }
 
+// TestPostgreSQLMetricsRepository_HealthCheck тестирует health check
+func TestPostgreSQLMetricsRepository_HealthCheck(t *testing.T) {
+	repo, cleanup := setupTestPostgreSQLRepo(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Проверяем health check
+	err := repo.HealthCheck(ctx)
+	assert.NoError(t, err, "Health check should pass for healthy database")
+}
+
 // TestPostgreSQLMetricsRepository_UpdateMetricsBatch тестирует батчевое обновление метрик
 func TestPostgreSQLMetricsRepository_UpdateMetricsBatch(t *testing.T) {
 	repo, cleanup := setupTestPostgreSQLRepo(t)
@@ -639,14 +650,18 @@ func TestPostgreSQLMetricsRepository_UpdateMetricsBatch_MixedTypes(t *testing.T)
 	assert.Equal(t, int64(5), errorsValue)
 }
 
+// Константа для тестовой БД по умолчанию
+const defaultTestDatabaseURL = "postgres://test:test@localhost:5433/testdb?sslmode=disable"
+
 // setupTestPostgreSQLRepo создает тестовый PostgreSQL репозиторий
 func setupTestPostgreSQLRepo(t *testing.T) (*PostgreSQLMetricsRepository, func()) {
 	t.Helper()
 
-	// Проверяем, доступна ли тестовая БД
+	// Получаем DSN для тестовой БД из переменной окружения или используем значение по умолчанию
 	testDSN := os.Getenv("TEST_DATABASE_URL")
 	if testDSN == "" {
-		testDSN = "postgres://test:test@localhost:5433/testdb?sslmode=disable"
+		testDSN = defaultTestDatabaseURL
+		t.Logf("TEST_DATABASE_URL not set, using default: %s", defaultTestDatabaseURL)
 	}
 
 	// Пытаемся подключиться к тестовой БД

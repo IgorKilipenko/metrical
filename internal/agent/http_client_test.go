@@ -172,7 +172,7 @@ func TestRetryHTTPClient_Do_MaxRetriesExceeded(t *testing.T) {
 	resp, err := client.Do(req)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "HTTP operation failed after 4 attempts")
+	assert.Contains(t, err.Error(), "operation failed after 4 attempts")
 	assert.Len(t, mockClient.doCalls, 4)
 	if resp != nil {
 		resp.Body.Close()
@@ -191,7 +191,7 @@ func TestRetryHTTPClient_Do_NetworkError(t *testing.T) {
 	resp, err := client.Do(req)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "HTTP operation failed after 4 attempts")
+	assert.Contains(t, err.Error(), "operation failed after 4 attempts")
 	assert.Nil(t, resp)
 	assert.Len(t, mockClient.doCalls, 4)
 	if resp != nil {
