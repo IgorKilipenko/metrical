@@ -843,6 +843,9 @@ func TestRetryHTTP_5xxRetry(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, resp)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 
 	var retryErr *RetryExhaustedError
 	assert.True(t, errors.As(err, &retryErr))
@@ -933,6 +936,9 @@ func TestRetryHTTP_ContextCancellation(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, resp)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	assert.Contains(t, err.Error(), "context cancelled")
 	assert.Equal(t, 1, attempts)
 }
