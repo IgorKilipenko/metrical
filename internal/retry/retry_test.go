@@ -484,10 +484,10 @@ func TestRetry_EmptyDelays(t *testing.T) {
 		return nil
 	}
 
-	// Это должно вызвать панику из-за обращения к config.Delays[attempt]
-	assert.Panics(t, func() {
-		Retry(ctx, logger, config, operation)
-	})
+	// Это должно вернуть ошибку валидации
+	err := Retry(ctx, logger, config, operation)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Delays cannot be empty")
 }
 
 func TestRetry_ZeroMaxAttempts(t *testing.T) {
@@ -508,7 +508,7 @@ func TestRetry_ZeroMaxAttempts(t *testing.T) {
 	err := Retry(ctx, logger, config, operation)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "operation failed after 0 attempts")
+	assert.Contains(t, err.Error(), "MaxAttempts must be greater than 0, got 0")
 	assert.Equal(t, 0, attempts)
 }
 

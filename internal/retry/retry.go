@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/IgorKilipenko/metrical/internal/logger"
@@ -16,6 +17,25 @@ import (
 type RetryConfig struct {
 	MaxAttempts int             // Максимальное количество попыток (включая первую)
 	Delays      []time.Duration // Интервалы между попытками
+}
+
+// Validate проверяет корректность конфигурации retry
+func (c *RetryConfig) Validate() error {
+	if c.MaxAttempts <= 0 {
+		return fmt.Errorf("MaxAttempts must be greater than 0, got %d", c.MaxAttempts)
+	}
+	if len(c.Delays) == 0 {
+		return fmt.Errorf("Delays cannot be empty")
+	}
+	if len(c.Delays) < c.MaxAttempts-1 {
+		return fmt.Errorf("Delays length (%d) must be at least MaxAttempts-1 (%d)", len(c.Delays), c.MaxAttempts-1)
+	}
+	for i, delay := range c.Delays {
+		if delay < 0 {
+			return fmt.Errorf("Delay at index %d cannot be negative, got %v", i, delay)
+		}
+	}
+	return nil
 }
 
 // DefaultRetryConfig стандартная конфигурация retry
@@ -99,7 +119,7 @@ func IsHTTPRetryableError(err error) bool {
 	}
 
 	for _, networkErr := range networkErrors {
-		if contains(errStr, networkErr) {
+		if strings.Contains(strings.ToLower(errStr), strings.ToLower(networkErr)) {
 			return true
 		}
 	}
@@ -117,28 +137,20 @@ func IsHTTPResponseRetryable(resp *http.Response) bool {
 	return resp.StatusCode >= 500 && resp.StatusCode < 600
 }
 
-// contains проверяет, содержит ли строка подстроку (case insensitive)
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) &&
-		(s == substr ||
-			len(s) > len(substr) &&
-				(s[:len(substr)] == substr ||
-					s[len(s)-len(substr):] == substr ||
-					indexOf(s, substr) >= 0))
-}
-
-// indexOf находит индекс подстроки в строке
-func indexOf(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
+// getDelay безопасно получает задержку для попытки
+func getDelay(config RetryConfig, attempt int) (time.Duration, error) {
+	if attempt >= len(config.Delays) {
+		return 0, fmt.Errorf("no delay configured for attempt %d", attempt+1)
 	}
-	return -1
+	return config.Delays[attempt], nil
 }
 
 // Retry выполняет операцию с retry логикой
 func Retry(ctx context.Context, logger logger.Logger, config RetryConfig, operation func() error) error {
+	if err := config.Validate(); err != nil {
+		return fmt.Errorf("invalid retry config: %w", err)
+	}
+
 	var lastErr error
 
 	for attempt := 0; attempt < config.MaxAttempts; attempt++ {
@@ -174,7 +186,10 @@ func Retry(ctx context.Context, logger logger.Logger, config RetryConfig, operat
 		}
 
 		// Ждем перед следующей попыткой
-		delay := config.Delays[attempt]
+		delay, delayErr := getDelay(config, attempt)
+		if delayErr != nil {
+			return fmt.Errorf("failed to get delay: %w", delayErr)
+		}
 		logger.Warn("operation failed, retrying",
 			"error", err,
 			"attempt", attempt+1,
@@ -194,6 +209,11 @@ func Retry(ctx context.Context, logger logger.Logger, config RetryConfig, operat
 
 // RetryWithResult выполняет операцию с retry логикой и возвращает результат
 func RetryWithResult[T any](ctx context.Context, logger logger.Logger, config RetryConfig, operation func() (T, error)) (T, error) {
+	if err := config.Validate(); err != nil {
+		var zero T
+		return zero, fmt.Errorf("invalid retry config: %w", err)
+	}
+
 	var zero T
 	var lastErr error
 
@@ -230,7 +250,10 @@ func RetryWithResult[T any](ctx context.Context, logger logger.Logger, config Re
 		}
 
 		// Ждем перед следующей попыткой
-		delay := config.Delays[attempt]
+		delay, delayErr := getDelay(config, attempt)
+		if delayErr != nil {
+			return zero, fmt.Errorf("failed to get delay: %w", delayErr)
+		}
 		logger.Warn("operation failed, retrying",
 			"error", err,
 			"attempt", attempt+1,
@@ -250,6 +273,10 @@ func RetryWithResult[T any](ctx context.Context, logger logger.Logger, config Re
 
 // RetryHTTP выполняет HTTP операцию с retry логикой
 func RetryHTTP(ctx context.Context, logger logger.Logger, config RetryConfig, operation func() (*http.Response, error)) (*http.Response, error) {
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid retry config: %w", err)
+	}
+
 	var lastErr error
 
 	for attempt := 0; attempt < config.MaxAttempts; attempt++ {
@@ -298,7 +325,10 @@ func RetryHTTP(ctx context.Context, logger logger.Logger, config RetryConfig, op
 		}
 
 		// Ждем перед следующей попыткой
-		delay := config.Delays[attempt]
+		delay, delayErr := getDelay(config, attempt)
+		if delayErr != nil {
+			return nil, fmt.Errorf("failed to get delay: %w", delayErr)
+		}
 		logger.Warn("HTTP operation failed, retrying",
 			"error", err,
 			"attempt", attempt+1,
@@ -318,6 +348,11 @@ func RetryHTTP(ctx context.Context, logger logger.Logger, config RetryConfig, op
 
 // RetryWithResult3 выполняет операцию с retry логикой и возвращает результат с тремя значениями
 func RetryWithResult3[T any](ctx context.Context, logger logger.Logger, config RetryConfig, operation func() (T, bool, error)) (T, bool, error) {
+	if err := config.Validate(); err != nil {
+		var zero T
+		return zero, false, fmt.Errorf("invalid retry config: %w", err)
+	}
+
 	var zero T
 	var lastErr error
 
@@ -354,7 +389,10 @@ func RetryWithResult3[T any](ctx context.Context, logger logger.Logger, config R
 		}
 
 		// Ждем перед следующей попыткой
-		delay := config.Delays[attempt]
+		delay, delayErr := getDelay(config, attempt)
+		if delayErr != nil {
+			return zero, false, fmt.Errorf("failed to get delay: %w", delayErr)
+		}
 		logger.Warn("operation failed, retrying",
 			"error", err,
 			"attempt", attempt+1,
