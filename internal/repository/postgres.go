@@ -49,6 +49,8 @@ const (
 const (
 	// Максимальный размер батча для обновления метрик
 	maxBatchSize = 1000
+	// Интервал проверки контекста в циклах (каждые N итераций)
+	contextCheckInterval = 100
 )
 
 // DatabasePool интерфейс для работы с пулом соединений базы данных.
@@ -366,6 +368,94 @@ func (r *PostgreSQLMetricsRepository) UpdateCounter(ctx context.Context, name st
 	})
 }
 
+// validateBatch проверяет валидность входных параметров для batch операции
+func (r *PostgreSQLMetricsRepository) validateBatch(metrics []models.Metrics) error {
+	if metrics == nil {
+		return fmt.Errorf("metrics slice cannot be nil")
+	}
+	if len(metrics) == 0 {
+		return fmt.Errorf("metrics slice cannot be empty")
+	}
+	if len(metrics) > maxBatchSize {
+		return fmt.Errorf("batch size %d exceeds maximum allowed size %d", len(metrics), maxBatchSize)
+	}
+	return nil
+}
+
+// beginTransactionWithRetry начинает транзакцию с retry логикой
+func (r *PostgreSQLMetricsRepository) beginTransactionWithRetry(ctx context.Context) (pgx.Tx, error) {
+	var tx pgx.Tx
+	err := retry.Retry(ctx, r.logger, retry.DefaultRetryConfig, func() error {
+		var beginErr error
+		tx, beginErr = r.pool.Begin(ctx)
+		if beginErr != nil {
+			r.logger.Error("failed to begin transaction for batch update", "error", beginErr)
+			return fmt.Errorf("failed to begin transaction: %w", beginErr)
+		}
+		return nil
+	})
+	return tx, err
+}
+
+// finalizeTransaction завершает транзакцию (коммит или rollback)
+func (r *PostgreSQLMetricsRepository) finalizeTransaction(tx pgx.Tx, ctx context.Context, txErr *error) {
+	if *txErr != nil {
+		// Откатываем транзакцию при ошибке
+		if rollbackErr := tx.Rollback(ctx); rollbackErr != nil {
+			r.logger.Error("failed to rollback transaction", "error", rollbackErr)
+		}
+	} else {
+		// Коммитим транзакцию при успехе
+		if commitErr := tx.Commit(ctx); commitErr != nil {
+			r.logger.Error("failed to commit transaction", "error", commitErr)
+			// Если коммит не удался, пытаемся откатить
+			if rollbackErr := tx.Rollback(ctx); rollbackErr != nil {
+				r.logger.Error("failed to rollback after commit failure", "error", rollbackErr)
+			}
+		}
+	}
+}
+
+// updateMetricInTransaction обновляет одну метрику в рамках транзакции
+func (r *PostgreSQLMetricsRepository) updateMetricInTransaction(ctx context.Context, tx pgx.Tx, metric models.Metrics) error {
+	// Валидируем имя метрики
+	if err := r.validateMetricName(metric.ID); err != nil {
+		return fmt.Errorf("validation error for metric %s: %w", metric.ID, err)
+	}
+
+	switch metric.MType {
+	case models.Gauge:
+		if metric.Value == nil {
+			return fmt.Errorf("validation error for gauge metric %s: value is required", metric.ID)
+		}
+
+		// Валидируем значение gauge
+		if err := r.validateGaugeValue(*metric.Value); err != nil {
+			return fmt.Errorf("validation error for gauge metric %s: %w", metric.ID, err)
+		}
+
+		_, err := tx.Exec(ctx, insertGaugeQuery, metric.ID, *metric.Value)
+		if err != nil {
+			r.logger.Error("failed to update gauge metric in batch", "id", metric.ID, "value", *metric.Value, "error", err)
+			return fmt.Errorf("failed to update gauge metric %s: %w", metric.ID, err)
+		}
+	case models.Counter:
+		if metric.Delta == nil {
+			return fmt.Errorf("validation error for counter metric %s: delta is required", metric.ID)
+		}
+
+		_, err := tx.Exec(ctx, insertCounterQuery, metric.ID, *metric.Delta)
+		if err != nil {
+			r.logger.Error("failed to update counter metric in batch", "id", metric.ID, "delta", *metric.Delta, "error", err)
+			return fmt.Errorf("failed to update counter metric %s: %w", metric.ID, err)
+		}
+	default:
+		return fmt.Errorf("unsupported metric type: %s", metric.MType)
+	}
+
+	return nil
+}
+
 // UpdateMetricsBatch обновляет множество метрик в рамках одной транзакции.
 //
 // Функция принимает слайс метрик и обновляет их все в рамках одной транзакции.
@@ -414,14 +504,8 @@ func (r *PostgreSQLMetricsRepository) UpdateMetricsBatch(ctx context.Context, me
 	}()
 
 	// Валидируем входные параметры
-	if metrics == nil {
-		return fmt.Errorf("metrics slice cannot be nil")
-	}
-	if len(metrics) == 0 {
-		return fmt.Errorf("metrics slice cannot be empty")
-	}
-	if len(metrics) > maxBatchSize {
-		return fmt.Errorf("batch size %d exceeds maximum allowed size %d", len(metrics), maxBatchSize)
+	if err := r.validateBatch(metrics); err != nil {
+		return err
 	}
 
 	// Проверяем отмену контекста
@@ -430,81 +514,19 @@ func (r *PostgreSQLMetricsRepository) UpdateMetricsBatch(ctx context.Context, me
 	}
 
 	// Начинаем транзакцию с retry логикой
-	var tx pgx.Tx
-	err := retry.Retry(ctx, r.logger, retry.DefaultRetryConfig, func() error {
-		var beginErr error
-		tx, beginErr = r.pool.Begin(ctx)
-		if beginErr != nil {
-			r.logger.Error("failed to begin transaction for batch update", "error", beginErr)
-			return fmt.Errorf("failed to begin transaction: %w", beginErr)
-		}
-		return nil
-	})
+	tx, err := r.beginTransactionWithRetry(ctx)
 	if err != nil {
 		return err
 	}
 
 	// Используем отдельную переменную для отслеживания ошибок
 	var txErr error
-	defer func() {
-		if txErr != nil {
-			// Откатываем транзакцию при ошибке
-			if rollbackErr := tx.Rollback(ctx); rollbackErr != nil {
-				r.logger.Error("failed to rollback transaction", "error", rollbackErr)
-			}
-		} else {
-			// Коммитим транзакцию при успехе
-			if commitErr := tx.Commit(ctx); commitErr != nil {
-				r.logger.Error("failed to commit transaction", "error", commitErr)
-				// Если коммит не удался, пытаемся откатить
-				if rollbackErr := tx.Rollback(ctx); rollbackErr != nil {
-					r.logger.Error("failed to rollback after commit failure", "error", rollbackErr)
-				}
-			}
-		}
-	}()
+	defer r.finalizeTransaction(tx, ctx, &txErr)
 
 	// Обновляем все метрики в рамках транзакции
 	for _, metric := range metrics {
-		// Валидируем имя метрики
-		if err := r.validateMetricName(metric.ID); err != nil {
-			txErr = fmt.Errorf("validation error for metric %s: %w", metric.ID, err)
-			return txErr
-		}
-
-		switch metric.MType {
-		case models.Gauge:
-			if metric.Value == nil {
-				txErr = fmt.Errorf("validation error for gauge metric %s: value is required", metric.ID)
-				return txErr
-			}
-
-			// Валидируем значение gauge
-			if err := r.validateGaugeValue(*metric.Value); err != nil {
-				txErr = fmt.Errorf("validation error for gauge metric %s: %w", metric.ID, err)
-				return txErr
-			}
-
-			_, err = tx.Exec(ctx, insertGaugeQuery, metric.ID, *metric.Value)
-			if err != nil {
-				r.logger.Error("failed to update gauge metric in batch", "id", metric.ID, "value", *metric.Value, "error", err)
-				txErr = fmt.Errorf("failed to update gauge metric %s: %w", metric.ID, err)
-				return txErr
-			}
-		case models.Counter:
-			if metric.Delta == nil {
-				txErr = fmt.Errorf("validation error for counter metric %s: delta is required", metric.ID)
-				return txErr
-			}
-
-			_, err = tx.Exec(ctx, insertCounterQuery, metric.ID, *metric.Delta)
-			if err != nil {
-				r.logger.Error("failed to update counter metric in batch", "id", metric.ID, "delta", *metric.Delta, "error", err)
-				txErr = fmt.Errorf("failed to update counter metric %s: %w", metric.ID, err)
-				return txErr
-			}
-		default:
-			txErr = fmt.Errorf("unsupported metric type: %s", metric.MType)
+		if err := r.updateMetricInTransaction(ctx, tx, metric); err != nil {
+			txErr = err
 			return txErr
 		}
 	}
@@ -704,9 +726,18 @@ func (r *PostgreSQLMetricsRepository) GetAllGauges(ctx context.Context) (models.
 		return nil, err
 	}
 
-	rows, err := r.pool.Query(ctx, selectAllGaugesQuery)
+	// Используем retry логику для операций с базой данных
+	var rows pgx.Rows
+	err := retry.Retry(ctx, r.logger, retry.DefaultRetryConfig, func() error {
+		var queryErr error
+		rows, queryErr = r.pool.Query(ctx, selectAllGaugesQuery)
+		if queryErr != nil {
+			r.logger.Error("failed to query all gauge metrics", "error", queryErr)
+			return queryErr
+		}
+		return nil
+	})
 	if err != nil {
-		r.logger.Error("failed to get all gauge metrics", "error", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -714,10 +745,13 @@ func (r *PostgreSQLMetricsRepository) GetAllGauges(ctx context.Context) (models.
 	result := make(models.GaugeMetrics)
 	iterationCount := 0
 	for rows.Next() {
-		// Проверяем отмену контекста периодически (каждые 100 итераций)
-		if iterationCount%100 == 0 {
-			if err := r.checkContext(ctx, "getAllGauges iteration"); err != nil {
-				return nil, err
+		// Проверяем отмену контекста периодически
+		if iterationCount%contextCheckInterval == 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			default:
+				// Продолжаем итерацию
 			}
 		}
 		iterationCount++
@@ -786,9 +820,18 @@ func (r *PostgreSQLMetricsRepository) GetAllCounters(ctx context.Context) (model
 		return nil, err
 	}
 
-	rows, err := r.pool.Query(ctx, selectAllCountersQuery)
+	// Используем retry логику для операций с базой данных
+	var rows pgx.Rows
+	err := retry.Retry(ctx, r.logger, retry.DefaultRetryConfig, func() error {
+		var queryErr error
+		rows, queryErr = r.pool.Query(ctx, selectAllCountersQuery)
+		if queryErr != nil {
+			r.logger.Error("failed to query all counter metrics", "error", queryErr)
+			return queryErr
+		}
+		return nil
+	})
 	if err != nil {
-		r.logger.Error("failed to get all counter metrics", "error", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -796,10 +839,13 @@ func (r *PostgreSQLMetricsRepository) GetAllCounters(ctx context.Context) (model
 	result := make(models.CounterMetrics)
 	iterationCount := 0
 	for rows.Next() {
-		// Проверяем отмену контекста периодически (каждые 100 итераций)
-		if iterationCount%100 == 0 {
-			if err := r.checkContext(ctx, "getAllCounters iteration"); err != nil {
-				return nil, err
+		// Проверяем отмену контекста периодически
+		if iterationCount%contextCheckInterval == 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			default:
+				// Продолжаем итерацию
 			}
 		}
 		iterationCount++
@@ -840,4 +886,61 @@ func (r *PostgreSQLMetricsRepository) LoadFromFile() error {
 // В PostgreSQL версии синхронное сохранение не применимо
 func (r *PostgreSQLMetricsRepository) SetSyncSave(sync bool) {
 	r.logger.Debug("SetSyncSave called on PostgreSQL repository", "sync", sync)
+}
+
+// HealthCheck проверяет состояние connection pool и соединения с базой данных.
+//
+// Функция выполняет следующие проверки:
+//  1. Проверяет доступность базы данных через Ping
+//  2. Анализирует статистику connection pool
+//  3. Проверяет, не приближается ли пул к лимиту соединений
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//
+// Возвращает:
+//   - error: ошибка при проблемах с БД или пулом соединений, nil при успехе
+//
+// Пример использования:
+//
+//	err := repo.HealthCheck(ctx)
+//	if err != nil {
+//	    log.Printf("Health check failed: %v", err)
+//	}
+//
+// Возможные ошибки:
+//   - context.DeadlineExceeded: превышен таймаут
+//   - context.Canceled: операция отменена
+//   - "connection pool near capacity": пул соединений близок к лимиту
+//   - Ошибки базы данных: проблемы с подключением
+func (r *PostgreSQLMetricsRepository) HealthCheck(ctx context.Context) error {
+	// Проверяем отмену контекста
+	if err := r.checkContext(ctx, "health check"); err != nil {
+		return err
+	}
+
+	// Проверяем доступность базы данных
+	if err := r.pool.Ping(ctx); err != nil {
+		r.logger.Error("health check failed: database ping failed", "error", err)
+		return fmt.Errorf("database ping failed: %w", err)
+	}
+
+	// Анализируем статистику connection pool
+	stats := r.pool.Stat()
+
+	// Проверяем, не приближается ли пул к лимиту соединений
+	if stats.AcquireCount() > int64(float64(stats.MaxConns())*0.9) {
+		r.logger.Warn("connection pool near capacity",
+			"acquire_count", stats.AcquireCount(),
+			"max_conns", stats.MaxConns())
+		return fmt.Errorf("connection pool near capacity: %d/%d connections",
+			stats.AcquireCount(), stats.MaxConns())
+	}
+
+	r.logger.Debug("health check passed",
+		"acquire_count", stats.AcquireCount(),
+		"max_conns", stats.MaxConns(),
+		"idle_conns", stats.IdleConns())
+
+	return nil
 }
