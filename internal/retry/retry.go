@@ -24,7 +24,8 @@ func (c *RetryConfig) Validate() error {
 	if c.MaxAttempts <= 0 {
 		return fmt.Errorf("MaxAttempts must be greater than 0, got %d", c.MaxAttempts)
 	}
-	if len(c.Delays) == 0 {
+	// Для MaxAttempts=1 delays может быть пустым
+	if c.MaxAttempts > 1 && len(c.Delays) == 0 {
 		return fmt.Errorf("Delays cannot be empty")
 	}
 	if len(c.Delays) < c.MaxAttempts-1 {
