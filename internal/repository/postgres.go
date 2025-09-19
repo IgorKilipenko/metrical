@@ -565,7 +565,7 @@ func (r *PostgreSQLMetricsRepository) GetGauge(ctx context.Context, name string)
 	}
 
 	// Используем retry логику для операций с базой данных
-	return retry.RetryWithResult3(ctx, r.logger, retry.DefaultRetryConfig, func() (float64, bool, error) {
+	return retry.RetryWithResultAndExists(ctx, r.logger, retry.DefaultRetryConfig, func() (float64, bool, error) {
 		var value float64
 		err := r.pool.QueryRow(ctx, selectGaugeQuery, name).Scan(&value)
 
@@ -639,7 +639,7 @@ func (r *PostgreSQLMetricsRepository) GetCounter(ctx context.Context, name strin
 	}
 
 	// Используем retry логику для операций с базой данных
-	return retry.RetryWithResult3(ctx, r.logger, retry.DefaultRetryConfig, func() (int64, bool, error) {
+	return retry.RetryWithResultAndExists(ctx, r.logger, retry.DefaultRetryConfig, func() (int64, bool, error) {
 		var value int64
 		err := r.pool.QueryRow(ctx, selectCounterQuery, name).Scan(&value)
 

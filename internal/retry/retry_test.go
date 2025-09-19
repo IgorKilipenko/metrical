@@ -620,7 +620,7 @@ func BenchmarkRetry_Success(b *testing.B) {
 	}
 }
 
-func TestRetryWithResult3_Success(t *testing.T) {
+func TestRetryWithResultAndExists_Success(t *testing.T) {
 	logger := testutils.NewMockLogger()
 	ctx := context.Background()
 
@@ -630,7 +630,7 @@ func TestRetryWithResult3_Success(t *testing.T) {
 		return "success", true, nil
 	}
 
-	result, exists, err := RetryWithResult3(ctx, logger, DefaultRetryConfig, operation)
+	result, exists, err := RetryWithResultAndExists(ctx, logger, DefaultRetryConfig, operation)
 
 	assert.NoError(t, err)
 	assert.Equal(t, "success", result)
@@ -638,7 +638,7 @@ func TestRetryWithResult3_Success(t *testing.T) {
 	assert.Equal(t, 1, attempts)
 }
 
-func TestRetryWithResult3_SuccessAfterRetries(t *testing.T) {
+func TestRetryWithResultAndExists_SuccessAfterRetries(t *testing.T) {
 	logger := testutils.NewMockLogger()
 	ctx := context.Background()
 
@@ -653,7 +653,7 @@ func TestRetryWithResult3_SuccessAfterRetries(t *testing.T) {
 		return 42, true, nil
 	}
 
-	result, exists, err := RetryWithResult3(ctx, logger, config, operation)
+	result, exists, err := RetryWithResultAndExists(ctx, logger, config, operation)
 
 	assert.NoError(t, err)
 	assert.Equal(t, 42, result)
@@ -661,7 +661,7 @@ func TestRetryWithResult3_SuccessAfterRetries(t *testing.T) {
 	assert.Equal(t, 3, attempts)
 }
 
-func TestRetryWithResult3_AllAttemptsFailed(t *testing.T) {
+func TestRetryWithResultAndExists_AllAttemptsFailed(t *testing.T) {
 	logger := testutils.NewMockLogger()
 	ctx := context.Background()
 
@@ -673,7 +673,7 @@ func TestRetryWithResult3_AllAttemptsFailed(t *testing.T) {
 		return false, false, NewRetryableError(errors.New("persistent error"))
 	}
 
-	result, exists, err := RetryWithResult3(ctx, logger, config, operation)
+	result, exists, err := RetryWithResultAndExists(ctx, logger, config, operation)
 
 	assert.Error(t, err)
 
@@ -685,7 +685,7 @@ func TestRetryWithResult3_AllAttemptsFailed(t *testing.T) {
 	assert.Equal(t, 3, attempts)
 }
 
-func TestRetryWithResult3_NonRetryableError(t *testing.T) {
+func TestRetryWithResultAndExists_NonRetryableError(t *testing.T) {
 	logger := testutils.NewMockLogger()
 	ctx := context.Background()
 
@@ -695,7 +695,7 @@ func TestRetryWithResult3_NonRetryableError(t *testing.T) {
 		return "", false, errors.New("non-retryable error")
 	}
 
-	result, exists, err := RetryWithResult3(ctx, logger, DefaultRetryConfig, operation)
+	result, exists, err := RetryWithResultAndExists(ctx, logger, DefaultRetryConfig, operation)
 
 	assert.Error(t, err)
 	assert.Equal(t, "non-retryable error", err.Error())
@@ -704,7 +704,7 @@ func TestRetryWithResult3_NonRetryableError(t *testing.T) {
 	assert.Equal(t, 1, attempts) // Должна быть только одна попытка
 }
 
-func TestRetryWithResult3_ContextCancellation(t *testing.T) {
+func TestRetryWithResultAndExists_ContextCancellation(t *testing.T) {
 	logger := testutils.NewMockLogger()
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -718,7 +718,7 @@ func TestRetryWithResult3_ContextCancellation(t *testing.T) {
 		return 0, false, NewRetryableError(errors.New("temporary error"))
 	}
 
-	result, exists, err := RetryWithResult3(ctx, logger, DefaultRetryConfig, operation)
+	result, exists, err := RetryWithResultAndExists(ctx, logger, DefaultRetryConfig, operation)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "context cancelled")
@@ -741,7 +741,7 @@ func BenchmarkRetryWithResult_Success(b *testing.B) {
 	}
 }
 
-func BenchmarkRetryWithResult3_Success(b *testing.B) {
+func BenchmarkRetryWithResultAndExists_Success(b *testing.B) {
 	logger := testutils.NewMockLogger()
 	ctx := context.Background()
 
@@ -751,7 +751,7 @@ func BenchmarkRetryWithResult3_Success(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		RetryWithResult3(ctx, logger, DefaultRetryConfig, operation)
+		RetryWithResultAndExists(ctx, logger, DefaultRetryConfig, operation)
 	}
 }
 
@@ -1204,7 +1204,7 @@ func TestRetryWithResult_EmptyResult(t *testing.T) {
 	assert.Equal(t, 1, attempts)
 }
 
-func TestRetryWithResult3_EmptyResult(t *testing.T) {
+func TestRetryWithResultAndExists_EmptyResult(t *testing.T) {
 	logger := testutils.NewMockLogger()
 	ctx := context.Background()
 
@@ -1214,7 +1214,7 @@ func TestRetryWithResult3_EmptyResult(t *testing.T) {
 		return "", false, nil // Возвращаем пустую строку и false
 	}
 
-	result, exists, err := RetryWithResult3(ctx, logger, DefaultRetryConfig, operation)
+	result, exists, err := RetryWithResultAndExists(ctx, logger, DefaultRetryConfig, operation)
 
 	assert.NoError(t, err)
 	assert.Equal(t, "", result)

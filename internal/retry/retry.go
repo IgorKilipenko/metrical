@@ -385,8 +385,9 @@ func RetryHTTP(ctx context.Context, logger logger.Logger, config RetryConfig, op
 	}
 }
 
-// RetryWithResult3 выполняет операцию с retry логикой и возвращает результат с тремя значениями
-func RetryWithResult3[T any](ctx context.Context, logger logger.Logger, config RetryConfig, operation func() (T, bool, error)) (T, bool, error) {
+// RetryWithResultAndExists выполняет операцию с retry логикой для функций, возвращающих (T, bool, error)
+// Полезно для repository Get методов, которые возвращают значение, флаг существования и ошибку
+func RetryWithResultAndExists[T any](ctx context.Context, logger logger.Logger, config RetryConfig, operation func() (T, bool, error)) (T, bool, error) {
 	if err := config.Validate(); err != nil {
 		var zero T
 		return zero, false, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
