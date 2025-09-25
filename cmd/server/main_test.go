@@ -232,12 +232,3 @@ func TestHandleError_EdgeCases(t *testing.T) {
 		})
 	}
 }
-
-// customError - кастомный тип ошибки для тестирования
-type customError struct {
-	msg string
-}
-
-func (e *customError) Error() string {
-	return e.msg
-}

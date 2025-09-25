@@ -35,6 +35,7 @@ graph TB
     subgraph "Data Access Layer"
         REPO[Repository Interface]
         IMR[InMemory Repository]
+        PGR[PostgreSQL Repository]
     end
     
     subgraph "Data Models"
@@ -53,7 +54,9 @@ graph TB
     HANDLER --> SERVICE
     SERVICE --> REPO
     REPO --> IMR
+    REPO --> PGR
     IMR --> MODELS
+    PGR --> MODELS
     SERVICE --> TEMPLATE
     
     HTTP_SERVER --> SERVER
@@ -239,6 +242,59 @@ func (h *MetricsHandler) UpdateMetric(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
+## 🗄️ PostgreSQL поддержка
+
+HTTPServer поддерживает работу с PostgreSQL репозиторием через Dependency Injection:
+
+### Создание сервера с PostgreSQL
+
+```go
+// Создание PostgreSQL репозитория
+dsn := "postgres://user:password@localhost:5432/metrics_db?sslmode=disable"
+pool, err := pgxpool.New(ctx, dsn)
+if err != nil {
+    log.Fatalf("Failed to create connection pool: %v", err)
+}
+defer pool.Close()
+
+repository := repository.NewPostgreSQLMetricsRepository(pool, logger)
+service := service.NewMetricsService(repository, logger)
+handler := handler.NewMetricsHandler(service, logger)
+
+// Создание сервера с PostgreSQL репозиторием
+server, err := httpserver.NewServer(":8080", handler, logger)
+if err != nil {
+    log.Fatalf("Failed to create server: %v", err)
+}
+```
+
+### Конфигурация PostgreSQL через переменные окружения
+
+```go
+// Настройка PostgreSQL через переменные окружения
+config := &httpserver.ServerConfig{
+    Addr:         ":8080",
+    ReadTimeout:  15 * time.Second,
+    WriteTimeout: 15 * time.Second,
+    IdleTimeout:  30 * time.Second,
+}
+
+// PostgreSQL настройки автоматически подхватываются из ENV
+// DATABASE_DSN, DB_MAX_CONNS, DB_MIN_CONNS, etc.
+server, err := httpserver.NewServerWithConfig(config, handler, logger)
+```
+
+### Особенности PostgreSQL интеграции
+
+- ✅ **Connection Pooling** - эффективное управление соединениями
+- ✅ **Атомарные операции** - UPSERT с ON CONFLICT для thread-safety
+- ✅ **Валидация данных** - проверка входных параметров
+- ✅ **Retry логика** - автоматические повторы при сбоях
+- ✅ **Health Check** - проверка состояния базы данных
+- ✅ **Graceful shutdown** - корректное закрытие соединений
+
+📖 **Подробная документация:** [internal/repository/README.md](../repository/README.md)
+
 ## Структуры
 
 ### ServerConfig
@@ -414,4 +470,3 @@ if err != nil {
 - Валидацию HTTP методов
 - Обработку таймаутов и отмены операций
 - Тестирование контекста в различных сценариях
-

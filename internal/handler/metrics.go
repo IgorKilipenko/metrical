@@ -23,6 +23,11 @@ type MetricsHandler struct {
 	logger   logger.Logger
 }
 
+// DatabasePinger интерфейс для проверки соединения с БД
+type DatabasePinger interface {
+	Ping(ctx context.Context) error
+}
+
 // NewMetricsHandler создает новый экземпляр MetricsHandler
 func NewMetricsHandler(service *service.MetricsService, logger logger.Logger) (*MetricsHandler, error) {
 	if service == nil {
@@ -397,3 +402,81 @@ func (h *MetricsHandler) validateMetricRequestJSON(metric *models.Metrics) error
 
 	return nil
 }
+
+// Ping проверяет соединение с базой данных
+func (h *MetricsHandler) Ping(pinger DatabasePinger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		h.logger.Info("processing ping request",
+			"method", r.Method,
+			"url", r.URL.Path,
+			"remote_addr", r.RemoteAddr)
+
+		// Создаем контекст с таймаутом
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		// Проверяем соединение с БД
+		if err := pinger.Ping(ctx); err != nil {
+			h.logger.Error("database ping failed", "error", err)
+			http.Error(w, "Database connection failed", http.StatusInternalServerError)
+			return
+		}
+
+		h.logger.Info("database ping successful")
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+// UpdateMetricsBatch обновляет множество метрик из JSON запроса
+func (h *MetricsHandler) UpdateMetricsBatch(w http.ResponseWriter, r *http.Request) {
+	h.logger.Info("processing update metrics batch request",
+		"method", r.Method,
+		"url", r.URL.Path,
+		"remote_addr", r.RemoteAddr)
+
+	// Проверяем Content-Type
+	if r.Header.Get("Content-Type") != "application/json" {
+		h.logger.Warn("invalid content type", "content_type", r.Header.Get("Content-Type"))
+		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
+		return
+	}
+
+	// Декодируем JSON
+	var metrics []models.Metrics
+	if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
+		h.logger.Warn("failed to decode JSON", "error", err)
+		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
+		return
+	}
+
+	// Проверяем, что слайс не пустой
+	if len(metrics) == 0 {
+		h.logger.Warn("empty metrics batch received")
+		http.Error(w, "Metrics batch cannot be empty", http.StatusBadRequest)
+		return
+	}
+
+	// Валидация метрик
+	if err := validation.ValidateMetricsBatch(metrics); err != nil {
+		h.logger.Warn("metrics batch validation failed", "error", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Создаем контекст с таймаутом
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	// Обновляем метрики через сервис
+	err := h.service.UpdateMetricsBatch(ctx, metrics)
+	if err != nil {
+		h.logger.Error("failed to update metrics batch", "error", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info("metrics batch updated successfully",
+		"count", len(metrics))
+	w.WriteHeader(http.StatusOK)
+}
+

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/IgorKilipenko/metrical/internal/logger"
@@ -10,13 +11,156 @@ import (
 	"github.com/IgorKilipenko/metrical/internal/validation"
 )
 
+// Константы для сообщений об ошибках
+const (
+	ErrMsgUnsupportedMetricType = "unsupported metric type"
+	ErrMsgMetricNameEmpty       = "metric name cannot be empty"
+	ErrMsgMetricIDEmpty         = "metric ID cannot be empty"
+)
+
+// checkContextCancellation проверяет отмену контекста
+func (s *MetricsService) checkContextCancellation(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateMetricName проверяет, что имя метрики не пустое
+func (s *MetricsService) validateMetricName(name string) error {
+	if name == "" {
+		return errors.New(ErrMsgMetricNameEmpty)
+	}
+	return nil
+}
+
+// validateMetricID проверяет, что ID метрики не пустое
+func (s *MetricsService) validateMetricID(id string) error {
+	if id == "" {
+		return errors.New(ErrMsgMetricIDEmpty)
+	}
+	return nil
+}
+
+// validateInputs выполняет общую валидацию контекста и имени метрики
+func (s *MetricsService) validateInputs(ctx context.Context, name string) error {
+	if err := s.checkContextCancellation(ctx); err != nil {
+		return err
+	}
+	if err := s.validateMetricName(name); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateInputsWithID выполняет общую валидацию контекста и ID метрики
+func (s *MetricsService) validateInputsWithID(ctx context.Context, id string) error {
+	if err := s.checkContextCancellation(ctx); err != nil {
+		return err
+	}
+	if err := s.validateMetricID(id); err != nil {
+		return err
+	}
+	return nil
+}
+
+// getMetricGeneric выполняет общую логику для получения метрик
+func getMetricGeneric[T any](
+	service *MetricsService,
+	ctx context.Context,
+	name string,
+	metricType string,
+	getter func(context.Context, string) (T, bool, error),
+) (T, bool, error) {
+	var zero T
+
+	if err := service.validateInputs(ctx, name); err != nil {
+		return zero, false, err
+	}
+
+	service.logger.Debug(fmt.Sprintf("getting %s metric", metricType), "name", name)
+
+	value, exists, err := getter(ctx, name)
+	if err != nil {
+		return zero, false, err
+	}
+
+	if exists {
+		service.logger.Debug(fmt.Sprintf("%s metric retrieved", metricType), "name", name, "value", value)
+	} else {
+		service.logger.Debug(fmt.Sprintf("%s metric not found", metricType), "name", name)
+	}
+
+	return value, exists, nil
+}
+
+// MetricProcessor интерфейс для обработки метрик разных типов
+type MetricProcessor interface {
+	Process(ctx context.Context, metric *models.Metrics) error
+}
+
+// GaugeProcessor обрабатывает gauge метрики
+type GaugeProcessor struct {
+	service *MetricsService
+}
+
+func (p *GaugeProcessor) Process(ctx context.Context, metric *models.Metrics) error {
+	if metric.Value == nil {
+		return fmt.Errorf("value is required for gauge metric")
+	}
+	return p.service.updateGaugeMetric(ctx, metric.ID, *metric.Value)
+}
+
+// CounterProcessor обрабатывает counter метрики
+type CounterProcessor struct {
+	service *MetricsService
+}
+
+func (p *CounterProcessor) Process(ctx context.Context, metric *models.Metrics) error {
+	if metric.Delta == nil {
+		return fmt.Errorf("delta is required for counter metric")
+	}
+	return p.service.updateCounterMetric(ctx, metric.ID, *metric.Delta)
+}
+
+// getProcessor возвращает процессор для указанного типа метрики
+func (s *MetricsService) getProcessor(metricType string) (MetricProcessor, error) {
+	switch metricType {
+	case models.Gauge:
+		return &GaugeProcessor{service: s}, nil
+	case models.Counter:
+		return &CounterProcessor{service: s}, nil
+	default:
+		return nil, fmt.Errorf(ErrMsgUnsupportedMetricType+": %s", metricType)
+	}
+}
+
 // MetricsService сервис для работы с метриками
 type MetricsService struct {
 	repository repository.MetricsRepository
 	logger     logger.Logger
 }
 
-// NewMetricsService создает новый экземпляр MetricsService
+// NewMetricsService создает новый экземпляр MetricsService.
+//
+// Функция принимает репозиторий для работы с данными и логгер для записи событий.
+// Оба параметра обязательны и не могут быть nil.
+//
+// Параметры:
+//   - repository: репозиторий для работы с метриками (не может быть nil)
+//   - logger: логгер для записи событий (не может быть nil)
+//
+// Возвращает:
+//   - *MetricsService: готовый к использованию сервис
+//
+// Паникует если:
+//   - repository == nil
+//   - logger == nil
+//
+// Пример использования:
+//
+//	repo := repository.NewInMemoryMetricsRepository(logger)
+//	service := NewMetricsService(repo, logger)
 func NewMetricsService(repository repository.MetricsRepository, logger logger.Logger) *MetricsService {
 	if repository == nil {
 		panic("repository cannot be nil")
@@ -31,45 +175,101 @@ func NewMetricsService(repository repository.MetricsRepository, logger logger.Lo
 	}
 }
 
-// UpdateMetric обновляет метрику с готовыми валидированными данными
+// UpdateMetric обновляет метрику с готовыми валидированными данными.
+//
+// Функция принимает валидированный MetricRequest и делегирует обновление
+// соответствующему методу в зависимости от типа метрики.
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//   - req: валидированный запрос на обновление метрики
+//
+// Возвращает:
+//   - error: ошибка операции или nil при успехе
+//
+// Пример использования:
+//
+//	err := service.UpdateMetric(ctx, &validation.MetricRequest{
+//	    Type:  "gauge",
+//	    Name:  "temperature",
+//	    Value: 23.5,
+//	})
 func (s *MetricsService) UpdateMetric(ctx context.Context, req *validation.MetricRequest) error {
+	// Валидируем входные параметры
+	if req == nil {
+		return fmt.Errorf("metric request cannot be nil")
+	}
+	if err := s.validateInputs(ctx, req.Name); err != nil {
+		return err
+	}
+
 	s.logger.Info("updating metric", "name", req.Name, "type", req.Type, "value", req.Value)
 
-	// Только бизнес-логика
+	// Безопасное приведение типов с проверкой
 	switch req.Type {
 	case models.Gauge:
-		return s.updateGaugeMetric(ctx, req.Name, req.Value.(float64))
+		value, ok := req.Value.(float64)
+		if !ok {
+			return fmt.Errorf("invalid gauge value type: expected float64, got %T", req.Value)
+		}
+		return s.updateGaugeMetric(ctx, req.Name, value)
 	case models.Counter:
-		return s.updateCounterMetric(ctx, req.Name, req.Value.(int64))
+		value, ok := req.Value.(int64)
+		if !ok {
+			return fmt.Errorf("invalid counter value type: expected int64, got %T", req.Value)
+		}
+		return s.updateCounterMetric(ctx, req.Name, value)
 	default:
-		s.logger.Error("unsupported metric type", "type", req.Type, "name", req.Name)
-		return fmt.Errorf("unsupported metric type: %s", req.Type)
+		return fmt.Errorf(ErrMsgUnsupportedMetricType+": %s", req.Type)
 	}
 }
 
-// UpdateMetricJSON обновляет метрику из JSON структуры
+// UpdateMetricJSON обновляет метрику из JSON структуры.
+//
+// Функция принимает структуру Metrics и обновляет соответствующую метрику
+// в зависимости от типа (gauge или counter).
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//   - metric: структура метрики с данными для обновления
+//
+// Возвращает:
+//   - error: ошибка операции или nil при успехе
+//
+// Пример использования:
+//
+//	err := service.UpdateMetricJSON(ctx, &models.Metrics{
+//	    ID:    "temperature",
+//	    MType: "gauge",
+//	    Value: &value,
+//	})
 func (s *MetricsService) UpdateMetricJSON(ctx context.Context, metric *models.Metrics) error {
+	// Валидируем входные параметры
+	if metric == nil {
+		return fmt.Errorf("metric cannot be nil")
+	}
+	if err := s.validateInputsWithID(ctx, metric.ID); err != nil {
+		return err
+	}
+
 	s.logger.Info("updating metric from JSON", "id", metric.ID, "type", metric.MType)
 
-	switch metric.MType {
-	case models.Gauge:
-		if metric.Value == nil {
-			return fmt.Errorf("value is required for gauge metric")
-		}
-		return s.updateGaugeMetric(ctx, metric.ID, *metric.Value)
-	case models.Counter:
-		if metric.Delta == nil {
-			return fmt.Errorf("delta is required for counter metric")
-		}
-		return s.updateCounterMetric(ctx, metric.ID, *metric.Delta)
-	default:
-		s.logger.Error("unsupported metric type", "type", metric.MType, "id", metric.ID)
-		return fmt.Errorf("unsupported metric type: %s", metric.MType)
+	// Используем стратегию для обработки метрики
+	processor, err := s.getProcessor(metric.MType)
+	if err != nil {
+		return err
 	}
+
+	return processor.Process(ctx, metric)
 }
 
 // updateGaugeMetric содержит бизнес-логику для обновления gauge метрик
 func (s *MetricsService) updateGaugeMetric(ctx context.Context, name string, value float64) error {
+	// Валидируем входные параметры
+	if err := s.validateInputs(ctx, name); err != nil {
+		return err
+	}
+
 	s.logger.Debug("updating gauge metric", "name", name, "value", value)
 
 	// Здесь может быть бизнес-логика:
@@ -82,7 +282,6 @@ func (s *MetricsService) updateGaugeMetric(ctx context.Context, name string, val
 	// Пока просто делегируем в репозиторий
 	err := s.repository.UpdateGauge(ctx, name, value)
 	if err != nil {
-		s.logger.Error("failed to update gauge metric", "name", name, "value", value, "error", err)
 		return err
 	}
 
@@ -92,6 +291,11 @@ func (s *MetricsService) updateGaugeMetric(ctx context.Context, name string, val
 
 // updateCounterMetric содержит бизнес-логику для обновления counter метрик
 func (s *MetricsService) updateCounterMetric(ctx context.Context, name string, value int64) error {
+	// Валидируем входные параметры
+	if err := s.validateInputs(ctx, name); err != nil {
+		return err
+	}
+
 	s.logger.Debug("updating counter metric", "name", name, "value", value)
 
 	// Здесь может быть бизнес-логика:
@@ -103,7 +307,6 @@ func (s *MetricsService) updateCounterMetric(ctx context.Context, name string, v
 	// Пока просто делегируем в репозиторий
 	err := s.repository.UpdateCounter(ctx, name, value)
 	if err != nil {
-		s.logger.Error("failed to update counter metric", "name", name, "value", value, "error", err)
 		return err
 	}
 
@@ -111,51 +314,60 @@ func (s *MetricsService) updateCounterMetric(ctx context.Context, name string, v
 	return nil
 }
 
-// GetGauge возвращает значение gauge метрики
+// GetGauge возвращает значение gauge метрики.
+//
+// Функция выполняет поиск gauge метрики по имени и возвращает её значение.
+// Если метрика не найдена, возвращается false в качестве второго значения.
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//   - name: имя метрики для поиска
+//
+// Возвращает:
+//   - float64: значение метрики (0 если не найдена)
+//   - bool: true если метрика найдена, false если нет
+//   - error: ошибка операции или nil при успехе
 func (s *MetricsService) GetGauge(ctx context.Context, name string) (float64, bool, error) {
-	s.logger.Debug("getting gauge metric", "name", name)
-
-	value, exists, err := s.repository.GetGauge(ctx, name)
-	if err != nil {
-		s.logger.Error("failed to get gauge metric", "name", name, "error", err)
-		return 0, false, err
-	}
-
-	if exists {
-		s.logger.Debug("gauge metric retrieved", "name", name, "value", value)
-	} else {
-		s.logger.Debug("gauge metric not found", "name", name)
-	}
-
-	return value, exists, nil
+	return getMetricGeneric(s, ctx, name, "gauge", s.repository.GetGauge)
 }
 
-// GetCounter возвращает значение counter метрики
+// GetCounter возвращает значение counter метрики.
+//
+// Функция выполняет поиск counter метрики по имени и возвращает её накопительное значение.
+// Если метрика не найдена, возвращается false в качестве второго значения.
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//   - name: имя метрики для поиска
+//
+// Возвращает:
+//   - int64: накопительное значение метрики (0 если не найдена)
+//   - bool: true если метрика найдена, false если нет
+//   - error: ошибка операции или nil при успехе
 func (s *MetricsService) GetCounter(ctx context.Context, name string) (int64, bool, error) {
-	s.logger.Debug("getting counter metric", "name", name)
-
-	value, exists, err := s.repository.GetCounter(ctx, name)
-	if err != nil {
-		s.logger.Error("failed to get counter metric", "name", name, "error", err)
-		return 0, false, err
-	}
-
-	if exists {
-		s.logger.Debug("counter metric retrieved", "name", name, "value", value)
-	} else {
-		s.logger.Debug("counter metric not found", "name", name)
-	}
-
-	return value, exists, nil
+	return getMetricGeneric(s, ctx, name, "counter", s.repository.GetCounter)
 }
 
-// GetAllGauges возвращает все gauge метрики
+// GetAllGauges возвращает все gauge метрики.
+//
+// Функция выполняет запрос всех gauge метрик и возвращает их в виде map,
+// где ключ - имя метрики, значение - её значение.
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//
+// Возвращает:
+//   - models.GaugeMetrics: map всех gauge метрик (может быть пустым)
+//   - error: ошибка операции или nil при успехе
 func (s *MetricsService) GetAllGauges(ctx context.Context) (models.GaugeMetrics, error) {
+	if err := s.checkContextCancellation(ctx); err != nil {
+		return nil, err
+	}
+
 	s.logger.Debug("getting all gauge metrics")
 
 	gauges, err := s.repository.GetAllGauges(ctx)
 	if err != nil {
-		s.logger.Error("failed to get all gauge metrics", "error", err)
 		return nil, err
 	}
 
@@ -163,13 +375,26 @@ func (s *MetricsService) GetAllGauges(ctx context.Context) (models.GaugeMetrics,
 	return gauges, nil
 }
 
-// GetAllCounters возвращает все counter метрики
+// GetAllCounters возвращает все counter метрики.
+//
+// Функция выполняет запрос всех counter метрик и возвращает их в виде map,
+// где ключ - имя метрики, значение - её накопительное значение.
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//
+// Возвращает:
+//   - models.CounterMetrics: map всех counter метрик (может быть пустым)
+//   - error: ошибка операции или nil при успехе
 func (s *MetricsService) GetAllCounters(ctx context.Context) (models.CounterMetrics, error) {
+	if err := s.checkContextCancellation(ctx); err != nil {
+		return nil, err
+	}
+
 	s.logger.Debug("getting all counter metrics")
 
 	counters, err := s.repository.GetAllCounters(ctx)
 	if err != nil {
-		s.logger.Error("failed to get all counter metrics", "error", err)
 		return nil, err
 	}
 
@@ -177,8 +402,27 @@ func (s *MetricsService) GetAllCounters(ctx context.Context) (models.CounterMetr
 	return counters, nil
 }
 
-// GetMetricJSON возвращает метрику в JSON формате
+// GetMetricJSON возвращает метрику в JSON формате.
+//
+// Функция принимает структуру Metrics с ID и типом, выполняет поиск метрики
+// и возвращает полную структуру с данными.
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//   - metric: структура метрики с ID и типом для поиска
+//
+// Возвращает:
+//   - *models.Metrics: полная структура метрики с данными
+//   - error: ошибка операции или nil при успехе
 func (s *MetricsService) GetMetricJSON(ctx context.Context, metric *models.Metrics) (*models.Metrics, error) {
+	// Валидируем входные параметры
+	if metric == nil {
+		return nil, fmt.Errorf("metric cannot be nil")
+	}
+	if err := s.validateInputsWithID(ctx, metric.ID); err != nil {
+		return nil, err
+	}
+
 	s.logger.Info("getting metric as JSON", "id", metric.ID, "type", metric.MType)
 
 	result := &models.Metrics{
@@ -208,8 +452,75 @@ func (s *MetricsService) GetMetricJSON(ctx context.Context, metric *models.Metri
 		result.Delta = &value
 
 	default:
-		return nil, fmt.Errorf("unsupported metric type: %s", metric.MType)
+		return nil, fmt.Errorf(ErrMsgUnsupportedMetricType+": %s", metric.MType)
 	}
 
 	return result, nil
+}
+
+// UpdateMetricsBatch обновляет множество метрик в рамках одной транзакции.
+//
+// Функция принимает слайс метрик и обновляет их все в рамках одной транзакции.
+// Это позволяет избежать race conditions и обеспечивает атомарность операции.
+//
+// Параметры:
+//   - ctx: контекст с возможностью отмены операции
+//   - metrics: слайс метрик для обновления
+//
+// Возвращает:
+//   - error: ошибка операции или nil при успехе
+//
+// Пример использования:
+//
+//	metrics := []models.Metrics{
+//	    {ID: "temperature", MType: "gauge", Value: &temp},
+//	    {ID: "requests", MType: "counter", Delta: &count},
+//	}
+//	err := service.UpdateMetricsBatch(ctx, metrics)
+func (s *MetricsService) UpdateMetricsBatch(ctx context.Context, metrics []models.Metrics) error {
+	// Валидируем входные параметры
+	if metrics == nil {
+		return fmt.Errorf("metrics slice cannot be nil")
+	}
+
+	// Проверяем, что слайс не пустой
+	if len(metrics) == 0 {
+		return fmt.Errorf("metrics slice cannot be empty")
+	}
+
+	if err := s.checkContextCancellation(ctx); err != nil {
+		return err
+	}
+
+	s.logger.Info("updating metrics batch", "count", len(metrics))
+
+	// Валидируем каждую метрику в батче
+	for i, metric := range metrics {
+		if err := s.validateMetricID(metric.ID); err != nil {
+			return fmt.Errorf("validation error for metric at index %d: %w", i, err)
+		}
+
+		switch metric.MType {
+		case models.Gauge:
+			if metric.Value == nil {
+				return fmt.Errorf("validation error for metric at index %d: value is required for gauge metric", i)
+			}
+		case models.Counter:
+			if metric.Delta == nil {
+				return fmt.Errorf("validation error for metric at index %d: delta is required for counter metric", i)
+			}
+		default:
+			return fmt.Errorf("validation error for metric at index %d: unsupported metric type: %s", i, metric.MType)
+		}
+	}
+
+	// Обновляем все метрики в рамках одной транзакции
+	err := s.repository.UpdateMetricsBatch(ctx, metrics)
+	if err != nil {
+		s.logger.Error("failed to update metrics batch", "count", len(metrics), "error", err)
+		return err
+	}
+
+	s.logger.Info("metrics batch updated successfully", "count", len(metrics))
+	return nil
 }

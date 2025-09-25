@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  postgres-test:
+    image: postgres:15-alpine
+    container_name: metrics-test-db
+    environment:
+      POSTGRES_DB: testdb
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    ports:
+      - "5433:5432"  # Используем другой порт, чтобы не конфликтовать с основной БД
+    volumes:
+      # Используем tmpfs для быстрых тестов (данные не сохраняются)
+      - type: tmpfs
+        target: /var/lib/postgresql/data
+        tmpfs:
+          size: 100M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d testdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    # Автоматически удаляем контейнер после остановки
+    restart: "no"

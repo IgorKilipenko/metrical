@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGzipMiddleware_Compression(t *testing.T) {
@@ -29,32 +32,22 @@ func TestGzipMiddleware_Compression(t *testing.T) {
 		wrappedHandler.ServeHTTP(w, req)
 
 		// Проверяем, что ответ сжат
-		if w.Header().Get("Content-Encoding") != "gzip" {
-			t.Errorf("Expected Content-Encoding: gzip, got %s", w.Header().Get("Content-Encoding"))
-		}
+		assert.Equal(t, "gzip", w.Header().Get("Content-Encoding"), "Content-Encoding should be gzip")
 
 		// Проверяем, что тело ответа действительно сжато
 		body := w.Body.Bytes()
-		if len(body) == 0 {
-			t.Error("Response body is empty")
-		}
+		assert.NotEmpty(t, body, "Response body should not be empty")
 
 		// Пытаемся распаковать ответ
 		gzReader, err := gzip.NewReader(bytes.NewReader(body))
-		if err != nil {
-			t.Errorf("Failed to create gzip reader: %v", err)
-		}
+		require.NoError(t, err, "Failed to create gzip reader")
 		defer gzReader.Close()
 
 		uncompressed, err := io.ReadAll(gzReader)
-		if err != nil {
-			t.Errorf("Failed to decompress response: %v", err)
-		}
+		require.NoError(t, err, "Failed to decompress response")
 
 		expected := `{"message": "test response"}`
-		if string(uncompressed) != expected {
-			t.Errorf("Expected %s, got %s", expected, string(uncompressed))
-		}
+		assert.Equal(t, expected, string(uncompressed), "Decompressed content should match expected")
 	})
 
 	// Тест 2: Клиент не поддерживает gzip
@@ -66,16 +59,12 @@ func TestGzipMiddleware_Compression(t *testing.T) {
 		wrappedHandler.ServeHTTP(w, req)
 
 		// Проверяем, что ответ не сжат
-		if w.Header().Get("Content-Encoding") != "" {
-			t.Errorf("Expected no Content-Encoding, got %s", w.Header().Get("Content-Encoding"))
-		}
+		assert.Empty(t, w.Header().Get("Content-Encoding"), "Content-Encoding should be empty when client doesn't support gzip")
 
 		// Проверяем, что тело ответа не сжато
 		body := w.Body.String()
 		expected := `{"message": "test response"}`
-		if body != expected {
-			t.Errorf("Expected %s, got %s", expected, body)
-		}
+		assert.Equal(t, expected, body, "Response body should match expected when not compressed")
 	})
 }
 
@@ -101,8 +90,9 @@ func TestGzipMiddleware_Decompression(t *testing.T) {
 		// Создаем сжатые данные
 		var buf bytes.Buffer
 		gzWriter := gzip.NewWriter(&buf)
-		gzWriter.Write([]byte("compressed test data"))
-		gzWriter.Close()
+		_, err := gzWriter.Write([]byte("compressed test data"))
+		require.NoError(t, err, "Failed to write compressed data")
+		require.NoError(t, gzWriter.Close(), "Failed to close gzip writer")
 
 		req := httptest.NewRequest("POST", "/test", bytes.NewReader(buf.Bytes()))
 		req.Header.Set("Content-Encoding", "gzip")
@@ -111,15 +101,11 @@ func TestGzipMiddleware_Decompression(t *testing.T) {
 		wrappedHandler.ServeHTTP(w, req)
 
 		// Проверяем, что сервер корректно обработал сжатый запрос
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status 200, got %d", w.Code)
-		}
+		assert.Equal(t, http.StatusOK, w.Code, "Expected status 200")
 
 		body := w.Body.String()
 		expected := "compressed test data"
-		if body != expected {
-			t.Errorf("Expected %s, got %s", expected, body)
-		}
+		assert.Equal(t, expected, body, "Response body should match expected decompressed data")
 	})
 }
 
@@ -143,9 +129,7 @@ func TestGzipMiddleware_ContentTypeFiltering(t *testing.T) {
 		wrappedHandler.ServeHTTP(w, req)
 
 		// Проверяем, что ответ не сжат для бинарного типа
-		if w.Header().Get("Content-Encoding") != "" {
-			t.Errorf("Expected no Content-Encoding for binary content, got %s", w.Header().Get("Content-Encoding"))
-		}
+		assert.Empty(t, w.Header().Get("Content-Encoding"), "Content-Encoding should be empty for binary content")
 	})
 }
 
@@ -163,9 +147,9 @@ func TestIsCompressibleContentType(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		result := isCompressibleContentType(test.contentType)
-		if result != test.expected {
-			t.Errorf("For content type '%s': expected %v, got %v", test.contentType, test.expected, result)
-		}
+		t.Run(test.contentType, func(t *testing.T) {
+			result := isCompressibleContentType(test.contentType)
+			assert.Equal(t, test.expected, result, "Content type compressibility should match expected")
+		})
 	}
 }

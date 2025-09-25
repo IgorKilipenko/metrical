@@ -2,9 +2,12 @@ package repository
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
+	models "github.com/IgorKilipenko/metrical/internal/model"
 	"github.com/IgorKilipenko/metrical/internal/testutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -224,4 +227,157 @@ func TestInMemoryMetricsRepository_ConcurrencyWithContext(t *testing.T) {
 	assert.True(t, exists)
 	// Counter должен накопиться: 0+1+2+...+9 = 45
 	assert.Equal(t, int64(45), value)
+}
+
+func TestInMemoryMetricsRepository_UpdateMetricsBatch(t *testing.T) {
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger(), testutils.TestMetricsFile, false)
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		metrics     []models.Metrics
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "Valid batch with gauge and counter",
+			metrics: []models.Metrics{
+				{
+					ID:    "temperature",
+					MType: "gauge",
+					Value: func() *float64 { v := 23.5; return &v }(),
+				},
+				{
+					ID:    "requests",
+					MType: "counter",
+					Delta: func() *int64 { v := int64(100); return &v }(),
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:        "Empty batch",
+			metrics:     []models.Metrics{},
+			expectError: true,
+			errorMsg:    "metrics slice cannot be empty",
+		},
+		{
+			name:        "Nil batch",
+			metrics:     nil,
+			expectError: true,
+			errorMsg:    "metrics slice cannot be nil",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := repo.UpdateMetricsBatch(ctx, tt.metrics)
+
+			if tt.expectError {
+				assert.Error(t, err, "Expected error, got nil")
+				if tt.errorMsg != "" {
+					assert.Contains(t, err.Error(), tt.errorMsg, "Error message should contain expected text")
+				}
+			} else {
+				assert.NoError(t, err, "Expected no error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestInMemoryMetricsRepository_UpdateMetricsBatch_ContextCancellation(t *testing.T) {
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger(), testutils.TestMetricsFile, false)
+
+	// Создаем отмененный контекст
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	metrics := []models.Metrics{
+		{
+			ID:    "temperature",
+			MType: "gauge",
+			Value: func() *float64 { v := 23.5; return &v }(),
+		},
+	}
+
+	err := repo.UpdateMetricsBatch(ctx, metrics)
+	assert.Error(t, err, "Expected error for cancelled context")
+	assert.Equal(t, context.Canceled, err, "Expected context.Canceled error")
+}
+
+func TestInMemoryMetricsRepository_UpdateMetricsBatch_ContextTimeout(t *testing.T) {
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger(), testutils.TestMetricsFile, false)
+
+	// Создаем контекст с очень коротким таймаутом
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+	defer cancel()
+
+	// Ждем, чтобы таймаут точно истек
+	time.Sleep(1 * time.Millisecond)
+
+	metrics := []models.Metrics{
+		{
+			ID:    "temperature",
+			MType: "gauge",
+			Value: func() *float64 { v := 23.5; return &v }(),
+		},
+	}
+
+	err := repo.UpdateMetricsBatch(ctx, metrics)
+	assert.Error(t, err, "Expected error for timed out context")
+	assert.Equal(t, context.DeadlineExceeded, err, "Expected context.DeadlineExceeded error")
+}
+
+func TestInMemoryMetricsRepository_UpdateMetricsBatch_Concurrency(t *testing.T) {
+	repo := NewInMemoryMetricsRepository(testutils.NewMockLogger(), testutils.TestMetricsFile, false)
+	ctx := context.Background()
+
+	// Создаем несколько горутин для конкурентного обновления
+	numGoroutines := 10
+	numMetricsPerGoroutine := 5
+
+	var wg sync.WaitGroup
+	errors := make(chan error, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+
+			metrics := make([]models.Metrics, numMetricsPerGoroutine)
+			for j := 0; j < numMetricsPerGoroutine; j++ {
+				metricID := fmt.Sprintf("metric_%d_%d", goroutineID, j)
+				metrics[j] = models.Metrics{
+					ID:    metricID,
+					MType: "gauge",
+					Value: func() *float64 { v := float64(goroutineID*100 + j); return &v }(),
+				}
+			}
+
+			if err := repo.UpdateMetricsBatch(ctx, metrics); err != nil {
+				errors <- err
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errors)
+
+	// Проверяем, что не было ошибок
+	for err := range errors {
+		t.Errorf("Unexpected error in concurrent batch update: %v", err)
+	}
+
+	// Проверяем, что все метрики сохранились
+	for i := 0; i < numGoroutines; i++ {
+		for j := 0; j < numMetricsPerGoroutine; j++ {
+			metricID := fmt.Sprintf("metric_%d_%d", i, j)
+			expectedValue := float64(i*100 + j)
+
+			value, exists, err := repo.GetGauge(ctx, metricID)
+			assert.NoError(t, err, "Failed to get metric %s", metricID)
+			assert.True(t, exists, "Metric %s should exist", metricID)
+			assert.Equal(t, expectedValue, value, "Metric %s should have correct value", metricID)
+		}
+	}
 }

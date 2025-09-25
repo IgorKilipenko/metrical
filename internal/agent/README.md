@@ -2,6 +2,18 @@
 
 Агент для сбора и отправки метрик с поддержкой retry логики и gzip сжатия.
 
+## Retry логика
+
+Агент использует интеллектуальную retry логику для обработки временных ошибок:
+
+- **Количество попыток**: 4 (1 основная + 3 повтора)
+- **Интервалы**: 1s, 3s, 5s (экспоненциальный backoff)
+- **Retryable ошибки**:
+  - Сетевые ошибки (connection refused, timeout, etc.)
+  - HTTP 5xx ошибки сервера
+  - PostgreSQL connection errors (Class 08)
+- **Не-retryable ошибки**: HTTP 4xx клиентские ошибки
+
 ## Архитектура агента
 
 ```mermaid
@@ -71,27 +83,45 @@ sequenceDiagram
     end
     
     loop Every 10 seconds
-        Agent->>RetryClient: Send JSON Metrics
+        Agent->>Agent: Try Batch Send
+        Agent->>RetryClient: Send Batch JSON (/updates)
         RetryClient->>RetryClient: Compress with Gzip
         RetryClient->>BaseClient: HTTP POST with Retry
-        BaseClient->>Server: Compressed JSON
-        alt Success
+        BaseClient->>Server: Compressed Batch JSON
+        alt Batch Success
             Server-->>BaseClient: 200 OK
             BaseClient-->>RetryClient: Success
             RetryClient-->>Agent: Success
-        else Server Error (5xx)
-            Server-->>BaseClient: 5xx Error
+        else Batch Error
+            Server-->>BaseClient: Error
             BaseClient-->>RetryClient: Error
-            RetryClient->>RetryClient: Retry (max 2 attempts)
-            RetryClient->>BaseClient: Retry Request
-        else Client Error (4xx)
-            Server-->>BaseClient: 4xx Error
-            BaseClient-->>RetryClient: Error
-            RetryClient-->>Agent: No Retry
+            RetryClient-->>Agent: Error
+            Agent->>Agent: Fallback to Individual Send
+            loop For each metric
+                Agent->>RetryClient: Send Single JSON (/update)
+                RetryClient->>RetryClient: Compress with Gzip
+                RetryClient->>BaseClient: HTTP POST with Retry
+                BaseClient->>Server: Compressed Single JSON
+                alt Success
+                    Server-->>BaseClient: 200 OK
+                    BaseClient-->>RetryClient: Success
+                    RetryClient-->>Agent: Success
+                else Server Error (5xx)
+                    Server-->>BaseClient: 5xx Error
+                    BaseClient-->>RetryClient: Error
+                    RetryClient->>RetryClient: Retry (max 2 attempts)
+                    RetryClient->>BaseClient: Retry Request
+                else Client Error (4xx)
+                    Server-->>BaseClient: 4xx Error
+                    BaseClient-->>RetryClient: Error
+                    RetryClient-->>Agent: No Retry
+                end
+            end
         end
     end
     
     Note over Agent,Collector: Потокобезопасный сбор
+    Note over Agent: Батчевая отправка с fallback
     Note over RetryClient,Server: Retry только при 5xx ошибках
     Note over RetryClient: Gzip сжатие всех JSON данных
 ```
@@ -101,6 +131,8 @@ sequenceDiagram
 ### ✅ Основные функции
 - **Сбор метрик**: 27 runtime метрик + 1 дополнительная (RandomValue) + 1 counter (PollCount)
 - **Отправка метрик**: HTTP POST запросы с retry логикой (только JSON API)
+- **Батчевая отправка**: **НОВОЕ** - отправка всех метрик одним запросом через `/updates` endpoint
+- **Fallback механизм**: При ошибке батчевой отправки - отправка по одной метрике
 - **Graceful shutdown**: Корректное завершение работы
 - **Потокобезопасность**: Использование `sync.RWMutex`
 - **Конфигурация**: Гибкие настройки через структуру Config
@@ -128,6 +160,14 @@ sequenceDiagram
 - **HTTP заголовки**: Автоматически устанавливаются `Content-Encoding: gzip` и `Accept-Encoding: gzip`
 - **Прозрачная работа**: Сжатие происходит автоматически без изменения API
 - **Эффективность**: Значительное уменьшение размера передаваемых данных
+
+### ✅ Батчевая отправка (НОВОЕ)
+- **Приоритет батчевой отправки**: Сначала пытается отправить все метрики одним запросом
+- **Endpoint `/updates`**: Использует новый endpoint для батчевой отправки
+- **Fallback механизм**: При ошибке батчевой отправки переключается на индивидуальную
+- **Обратная совместимость**: Старые endpoint'ы продолжают работать
+- **Эффективность**: Меньше сетевых запросов и нагрузка на сервер
+- **Транзакционность**: Все метрики обновляются атомарно на сервере
 
 ### ✅ Архитектурные улучшения
 - **Интерфейсы**: `HTTPClient`, `MetricsCollector`, `MetricsSender` для тестируемости
@@ -230,7 +270,11 @@ agent.collectMetrics()
 
 // Логирование отправки метрик
 agent.sendMetrics()
-// Логи: "successfully sent metrics" count=29
+// Логи: "successfully sent metrics batch" count=29
+
+// Логирование fallback отправки
+// Логи: "failed to send metrics batch" error="connection refused"
+// Логи: "successfully sent metrics individually" count=29
 
 // Логирование ошибок (при verbose режиме)
 // Логи: "error sending metric" name=Alloc error="connection refused"

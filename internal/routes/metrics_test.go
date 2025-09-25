@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/IgorKilipenko/metrical/internal/handler"
@@ -12,6 +13,13 @@ import (
 	"github.com/IgorKilipenko/metrical/internal/testutils"
 	"github.com/stretchr/testify/assert"
 )
+
+// mockDatabasePinger - mock для тестирования DatabasePinger
+type mockDatabasePinger struct{}
+
+func (m *mockDatabasePinger) Ping(ctx context.Context) error {
+	return nil // Всегда успешный ping для тестов
+}
 
 func TestSetupMetricsRoutes(t *testing.T) {
 	// Создаем мок хендлер для тестирования
@@ -23,8 +31,11 @@ func TestSetupMetricsRoutes(t *testing.T) {
 		t.Fatalf("failed to create metrics handler: %v", err)
 	}
 
+	// Создаем mock pinger для тестов
+	mockPinger := &mockDatabasePinger{}
+
 	// Настраиваем маршруты
-	router := SetupMetricsRoutes(handler)
+	router := SetupMetricsRoutes(handler, mockPinger)
 
 	// Тестируем GET /
 	t.Run("GET /", func(t *testing.T) {
@@ -115,12 +126,72 @@ func TestSetupMetricsRoutes_JSONEndpoints(t *testing.T) {
 	// Создаем mock handler
 	handler := &handler.MetricsHandler{}
 
+	// Создаем mock pinger для тестов
+	mockPinger := &mockDatabasePinger{}
+
 	// Настраиваем маршруты
-	r := SetupMetricsRoutes(handler)
+	r := SetupMetricsRoutes(handler, mockPinger)
 
 	// Проверяем, что роутер создан
 	assert.NotNil(t, r)
 
 	// Проверяем, что роутер содержит маршруты (базовая проверка)
 	// Более детальная проверка маршрутов требует сложной настройки chi контекста
+}
+
+func TestSetupMetricsRoutes_PingEndpoint(t *testing.T) {
+	// Создаем mock handler
+	mockLogger := testutils.NewMockLogger()
+	repository := repository.NewInMemoryMetricsRepository(mockLogger, testutils.TestMetricsFile, false)
+	service := service.NewMetricsService(repository, mockLogger)
+	handler, err := handler.NewMetricsHandler(service, mockLogger)
+	if err != nil {
+		t.Fatalf("failed to create metrics handler: %v", err)
+	}
+
+	// Создаем mock pinger для тестов
+	mockPinger := &mockDatabasePinger{}
+
+	// Настраиваем маршруты
+	router := SetupMetricsRoutes(handler, mockPinger)
+
+	// Тестируем GET /ping
+	t.Run("GET /ping with successful database", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/ping", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", w.Code)
+		}
+	})
+
+	// Тестируем GET /ping с failing pinger
+	t.Run("GET /ping with failing database", func(t *testing.T) {
+		failingPinger := &failingDatabasePinger{}
+		router := SetupMetricsRoutes(handler, failingPinger)
+
+		req := httptest.NewRequest("GET", "/ping", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("Expected status 500, got %d", w.Code)
+		}
+
+		expectedBody := "Database connection failed"
+		actualBody := strings.TrimSpace(w.Body.String())
+		if actualBody != expectedBody {
+			t.Errorf("Expected body '%s', got '%s'", expectedBody, actualBody)
+		}
+	})
+}
+
+// failingDatabasePinger - mock для тестирования неуспешного ping
+type failingDatabasePinger struct{}
+
+func (m *failingDatabasePinger) Ping(ctx context.Context) error {
+	return assert.AnError // Всегда возвращает ошибку для тестов
 }

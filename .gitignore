@@ -30,3 +30,17 @@ vendor/
 !.vscode/launch.json
 !.vscode/tasks.json
 !/.vscode/README.md
+
+# Test files and coverage
+coverage.out
+*.cover
+*.coverprofile
+
+# Test database files
+test-*.db
+test-*.sqlite
+test-*.sqlite3
+
+# Docker volumes
+docker-test-data/
+postgres_data/

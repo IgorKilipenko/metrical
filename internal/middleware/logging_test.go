@@ -6,16 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
+	"github.com/IgorKilipenko/metrical/internal/logger"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestLoggingMiddleware(t *testing.T) {
-	// Настраиваем zerolog для тестов
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-	log.Logger = log.Output(zerolog.New(zerolog.NewTestWriter(t)))
-
 	// Создаем middleware
 	middleware := LoggingMiddleware()
 
@@ -67,11 +62,10 @@ func TestResponseWriter(t *testing.T) {
 
 func TestLoggingMiddlewareWithLogger(t *testing.T) {
 	// Создаем тестовый логгер
-	testWriter := zerolog.NewTestWriter(t)
-	logger := zerolog.New(testWriter).Level(zerolog.InfoLevel)
+	testLogger := logger.NewSlogLogger()
 
 	// Создаем middleware с кастомным логгером
-	middleware := LoggingMiddlewareWithLogger(logger)
+	middleware := LoggingMiddlewareWithLogger(testLogger)
 
 	// Создаем тестовый обработчик
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -97,10 +91,6 @@ func TestLoggingMiddlewareWithLogger(t *testing.T) {
 }
 
 func TestLoggingMiddlewareWithError(t *testing.T) {
-	// Настраиваем zerolog для тестов
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-	log.Logger = log.Output(zerolog.New(zerolog.NewTestWriter(t)))
-
 	// Создаем middleware
 	middleware := LoggingMiddleware()
 

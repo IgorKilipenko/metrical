@@ -10,9 +10,12 @@ import (
 	"time"
 
 	"github.com/IgorKilipenko/metrical/internal/handler"
+	"github.com/IgorKilipenko/metrical/internal/logger"
 	"github.com/IgorKilipenko/metrical/internal/repository"
+	"github.com/IgorKilipenko/metrical/internal/router"
 	"github.com/IgorKilipenko/metrical/internal/service"
 	"github.com/IgorKilipenko/metrical/internal/testutils"
+	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -95,7 +98,7 @@ func TestNewServerWithNilHandler(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, srv)
-	assert.Contains(t, err.Error(), "handler cannot be nil")
+	assert.Contains(t, err.Error(), "handler is required when router is not provided")
 }
 
 func TestServerIntegration(t *testing.T) {
@@ -549,4 +552,478 @@ func TestServerPerformance(t *testing.T) {
 	// Assert that average response time is reasonable (less than 10ms)
 	assert.Less(t, avgTime, 10*time.Millisecond,
 		"Average response time should be less than 10ms")
+}
+
+// ===== ТЕСТЫ ДЛЯ РЕФАКТОРЕННОГО SERVER.GO =====
+
+// TestHTTPServerInterface тестирует реализацию интерфейса HTTPServer
+func TestHTTPServerInterface(t *testing.T) {
+	handler := createTestHandler()
+	mockLogger := testutils.NewMockLogger()
+	srv, err := NewServer(":8080", handler, mockLogger)
+	require.NoError(t, err)
+
+	// Проверяем, что Server реализует интерфейс HTTPServer
+	var _ HTTPServer = srv
+
+	// Тестируем ServeHTTP
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// TestRouterFactoryInterface тестирует интерфейс RouterFactory
+func TestRouterFactoryInterface(t *testing.T) {
+	handler := createTestHandler()
+
+	// Создаем фабрику роутеров
+	factory := &defaultRouterFactory{}
+
+	// Проверяем, что defaultRouterFactory реализует интерфейс RouterFactory
+	var _ RouterFactory = factory
+
+	// Тестируем создание роутера
+	router := factory.CreateRouter(handler, &noDatabasePinger{})
+	require.NotNil(t, router)
+
+	// Тестируем, что роутер работает
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// TestValidateServerOptions тестирует функцию валидации опций
+func TestValidateServerOptions(t *testing.T) {
+	handler := createTestHandler()
+	mockLogger := testutils.NewMockLogger()
+
+	tests := []struct {
+		name        string
+		opts        ServerOptions
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "Valid options with handler",
+			opts: ServerOptions{
+				Config:  &ServerConfig{Addr: ":8080"},
+				Handler: handler,
+				Logger:  mockLogger,
+			},
+			expectError: false,
+		},
+		{
+			name: "Valid options with router",
+			opts: ServerOptions{
+				Config: &ServerConfig{Addr: ":8080"},
+				Router: &router.Router{},
+				Logger: mockLogger,
+			},
+			expectError: false,
+		},
+		{
+			name: "Nil config",
+			opts: ServerOptions{
+				Config:  nil,
+				Handler: handler,
+				Logger:  mockLogger,
+			},
+			expectError: true,
+			errorMsg:    "config cannot be nil",
+		},
+		{
+			name: "Empty address",
+			opts: ServerOptions{
+				Config:  &ServerConfig{Addr: ""},
+				Handler: handler,
+				Logger:  mockLogger,
+			},
+			expectError: true,
+			errorMsg:    "address cannot be empty",
+		},
+		{
+			name: "Nil logger",
+			opts: ServerOptions{
+				Config:  &ServerConfig{Addr: ":8080"},
+				Handler: handler,
+				Logger:  nil,
+			},
+			expectError: true,
+			errorMsg:    "logger cannot be nil",
+		},
+		{
+			name: "No handler and no router",
+			opts: ServerOptions{
+				Config:  &ServerConfig{Addr: ":8080"},
+				Handler: nil,
+				Router:  nil,
+				Logger:  mockLogger,
+			},
+			expectError: true,
+			errorMsg:    "handler is required when router is not provided",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, err := NewServerWithOptions(tt.opts)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.Nil(t, srv)
+				if tt.errorMsg != "" {
+					assert.Contains(t, err.Error(), tt.errorMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, srv)
+			}
+		})
+	}
+}
+
+// TestNewServerWithOptions тестирует новый унифицированный конструктор
+func TestNewServerWithOptions(t *testing.T) {
+	handler := createTestHandler()
+	mockLogger := testutils.NewMockLogger()
+
+	tests := []struct {
+		name        string
+		opts        ServerOptions
+		expectError bool
+		description string
+	}{
+		{
+			name: "Valid options with handler",
+			opts: ServerOptions{
+				Config:  &ServerConfig{Addr: ":8080"},
+				Handler: handler,
+				Logger:  mockLogger,
+			},
+			expectError: false,
+			description: "Should create server with handler",
+		},
+		{
+			name: "Valid options with router",
+			opts: ServerOptions{
+				Config: &ServerConfig{Addr: ":8080"},
+				Router: &router.Router{},
+				Logger: mockLogger,
+			},
+			expectError: false,
+			description: "Should create server with provided router",
+		},
+		{
+			name: "Invalid options - nil config",
+			opts: ServerOptions{
+				Config:  nil,
+				Handler: handler,
+				Logger:  mockLogger,
+			},
+			expectError: true,
+			description: "Should fail with nil config",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, err := NewServerWithOptions(tt.opts)
+
+			if tt.expectError {
+				assert.Error(t, err, tt.description)
+				assert.Nil(t, srv, tt.description)
+			} else {
+				assert.NoError(t, err, tt.description)
+				assert.NotNil(t, srv, tt.description)
+				assert.Equal(t, tt.opts.Config.Addr, srv.config.Addr)
+			}
+		})
+	}
+}
+
+// TestServerStartWithContext тестирует метод Start с контекстом
+func TestServerStartWithContext(t *testing.T) {
+	handler := createTestHandler()
+	mockLogger := testutils.NewMockLogger()
+	srv, err := NewServer(":0", handler, mockLogger) // Используем :0 для автоматического порта
+	require.NoError(t, err)
+
+	// Тестируем отмену через контекст
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Запускаем сервер в горутине
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- srv.Start(ctx)
+	}()
+
+	// Даем серверу время запуститься
+	time.Sleep(50 * time.Millisecond)
+
+	// Отменяем контекст
+	cancel()
+
+	// Ждем завершения
+	select {
+	case err := <-errChan:
+		assert.Equal(t, context.Canceled, err)
+	case <-time.After(1 * time.Second):
+		t.Fatal("Server did not stop within timeout")
+	}
+}
+
+// TestServerStartWithTimeout тестирует метод Start с таймаутом
+func TestServerStartWithTimeout(t *testing.T) {
+	handler := createTestHandler()
+	mockLogger := testutils.NewMockLogger()
+	srv, err := NewServer(":0", handler, mockLogger)
+	require.NoError(t, err)
+
+	// Тестируем таймаут контекста
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	// Запускаем сервер
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- srv.Start(ctx)
+	}()
+
+	// Ждем завершения
+	select {
+	case err := <-errChan:
+		assert.Equal(t, context.DeadlineExceeded, err)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("Server did not stop within timeout")
+	}
+}
+
+// TestNewServerWithChiRouter тестирует конструктор с chi роутером
+func TestNewServerWithChiRouter(t *testing.T) {
+	mockLogger := testutils.NewMockLogger()
+
+	// Создаем chi роутер
+	chiRouter := chi.NewRouter()
+	chiRouter.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("test response"))
+	})
+
+	tests := []struct {
+		name        string
+		addr        string
+		chiRouter   *chi.Mux
+		logger      logger.Logger
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "Valid chi router",
+			addr:        ":8080",
+			chiRouter:   chiRouter,
+			logger:      mockLogger,
+			expectError: false,
+		},
+		{
+			name:        "Nil chi router",
+			addr:        ":8080",
+			chiRouter:   nil,
+			logger:      mockLogger,
+			expectError: true,
+			errorMsg:    "router cannot be nil",
+		},
+		{
+			name:        "Empty address",
+			addr:        "",
+			chiRouter:   chiRouter,
+			logger:      mockLogger,
+			expectError: true,
+			errorMsg:    "address cannot be empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, err := NewServerWithChiRouter(tt.addr, tt.chiRouter, tt.logger)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.Nil(t, srv)
+				if tt.errorMsg != "" {
+					assert.Contains(t, err.Error(), tt.errorMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, srv)
+				assert.Equal(t, tt.addr, srv.config.Addr)
+			}
+		})
+	}
+}
+
+// TestNoDatabasePinger тестирует заглушку для ping
+func TestNoDatabasePinger(t *testing.T) {
+	pinger := &noDatabasePinger{}
+
+	ctx := context.Background()
+	err := pinger.Ping(ctx)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "database not configured")
+}
+
+// TestServerLifecycle тестирует полный жизненный цикл сервера
+func TestServerLifecycle(t *testing.T) {
+	handler := createTestHandler()
+	mockLogger := testutils.NewMockLogger()
+	srv, err := NewServer(":0", handler, mockLogger)
+	require.NoError(t, err)
+
+	// Тестируем полный жизненный цикл
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Запускаем сервер
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- srv.Start(ctx)
+	}()
+
+	// Даем серверу время запуститься
+	time.Sleep(50 * time.Millisecond)
+
+	// Тестируем, что сервер работает
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Останавливаем сервер
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer shutdownCancel()
+
+	err = srv.Shutdown(shutdownCtx)
+	assert.NoError(t, err)
+
+	// Отменяем контекст запуска
+	cancel()
+
+	// Ждем завершения
+	select {
+	case err := <-errChan:
+		assert.Equal(t, context.Canceled, err)
+	case <-time.After(1 * time.Second):
+		t.Fatal("Server did not stop within timeout")
+	}
+}
+
+// TestServerConcurrentLifecycle тестирует конкурентный доступ к серверу
+func TestServerConcurrentLifecycle(t *testing.T) {
+	handler := createTestHandler()
+	mockLogger := testutils.NewMockLogger()
+	srv, err := NewServer(":0", handler, mockLogger)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Запускаем сервер
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- srv.Start(ctx)
+	}()
+
+	// Даем серверу время запуститься
+	time.Sleep(50 * time.Millisecond)
+
+	// Запускаем конкурентные запросы
+	const numGoroutines = 5
+	done := make(chan bool, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer func() { done <- true }()
+
+			for j := 0; j < 5; j++ {
+				req := httptest.NewRequest("GET", "/", nil)
+				w := httptest.NewRecorder()
+				srv.ServeHTTP(w, req)
+				assert.Equal(t, http.StatusOK, w.Code)
+			}
+		}(i)
+	}
+
+	// Ждем завершения всех горутин
+	for i := 0; i < numGoroutines; i++ {
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("Concurrent requests did not complete within timeout")
+		}
+	}
+
+	// Останавливаем сервер
+	cancel()
+
+	select {
+	case err := <-errChan:
+		assert.Equal(t, context.Canceled, err)
+	case <-time.After(1 * time.Second):
+		t.Fatal("Server did not stop within timeout")
+	}
+}
+
+// TestServerOptionsEdgeCases тестирует граничные случаи опций
+func TestServerOptionsEdgeCases(t *testing.T) {
+	mockLogger := testutils.NewMockLogger()
+
+	tests := []struct {
+		name        string
+		opts        ServerOptions
+		expectError bool
+		description string
+	}{
+		{
+			name: "Both handler and router provided",
+			opts: ServerOptions{
+				Config:  &ServerConfig{Addr: ":8080"},
+				Handler: createTestHandler(),
+				Router:  &router.Router{},
+				Logger:  mockLogger,
+			},
+			expectError: false,
+			description: "Should use provided router when both are present",
+		},
+		{
+			name: "Zero timeout values",
+			opts: ServerOptions{
+				Config: &ServerConfig{
+					Addr:         ":8080",
+					ReadTimeout:  0,
+					WriteTimeout: 0,
+					IdleTimeout:  0,
+				},
+				Handler: createTestHandler(),
+				Logger:  mockLogger,
+			},
+			expectError: false,
+			description: "Should accept zero timeout values",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, err := NewServerWithOptions(tt.opts)
+
+			if tt.expectError {
+				assert.Error(t, err, tt.description)
+				assert.Nil(t, srv, tt.description)
+			} else {
+				assert.NoError(t, err, tt.description)
+				assert.NotNil(t, srv, tt.description)
+			}
+		})
+	}
 }

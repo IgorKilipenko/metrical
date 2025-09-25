@@ -111,6 +111,62 @@ func (r *InMemoryMetricsRepository) UpdateCounter(ctx context.Context, name stri
 	return nil
 }
 
+// UpdateMetricsBatch обновляет множество метрик в рамках одной транзакции
+func (r *InMemoryMetricsRepository) UpdateMetricsBatch(ctx context.Context, metrics []models.Metrics) error {
+	// Валидируем входные параметры
+	if metrics == nil {
+		return fmt.Errorf("metrics slice cannot be nil")
+	}
+	if len(metrics) == 0 {
+		return fmt.Errorf("metrics slice cannot be empty")
+	}
+
+	// Проверяем отмену контекста
+	select {
+	case <-ctx.Done():
+		r.logger.Debug("context cancelled during batch update")
+		return ctx.Err()
+	default:
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Обновляем все метрики в рамках одной блокировки
+	for _, metric := range metrics {
+		switch metric.MType {
+		case models.Gauge:
+			if metric.Value != nil {
+				oldValue, exists := r.Gauges[metric.ID]
+				r.Gauges[metric.ID] = *metric.Value
+				if exists {
+					r.logger.Debug("updated existing gauge metric in batch", "name", metric.ID, "old_value", oldValue, "new_value", *metric.Value)
+				} else {
+					r.logger.Debug("created new gauge metric in batch", "name", metric.ID, "value", *metric.Value)
+				}
+			}
+		case models.Counter:
+			if metric.Delta != nil {
+				oldValue := r.Counters[metric.ID]
+				r.Counters[metric.ID] += *metric.Delta
+				r.logger.Debug("updated counter metric in batch", "name", metric.ID, "added_value", *metric.Delta, "old_total", oldValue, "new_total", r.Counters[metric.ID])
+			}
+		}
+	}
+
+	// Синхронное сохранение, если включено
+	if r.syncSave {
+		if err := r.saveToFileUnsafe(); err != nil {
+			r.logger.Error("failed to save metrics synchronously after batch update", "error", err)
+			return fmt.Errorf("failed to save metrics synchronously after batch update: %w", err)
+		}
+		r.logger.Debug("metrics saved synchronously after batch update")
+	}
+
+	r.logger.Debug("batch update completed", "count", len(metrics))
+	return nil
+}
+
 // GetGauge возвращает значение gauge метрики
 func (r *InMemoryMetricsRepository) GetGauge(ctx context.Context, name string) (float64, bool, error) {
 	// Проверяем отмену контекста

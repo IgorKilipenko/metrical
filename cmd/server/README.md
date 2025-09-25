@@ -248,6 +248,7 @@ go run cmd/server/main.go -a=localhost:9090
 - `-i, --interval` - интервал сохранения метрик в секундах (по умолчанию: 300, 0 для синхронного сохранения)
 - `-f, --file` - путь к файлу для сохранения метрик (по умолчанию: "/tmp/metrics-db.json")
 - `-r, --restore` - загружать ли метрики при старте (по умолчанию: true)
+- `-d, --database` - DSN для подключения к PostgreSQL (опционально)
 - `-h, --help` - показать справку по флагам
 
 ### Примеры использования:
@@ -273,6 +274,9 @@ go run cmd/server/main.go -a=localhost:9090
 
 # Запуск без восстановления метрик при старте
 ./server -a=9090 -r=false
+
+# Запуск с PostgreSQL
+./server -a=9090 -d="postgres://user:password@localhost:5432/metrics_db?sslmode=disable"
 
 # Показать справку
 ./server --help
@@ -456,6 +460,75 @@ func handleError(err error) {
 
 Все значения имеют значения по умолчанию, поэтому сервер можно запускать без указания флагов.
 
+## 🗄️ PostgreSQL поддержка
+
+Сервер поддерживает хранение метрик в PostgreSQL базе данных с **автоматическими миграциями**:
+
+### 🆕 Автоматические миграции
+
+Сервис **автоматически создает все необходимые таблицы** при запуске:
+
+```bash
+# Запуск с PostgreSQL - таблицы создаются автоматически!
+./server -a=9090 -d="postgres://user:password@localhost:5432/metrics_db?sslmode=disable"
+```
+
+**Логи автоматических миграций:**
+```
+{"level":"info","message":"Creating PostgreSQL repository with migrations"}
+{"level":"info","message":"Loading migrations from filesystem"}
+{"level":"info","count":1,"message":"Loaded migrations"}
+{"level":"info","message":"Running migrations"}
+{"level":"info","message":"Migration applied successfully"}
+{"level":"info","message":"All migrations completed successfully"}
+```
+
+### Конфигурация PostgreSQL
+
+```bash
+# Переменные окружения для PostgreSQL
+export DATABASE_DSN="postgres://user:password@localhost:5432/metrics_db?sslmode=disable"
+export DB_MAX_CONNS=10
+export DB_MIN_CONNS=2
+export DB_MAX_CONN_LIFETIME=1h
+export DB_MAX_CONN_IDLE_TIME=30m
+export DB_CONNECT_TIMEOUT=10s
+export DB_PING_TIMEOUT=5s
+export DB_HEALTH_CHECK_TIMEOUT=5s
+```
+
+### 🚀 Приоритет хранения
+
+Сервис автоматически выбирает тип хранилища по приоритету:
+
+1. **PostgreSQL** (если указан `DATABASE_DSN` или `-d`)
+2. **Файл** (если указан `FILE_STORAGE_PATH` или `-f`)  
+3. **Память** (по умолчанию)
+
+```bash
+# PostgreSQL (приоритет 1)
+./server -a=9090 -d="postgres://user:pass@localhost:5432/db"
+
+# Файл (приоритет 2) 
+./server -a=9090 -f="/tmp/metrics.json"
+
+# Память (приоритет 3)
+./server -a=9090
+```
+
+### Особенности PostgreSQL реализации
+
+- ✅ **Автоматические миграции** - создание таблиц при запуске
+- ✅ **Контрольные суммы** - проверка целостности миграций
+- ✅ **Настройки PostgreSQL** - автоматическая настройка совместимости
+- ✅ **Connection Pooling** - эффективное управление соединениями
+- ✅ **Атомарные операции** - UPSERT с ON CONFLICT для thread-safety
+- ✅ **Валидация данных** - проверка входных параметров
+- ✅ **Retry логика** - автоматические повторы при сбоях
+- ✅ **Health Check** - проверка состояния базы данных
+
+📖 **Подробная документация:** [internal/repository/README.md](../../internal/repository/README.md)
+
 ### Архитектурные слои
 
 Проект построен по принципам Clean Architecture:
@@ -476,17 +549,28 @@ graph TB
     subgraph "Data Access Layer"
         REPO[Repository Interface]
         IMR[InMemory Repository]
+        PGR[PostgreSQL Repository]
+        MIG[Migration Manager]
     end
     
     subgraph "Data Layer"
         MODELS[Data Models]
+        PG[(PostgreSQL)]
+        FS[(File System)]
+        MIG_FILES[(Migration Files)]
     end
     
     H --> S
     R --> H
     S --> REPO
     REPO --> IMR
+    REPO --> PGR
+    PGR --> MIG
+    MIG --> MIG_FILES
+    IMR --> FS
+    PGR --> PG
     IMR --> MODELS
+    PGR --> MODELS
     S --> T
     S --> VAL
     
@@ -497,7 +581,12 @@ graph TB
     style VAL fill:#f3e5f5
     style REPO fill:#e8f5e8
     style IMR fill:#e8f5e8
+    style PGR fill:#e8f5e8
+    style MIG fill:#e8f5e8
     style MODELS fill:#fff3e0
+    style PG fill:#ffebee
+    style FS fill:#ffebee
+    style MIG_FILES fill:#ffebee
 ```
 
 ### Поток обработки запроса

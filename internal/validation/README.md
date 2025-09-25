@@ -18,6 +18,13 @@
 func ValidateMetricRequest(metricType, name, value string) (*MetricRequest, error)
 ```
 
+### ValidateMetricsBatch
+**НОВОЕ**: Валидация батча метрик:
+
+```go
+func ValidateMetricsBatch(metrics []models.Metrics) error
+```
+
 **Возвращает:**
 - `*MetricRequest` - типизированная структура с валидированными данными
 - `error` - ошибка валидации при некорректных данных
@@ -78,6 +85,66 @@ func (h *MetricsHandler) UpdateMetric(w http.ResponseWriter, r *http.Request) {
 
     w.WriteHeader(http.StatusOK)
 }
+```
+
+### Батчевая валидация (НОВОЕ)
+```go
+func (h *MetricsHandler) UpdateMetricsBatch(w http.ResponseWriter, r *http.Request) {
+    var metrics []models.Metrics
+    if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
+        http.Error(w, "Invalid JSON format", http.StatusBadRequest)
+        return
+    }
+
+    // Валидируем весь батч
+    if err := validation.ValidateMetricsBatch(metrics); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    // Передаем валидированные данные в сервис
+    err := h.service.UpdateMetricsBatch(r.Context(), metrics)
+    if err != nil {
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+
+    w.WriteHeader(http.StatusOK)
+}
+```
+
+### Примеры батчевой валидации
+```go
+// Валидный батч
+metrics := []models.Metrics{
+    {
+        ID:    "temperature",
+        MType: "gauge",
+        Value: func() *float64 { v := 23.5; return &v }(),
+    },
+    {
+        ID:    "requests",
+        MType: "counter",
+        Delta: func() *int64 { v := int64(100); return &v }(),
+    },
+}
+err := validation.ValidateMetricsBatch(metrics)
+// err == nil
+
+// Невалидный батч (пустой)
+err = validation.ValidateMetricsBatch([]models.Metrics{})
+// err = ValidationError{Field: "metrics", Value: "empty slice", Message: "metrics slice cannot be empty"}
+
+// Невалидный батч (nil значение)
+metrics = []models.Metrics{
+    {
+        ID:    "temperature",
+        MType: "gauge",
+        Value: nil, // Ошибка!
+    },
+}
+err = validation.ValidateMetricsBatch(metrics)
+// err = ValidationError{Field: "value", Value: "nil", Message: "validation error for metric at index 0: value is required for gauge metric"}
 ```
 
 ## Тестирование

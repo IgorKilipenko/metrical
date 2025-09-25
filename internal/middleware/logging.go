@@ -4,8 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
+	"github.com/IgorKilipenko/metrical/internal/logger"
 )
 
 // ResponseWriter обертка для http.ResponseWriter для отслеживания статуса и размера ответа
@@ -30,44 +29,12 @@ func (rw *ResponseWriter) Write(b []byte) (int, error) {
 
 // LoggingMiddleware создает middleware для логирования HTTP запросов и ответов
 func LoggingMiddleware() func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			start := time.Now()
-
-			// Создаем обертку для ResponseWriter
-			wrappedWriter := &ResponseWriter{
-				ResponseWriter: w,
-				statusCode:     http.StatusOK, // По умолчанию 200
-			}
-
-			// Логируем информацию о запросе
-			log.Info().
-				Str("method", r.Method).
-				Str("uri", r.RequestURI).
-				Str("remote_addr", r.RemoteAddr).
-				Str("user_agent", r.UserAgent()).
-				Msg("HTTP request started")
-
-			// Выполняем следующий обработчик
-			next.ServeHTTP(wrappedWriter, r)
-
-			// Вычисляем время выполнения
-			duration := time.Since(start)
-
-			// Логируем информацию об ответе
-			log.Info().
-				Str("method", r.Method).
-				Str("uri", r.RequestURI).
-				Int("status_code", wrappedWriter.statusCode).
-				Int("response_size", wrappedWriter.size).
-				Dur("duration", duration).
-				Msg("HTTP request completed")
-		})
-	}
+	logger := logger.NewSlogLogger()
+	return LoggingMiddlewareWithLogger(logger)
 }
 
 // LoggingMiddlewareWithLogger создает middleware с кастомным логгером
-func LoggingMiddlewareWithLogger(logger zerolog.Logger) func(http.Handler) http.Handler {
+func LoggingMiddlewareWithLogger(logger logger.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -79,12 +46,12 @@ func LoggingMiddlewareWithLogger(logger zerolog.Logger) func(http.Handler) http.
 			}
 
 			// Логируем информацию о запросе
-			logger.Info().
-				Str("method", r.Method).
-				Str("uri", r.RequestURI).
-				Str("remote_addr", r.RemoteAddr).
-				Str("user_agent", r.UserAgent()).
-				Msg("HTTP request started")
+			logger.Info("HTTP request started",
+				"method", r.Method,
+				"uri", r.RequestURI,
+				"remote_addr", r.RemoteAddr,
+				"user_agent", r.UserAgent(),
+			)
 
 			// Выполняем следующий обработчик
 			next.ServeHTTP(wrappedWriter, r)
@@ -93,13 +60,13 @@ func LoggingMiddlewareWithLogger(logger zerolog.Logger) func(http.Handler) http.
 			duration := time.Since(start)
 
 			// Логируем информацию об ответе
-			logger.Info().
-				Str("method", r.Method).
-				Str("uri", r.RequestURI).
-				Int("status_code", wrappedWriter.statusCode).
-				Int("response_size", wrappedWriter.size).
-				Dur("duration", duration).
-				Msg("HTTP request completed")
+			logger.Info("HTTP request completed",
+				"method", r.Method,
+				"uri", r.RequestURI,
+				"status_code", wrappedWriter.statusCode,
+				"response_size", wrappedWriter.size,
+				"duration", duration,
+			)
 		})
 	}
 }

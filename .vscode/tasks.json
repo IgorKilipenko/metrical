@@ -79,7 +79,7 @@
         {
             "label": "Run Auto Tests Iteration1",
             "type": "shell",
-            "command": "../auto-tests/metricstest",
+            "command": "../auto-tests/metricstest_v2",
             "args": [
                 "-test.v",
                 "-test.run=^TestIteration1$",
@@ -104,7 +104,7 @@
         {
             "label": "Run Auto Tests Iteration2",
             "type": "shell",
-            "command": "../auto-tests/metricstest",
+            "command": "../auto-tests/metricstest_v2",
             "args": [
                 "-test.v",
                 "-test.run=^TestIteration2[AB]$",
@@ -129,7 +129,7 @@
         {
             "label": "Run Auto Tests Iteration3",
             "type": "shell",
-            "command": "../auto-tests/metricstest",
+            "command": "../auto-tests/metricstest_v2",
             "args": [
                 "-test.v",
                 "-test.run=^TestIteration3[AB]$",
@@ -154,7 +154,7 @@
         {
             "label": "Run Auto Tests Iteration4",
             "type": "shell",
-            "command": "../auto-tests/metricstest",
+            "command": "../auto-tests/metricstest_v2",
             "args": [
                 "-test.v",
                 "-test.run=^TestIteration4$",
@@ -179,7 +179,7 @@
         {
             "label": "Run Auto Tests Iteration5",
             "type": "shell",
-            "command": "../auto-tests/metricstest",
+            "command": "../auto-tests/metricstest_v2",
             "args": [
                 "-test.v",
                 "-test.run=^TestIteration5$",
@@ -204,7 +204,7 @@
         {
             "label": "Run Auto Tests Iteration6",
             "type": "shell",
-            "command": "../auto-tests/metricstest",
+            "command": "../auto-tests/metricstest_v2",
             "args": [
                 "-test.v",
                 "-test.run=^TestIteration6$",
@@ -229,7 +229,7 @@
         {
             "label": "Run Auto Tests Iteration7",
             "type": "shell",
-            "command": "../auto-tests/metricstest",
+            "command": "../auto-tests/metricstest_v2",
             "args": [
                 "-test.v",
                 "-test.run=^TestIteration7$",
@@ -254,7 +254,7 @@
         {
             "label": "Run Auto Tests Iteration8",
             "type": "shell",
-            "command": "../auto-tests/metricstest",
+            "command": "../auto-tests/metricstest_v2",
             "args": [
                 "-test.v",
                 "-test.run=^TestIteration8$",
@@ -279,7 +279,7 @@
         {
             "label": "Run Auto Tests Iteration9",
             "type": "shell",
-            "command": "../auto-tests/metricstest",
+            "command": "../auto-tests/metricstest_v2",
             "args": [
                 "-test.v",
                 "-test.run=^TestIteration9$",
@@ -303,9 +303,35 @@
             "dependsOn": "Build All"
         },
         {
+            "label": "Run Auto Tests Iteration10",
+            "type": "shell",
+            "command": "../auto-tests/metricstest_v2",
+            "args": [
+                "-test.v",
+                "-test.run=^TestIteration10[AB]$",
+                "-binary-path=bin/server",
+                "-agent-binary-path=bin/agent",
+                "-source-path=.",
+                "-server-port=9091",
+                "-database-dsn='postgres://metricaldb:Secret@localhost:5432/metricaldb?sslmode=disable'"
+            ],
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": [],
+            "detail": "Запуск автотестов для Iteration10",
+            "dependsOn": "Build All"
+        },
+        {
             "label": "Run All Auto Tests",
             "type": "shell",
-            "command": "../auto-tests/metricstest",
+            "command": "../auto-tests/metricstest_v2",
             "args": [
                 "-test.v",
                 "-binary-path=bin/server",
@@ -374,11 +400,11 @@
             "detail": "Запуск тестов с покрытием"
         },
         {
-            "label": "Run All Iterations (1-9)",
+            "label": "Run All Iterations (1-10)",
             "type": "shell",
             "command": "echo",
             "args": [
-                "Running all iterations from 1 to 9..."
+                "Running all iterations from 1 to 10..."
             ],
             "group": "test",
             "presentation": {
@@ -390,7 +416,7 @@
                 "clear": false
             },
             "problemMatcher": [],
-            "detail": "Запуск всех итераций с 1-й по 9-ю",
+            "detail": "Запуск всех итераций с 1-й по 10-ю",
             "dependsOrder": "sequence",
             "dependsOn": [
                 "Run Auto Tests Iteration1",
@@ -401,7 +427,8 @@
                 "Run Auto Tests Iteration6",
                 "Run Auto Tests Iteration7",
                 "Run Auto Tests Iteration8",
-                "Run Auto Tests Iteration9"
+                "Run Auto Tests Iteration9",
+                "Run Auto Tests Iteration10"
             ]
         },
         {

@@ -14,6 +14,7 @@ type ServerConfig struct {
 	StoreInterval   int
 	FileStoragePath string
 	Restore         bool
+	DatabaseDSN     string
 }
 
 // parseFlags парсит флаги командной строки
@@ -29,7 +30,8 @@ Environment variables:
   ADDRESS: адрес эндпоинта HTTP-сервера
   STORE_INTERVAL: интервал сохранения метрик в секундах (по умолчанию 300)
   FILE_STORAGE_PATH: путь к файлу для сохранения метрик
-  RESTORE: загружать ли метрики при старте (true/false)`,
+  RESTORE: загружать ли метрики при старте (true/false)
+  DATABASE_DSN: строка подключения к базе данных PostgreSQL`,
 		Version: Version,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Проверяем на неизвестные аргументы
@@ -46,6 +48,7 @@ Environment variables:
 	cmd.Flags().IntVarP(&config.StoreInterval, "interval", "i", 300, "интервал сохранения метрик в секундах (0 для синхронного сохранения)")
 	cmd.Flags().StringVarP(&config.FileStoragePath, "file", "f", "/tmp/metrics-db.json", "путь к файлу для сохранения метрик")
 	cmd.Flags().BoolVarP(&config.Restore, "restore", "r", true, "загружать ли метрики при старте")
+	cmd.Flags().StringVarP(&config.DatabaseDSN, "database", "d", "", "строка подключения к базе данных PostgreSQL")
 
 	// Парсим аргументы
 	if err := cmd.Execute(); err != nil {
@@ -67,6 +70,7 @@ Environment variables:
 	config.StoreInterval = getFinalIntValue("STORE_INTERVAL", config.StoreInterval, 300)
 	config.FileStoragePath = getFinalValue("FILE_STORAGE_PATH", config.FileStoragePath, "/tmp/metrics-db.json")
 	config.Restore = getFinalBoolValue("RESTORE", config.Restore, true)
+	config.DatabaseDSN = getFinalValue("DATABASE_DSN", config.DatabaseDSN, "")
 
 	// Валидируем финальный адрес
 	if err := validateAddress(config.Address); err != nil {
